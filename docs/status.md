@@ -1,6 +1,6 @@
 # Fortsetzbarer Arbeitsstand
 
-Stand: 28. Oktober 2026.
+Stand: 28. Oktober 2026. Aktuelle App-Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW`. Technische Repository-Namen bleiben unverändert. Maßgeblicher aktueller App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md); die folgenden frühen Checkpoints bleiben historisch eingeordnet.
 
 ## Auftrag und Freigabe
 
@@ -38,7 +38,7 @@ Repository am 28. Oktober 2026 öffentlich auf GitHub erstellt. `main` wurde erf
 1. Entwicklungsplan in `plan.md` angelegt und unabhängig durch einen Agent auf Reihenfolge und Abnahmekriterien geprüft.
 2. Alle drei Einstiegsfragen beantwortet; Geräte/Versionen, iPhone-first-TestFlight und vorläufige Identität in `decisions.md` dokumentiert.
 3. DWD-Datenvalidierung im Apple-Repo begonnen: realer RV-Lauf mit25Frames untersucht; reproduzierbares Forschungsskript und Berichte im [Apple-Repo](https://github.com/MagicalWig34653/weather-apple/tree/main/docs/research). Agent hat WMS-Punktserie erfolgreich abgefragt; alle25Werte einer nassen Zelle gegen Rohdaten abgeglichen. Direkter kleiner Datenweg ist für diesen Fall bestätigt; Einheiten-/NoData-/Aktualitätsrandfälle bleiben offen. Phase1 bleibt offen. Backend wartet auf die nutzbare App.
-4. Lizenz und spätere endgültige Identität bleiben offen, blockieren die lokale Datenvalidierung nicht.
+4. Die Lizenz bleibt offen; aktuelle App-Identität ist inzwischen ShowerNow / `de.linolaske.showernow`. Dies blockiert die lokale Datenvalidierung nicht.
 
 Lokale Entwicklungsumgebung geprüft: Xcode 27.1, Swift 6.4, iOS-27- und watchOS-27-Simulatoren vorhanden; Apple Silicon. Noch keine App-Builds durchgeführt.
 

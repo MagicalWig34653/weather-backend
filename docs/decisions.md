@@ -1,6 +1,6 @@
 # Projektstand und verbindliche Entscheidungen
 
-Stand: 28. Oktober 2026. Arbeitsname: Weather. Entwicklung nach geklärten Einstiegsfragen freigegeben; Reihenfolge gemäß `plan.md`.
+Stand: 28. Oktober 2026. Aktueller App-Name: ShowerNow; Bundle-ID: `de.linolaske.showernow`. Entwicklung nach geklärten Einstiegsfragen freigegeben; Reihenfolge gemäß `plan.md`.
 
 ## Produkt
 
@@ -31,10 +31,10 @@ Widgets sollen Regenstatus und/oder Niederschlagsverlauf für einen ausgewählte
 
 - Lokale Zielordner heißen jeweils `weather`.
 - Vorgesehene GitHub-Namen: `weather-apple` und `weather-backend`; öffentlich, sobald Zugang und Veröffentlichung möglich sind.
-- Vorläufige Haupt-Bundle-ID: `de.linolaske.weather`.
+- Aktuelle Haupt-Bundle-ID: `de.linolaske.showernow` (Nutzerentscheidung vom 28. Oktober 2026); die frühere ID `de.linolaske.weather` ist historisch.
 - Angegebene Apple Team ID: `J2DU2P47XW`; vor Signing mit dem Developer-Account bestätigen.
-- App-Name und Bundle-ID sollen später geändert werden. Abhängige IDs für Widgets, Watch, App Groups etc. erst bei Target-Einrichtung festlegen.
-- Vor dauerhaft genutzten TestFlight-/App-Store-Einträgen den Umgang mit der vorläufigen Identität klären.
+- App-Name ist verbindlich ShowerNow, Bundle-ID entsprechend geändert; technische Projekt-/Modulnamen bleiben Weather. Abhängige IDs für Widgets, Watch, App Groups etc. erst bei Target-Einrichtung festlegen.
+- Aktueller Identity-/Signing-/TestFlight-Stand im [Apple-Repository](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md); dort bleiben alte Upload-IDs und Befunde historisch erhalten.
 - AGPLv3 ist angestrebt. Lizenzentscheidung und mögliche Zusatzerlaubnisse für App-Store-Veröffentlichung sind offen. Es wird deshalb noch keine endgültige Lizenz behauptet.
 
 ## Quellenhierarchie
@@ -50,7 +50,7 @@ Möglichst kostensparsam entwickeln. Agents sind Pflicht. Sessions müssen wegwe
 - Nutzerfreigabe: Plan schreiben, Einstiegsfragen klären, danach anfangen. Alle drei Einstiegsfragen sind beantwortet; der Start ist damit freigegeben.
 - iPhone 17 Pro und 18 Pro, Apple Watch Ultra, Apple-Silicon-Macs; jeweils 27er-Systemversionen. Zunächst diese Mindestgeneration der Betriebssysteme vorsehen.
 - Erster interner TestFlight-Build nur mit brauchbarer iPhone-App; Widgets und Watch folgen danach.
-- Vorläufige Identität Weather / de.linolaske.weather darf auch für TestFlight verwendet werden. Team-ID weiterhin lokal bestätigen.
+- Damalige Freigabe: Vorläufige Identität Weather / de.linolaske.weather durfte für TestFlight verwendet werden. Durch die spätere verbindliche Umbenennung in ShowerNow / `de.linolaske.showernow` überholt; Team bleibt `J2DU2P47XW`.
 - Datenvalidierung vor größerem UI-Ausbau; Backend bleibt zurückgestellt.
 
 ## Datenvalidierung — Arbeitsbefund

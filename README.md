@@ -1,6 +1,6 @@
-# Weather — Backend
+# ShowerNow — Backend
 
-Planungsrepository für eine native, datensparsame Regen-App. Arbeitsname und technische Kennungen sind vorläufig.
+Planungsrepository für die native, datensparsame Regen-App ShowerNow. Aktuelle App-Bundle-ID: `de.linolaske.showernow`; technisches Apple-Projekt und Repository-Namen bleiben Weather beziehungsweise `weather-apple`/`weather-backend`.
 
 Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein PHP trotz des lokalen PhpstormProjects-Pfads. Backend-Implementierung folgt erst nach einer nutzbaren App. Keine Benutzerkonten, kein Dashboard und kein Self-Hosting-Produkt.
 
@@ -19,7 +19,7 @@ Dieses Repository enthält bewusst zunächst Dokumentation, keinen Anwendungscod
 - [Arbeitsanweisungen für Coding-Agenten](AGENTS.md)
 - [Claude-Code-Einstieg](CLAUDE.md)
 
-Die Apple-App wird zuerst entwickelt und intern über TestFlight erprobt. Der Pushdienst folgt danach. Geplantes Schwesterrepository: `weather-apple`.
+Die Apple-App wird zuerst entwickelt und intern über TestFlight erprobt. Der Pushdienst folgt danach. Schwesterrepository: [weather-apple](https://github.com/MagicalWig34653/weather-apple); aktueller App- und TestFlight-Stand im dortigen [Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md).
 
 ## Lizenz
 
