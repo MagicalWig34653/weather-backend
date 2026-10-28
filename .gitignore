@@ -17,3 +17,6 @@ xcuserdata/
 .claude/settings.local.json
 data/
 backups/
+
+# Rechnerbezogene Repository-Pfade bleiben privat.
+/LOCAL_WORKSPACE.md

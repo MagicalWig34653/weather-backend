@@ -6,6 +6,7 @@
 1. `docs/decisions.md`: aktueller Umfang, Reihenfolge, vorläufige Kennungen.
 2. `docs/concept-v2.md`: detailliertes ursprüngliches Konzept.
 3. `README.md`: aktueller Repository-Status.
+4. Falls vorhanden `LOCAL_WORKSPACE.md`: private lokale Zuordnung zum Schwesterrepository. Vorlage: `LOCAL_WORKSPACE.example.md`. Die lokale Datei niemals committen oder ihre Pfade in öffentliche Dateien übernehmen. Vor Arbeit im Schwesterrepo dessen Anweisungen, Status und Git-Remote prüfen.
 
 ## Verbindlicher Entwicklungsprozess
 
