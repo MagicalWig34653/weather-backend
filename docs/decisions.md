@@ -40,3 +40,7 @@ Widgets sollen Regenstatus und/oder Niederschlagsverlauf für einen ausgewählte
 ## Quellenhierarchie
 
 Aktuelle ausdrückliche Nutzerentscheidungen haben Vorrang. Dieses Dokument ergänzt und aktualisiert `concept-v2.md`, insbesondere hinsichtlich Plattformen und Reihenfolge. Das ursprüngliche Konzept bleibt als unveränderte Referenz erhalten.
+
+## Verbindliche Arbeitsweise (Nutzerentscheidung vom 28. Oktober 2026)
+
+Möglichst kostensparsam entwickeln. Agents sind Pflicht. Sessions müssen wegwerfbar sein und das Repo ist die Source of Truth; alle relevanten Ergebnisse und Entscheidungen sind immer im Repo zu dokumentieren. Der konkrete Prozess steht in `AGENTS.md`, der fortsetzbare Arbeitsstand in `docs/status.md`.

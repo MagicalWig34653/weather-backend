@@ -10,6 +10,8 @@ Dieses Repository enthält bewusst zunächst Dokumentation, keinen Anwendungscod
 
 ## Einstieg
 
+- [Arbeitsstand und nächste Schritte](docs/status.md)
+
 - [Aktuelle Entscheidungen und Roadmap](docs/decisions.md)
 - [Ursprüngliches Konzept v2](docs/concept-v2.md)
 - [Arbeitsanweisungen für Coding-Agenten](AGENTS.md)
