@@ -31,7 +31,7 @@ Repository-Einrichtung, öffentliche Veröffentlichung und gemeinsame Konzeption
 
 ## Veröffentlichung
 
-Öffentliche GitHub-Erstellung und Push werden im aktuellen Einrichtungsschritt durchgeführt. Ergebnis vor Abschluss aktualisieren.
+Repository am 28. Oktober 2026 öffentlich auf GitHub erstellt. `main` wurde erfolgreich gepusht und verfolgt `origin/main`. Dokumentationsänderungen mit `git diff --check` geprüft. Remote-Sichtbarkeit und synchroner Git-Stand werden beim Abschluss geprüft.
 
 ## Offene Fragen und nächste Schritte
 
