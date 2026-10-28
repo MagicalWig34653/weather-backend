@@ -4,6 +4,10 @@ Lies vor der Arbeit die gemeinsamen Repository-Anweisungen:
 
 @AGENTS.md
 
-Die aktuellen Produktentscheidungen stehen in `docs/decisions.md`. Die Entwicklung ist gemäß `docs/plan.md` freigegeben; App und Datenvalidierung kommen vor dem Backend. Es gibt noch keine Build-, Test- oder Deployment-Befehle.
+Die aktuellen Produktentscheidungen stehen in `docs/decisions.md`, Plan und Arbeitsstand in `docs/plan.md` und `docs/status.md`.
 
-Verbindlich: kostensparsame Entwicklung, verpflichtende Agent-Nutzung, wegwerfbare Sessions und das Repo als Source of Truth. Fortschritte und Entscheidungen fortlaufend gemäß `AGENTS.md` dokumentieren. Vor jeder Arbeit `docs/status.md` lesen.
+Dieses Backend-Repo ist noch ein Planungsrepo ohne Anwendung und Build-/Test-/Deployment-Konfiguration; zuerst wird die Apple-App entwickelt.
+
+Verbindlich: Hauptagent und technischer Lead koordinieren ausschließlich; jede neue Ergebnisaufgabe erhält einen frischen ausführenden Agent. Unabhängige Aufgaben mit getrenntem Dateibesitz parallel bearbeiten, zunächst höchstens drei produktive Worker. Der Ablauf steht in `docs/team.md`.
+
+Möglichst kostensparsam arbeiten. Sessions müssen wegwerfbar sein; das Repo ist Source of Truth. Relevante Ergebnisse, Prüfungen und nächste Schritte gemäß `AGENTS.md` fortlaufend im zugewiesenen Repo-Dokument festhalten. Private lokale Pfade ausschließlich in der ignorierten `LOCAL_WORKSPACE.md` belassen.

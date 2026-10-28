@@ -6,12 +6,15 @@
 1. `docs/decisions.md`: aktueller Umfang, Reihenfolge, vorläufige Kennungen.
 2. `docs/concept-v2.md`: detailliertes ursprüngliches Konzept.
 3. `README.md`: aktueller Repository-Status.
-4. Falls vorhanden `LOCAL_WORKSPACE.md`: private lokale Zuordnung zum Schwesterrepository. Vorlage: `LOCAL_WORKSPACE.example.md`. Die lokale Datei niemals committen oder ihre Pfade in öffentliche Dateien übernehmen. Vor Arbeit im Schwesterrepo dessen Anweisungen, Status und Git-Remote prüfen.
+4. `docs/team.md`: Rollen, Dateibesitz, Parallelität und Aufgabenübergabe.
+5. Falls vorhanden `LOCAL_WORKSPACE.md`: private lokale Zuordnung zum Schwesterrepository. Vorlage: `LOCAL_WORKSPACE.example.md`. Die lokale Datei niemals committen oder ihre Pfade in öffentliche Dateien übernehmen. Vor Arbeit im Schwesterrepo dessen Anweisungen, Status und Git-Remote prüfen.
 
 ## Verbindlicher Entwicklungsprozess
 
 - Möglichst kostensparsam arbeiten: zuerst vorhandene Dokumentation lesen, gezielt suchen, Aufgaben begrenzen und unnötige Wiederholungen, Vollscans oder parallele Doppelarbeit vermeiden. Keine kostenpflichtigen Dienste oder zusätzliche Infrastruktur ohne ausdrücklichen Auftrag einführen.
-- Agents sind PFLICHT: Die koordinierende Instanz delegiert für jeden Arbeitsauftrag mindestens einen abgegrenzten Teilauftrag oder eine unabhängige Prüfung an einen Agent. Nur den benötigten Kontext weitergeben, Ergebnisse prüfen und integrieren. Keine rekursive Delegationspflicht für Subagents. Falls die Umgebung keine Agents bereitstellt, Einschränkung dokumentieren und mit dem Nutzer klären, statt die Pflicht stillschweigend zu umgehen.
+- Agents sind PFLICHT: Hauptagent und technischer Lead koordinieren ausschließlich. Recherche, Implementierung, Dateiänderungen, Builds, Tests, Integration und Veröffentlichung erledigen ausführende Agents. Für jede neue abgegrenzte Ergebnisaufgabe einen frischen Agent starten; abgeschlossene Agents nicht für andere Aufgaben wiederverwenden. Präzisierungen innerhalb eines laufenden Auftrags sind erlaubt. Ausführende Agents müssen nicht rekursiv weitere Agents starten.
+- Unabhängige Aufgaben parallel vergeben, zunächst höchstens drei produktive Worker. Klare Dateizuständigkeiten und genau einen aktiven Verantwortlichen für gemeinsam genutzte Build-/Simulator-Ressourcen festlegen. Keine parallelen Änderungen derselben Dateien und keine Doppelprüfungen ohne konkreten Anlass.
+- Der verbindliche Ablauf für Hierarchie, Briefing, Abnahme und dauerhafte Übergabe steht in `docs/team.md`. Falls die Umgebung keine Agents bereitstellt, Einschränkung dokumentieren und mit dem Nutzer klären, statt die Vorgaben stillschweigend zu umgehen.
 - Sessions müssen wegwerfbar sein. Die Fortsetzung darf weder Chatverlauf noch Agent-Gedächtnis, Notizen außerhalb des Repos oder laufende Prozesse voraussetzen.
 - Das Repo ist die Source of Truth. ALLE relevanten Nutzerentscheidungen, Planänderungen, Untersuchungsergebnisse samt Quellen, Änderungen, Prüfergebnisse, offenen Fragen und nächsten Schritte fortlaufend im Repo dokumentieren. Nicht erst am Sessionende nachtragen.
 - Vor Arbeitsbeginn `docs/status.md`, `docs/decisions.md` und den Git-Status prüfen. Vor Abschluss oder Übergabe den Status und gegebenenfalls die Entscheidungen aktualisieren. Nicht ausgeführte Prüfungen ausdrücklich benennen.
@@ -27,7 +30,7 @@ Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein 
 - Deutsch mit dem Nutzer kommunizieren; Codebezeichner später auf Englisch. Dokumentation im bestehenden Stil halten.
 - Keine Geheimnisse, Signing-Dateien, APNs-Schlüssel, Tokens, echten Nutzerstandorte oder lokalen Zugangsdaten committen.
 - Datenschutz als Produktanforderung behandeln. Keine Standortverläufe oder identifizierende Debuglogs einführen.
-- Nur tatsächlich vorhandene Build-/Testbefehle dokumentieren und ausführen. Derzeit gibt es keine; keine erfolgreiche Kompilierung behaupten.
+- Dieses Backend-Repo enthält derzeit noch keine Anwendung und keine Build-/Test-/Deployment-Konfiguration. Keine Befehle erfinden oder erfolgreiche Kompilierung behaupten; Prüfungen der Apple-App gelten nicht als Backend-Prüfungen.
 - Keine unaufgeforderten Infrastrukturkomponenten oder plattformübergreifenden Abstraktionen einführen.
 - Änderungen an Produktumfang und Entscheidungen in `docs/decisions.md` nachvollziehbar festhalten. Das ursprüngliche Konzept nicht stillschweigend überschreiben.
 - App-Name, Bundle-ID und Team-ID sind vorläufig; keine Signing-/Store-Ressourcen ohne den entsprechenden Arbeitsauftrag anlegen.

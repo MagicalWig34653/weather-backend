@@ -47,3 +47,9 @@ Prüfung dieses Schritts: realer Archivbericht auf25Frames, ACRR,1200×1100 und 
 Agent-Prüfung abgeschlossen: Planreihenfolge, WMS-Abfrage und Forschungsskript geprüft. Numerische WMS-Property im geprüften Lauf als5-Minuten-Akkumulation erkannt; nicht ungeprüft als mm/h ausgeben. Nächster technischer Schritt im Apple-Repo: weitere Zellen/NoData und Aktualität prüfen, Datenadapter samt Fixtures/gezielten Tests beginnen; danach iPhone-Projekt aufbauen. `git diff --check` bestanden; noch keine App kompiliert oder nach TestFlight geladen.
 
 Lokale Repo-Zuordnung eingerichtet und durch Agent geprüft: `LOCAL_WORKSPACE.md` enthält private Pfade und wird ignoriert; öffentliche Vorlage enthält Platzhalter. `git check-ignore` bestätigt den Ausschluss, die private Datei ist nicht versioniert, der Git-Index enthält keine absoluten Benutzerpfade. `git diff --check` bestanden. Claude-Code-Status auf freigegebene Entwicklung korrigiert.
+
+## App-/Prozesscheckpoint vom 28. Oktober 2026
+
+Die verbindliche kleine Hierarchie mit ausschließlich koordinierendem Hauptagenten und technischem Lead steht in `team.md`. Frische ausführende Agents übernehmen abgegrenzte Aufgaben; Sessions bleiben aus dem Repository fortsetzbar.
+
+Im [Apple-Repo](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md) liegt inzwischen der geprüfte native iPhone-Prototyp mit zwölf erfolgreichen Datentests, Quellen-/Datenschutz-Smoke und abschließend erfolgreichem Orts-CRUD-Smoke vor. Unabhängiges Review ohne offene P1-/P2-Befunde; Live-Providergrenzen bleiben dokumentiert. Icon-Design und TestFlight-Upload sind noch offen, keine fertige Version 1. Backend-Implementierung bleibt zurückgestellt. Dieser Backend-Checkpoint ändert ausschließlich Prozess-/Statusdokumentation; keine Builds oder Anwendungstests ausgeführt.
