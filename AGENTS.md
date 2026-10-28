@@ -20,7 +20,7 @@
 
 Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein PHP trotz des lokalen PhpstormProjects-Pfads. Backend-Implementierung folgt erst nach einer nutzbaren App. Keine Benutzerkonten, kein Dashboard und kein Self-Hosting-Produkt.
 
-- Derzeit ist nur die Einrichtung der Repositories und weitere Planung freigegeben. Vorläufig keinen Anwendungscode, keine Docker-Konfiguration und keine vollständige Implementierung erzeugen. Neue ausdrückliche Nutzeraufträge können diesen Stand erweitern.
+- Entwicklung ist nach den am 28. Oktober 2026 beantworteten Einstiegsfragen freigegeben. Nach `docs/plan.md` arbeiten: Datenvalidierung und App zuerst; Backend-Implementierung erst nach nutzbarer App. Offene zentrale Architekturentscheidungen weiterhin besprechen.
 - Zentrale offene Architekturentscheidungen besprechen, statt sie stillschweigend festzulegen.
 - Bestätigte Fakten, Annahmen und zu testende Hypothesen unterscheiden. DWD-Produkte, Schnittstellen, Lizenzen und Plattformverhalten vor darauf gestützten Implementierungsentscheidungen anhand aktueller Primärquellen überprüfen.
 - Deutsch mit dem Nutzer kommunizieren; Codebezeichner später auf Englisch. Dokumentation im bestehenden Stil halten.

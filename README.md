@@ -6,9 +6,11 @@ Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein 
 
 ## Status
 
-Dieses Repository enthält bewusst zunächst Dokumentation, keinen Anwendungscode und keine Build- oder Deployment-Konfiguration. Es ist noch kein ausführbares Projekt. Die nächste Arbeit ist die gemeinsame Konzeption und die Validierung der DWD-Datenkette.
+Dieses Repository enthält bewusst zunächst Dokumentation, keinen Anwendungscode und keine Build- oder Deployment-Konfiguration. Es ist noch kein ausführbares Projekt. Die Entwicklung ist freigegeben; aktueller Einstieg ist die Validierung der DWD-Datenkette gemäß [Entwicklungsplan](docs/plan.md).
 
 ## Einstieg
+
+- [Entwicklungsplan](docs/plan.md)
 
 - [Arbeitsstand und nächste Schritte](docs/status.md)
 

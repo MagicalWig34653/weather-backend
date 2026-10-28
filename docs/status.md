@@ -4,7 +4,7 @@ Stand: 28. Oktober 2026.
 
 ## Auftrag und Freigabe
 
-Repository-Einrichtung, öffentliche Veröffentlichung und gemeinsame Konzeption sind freigegeben. Noch kein Anwendungscode, keine Xcode-Projekte und keine Deployment-Konfiguration. App zuerst, Backend anschließend. Weitere ausdrückliche Nutzeraufträge können die Freigabe erweitern.
+Entwicklung ist nach Beantwortung aller drei Einstiegsfragen freigegeben. Gemäß `plan.md` mit DWD-Datenvalidierung und App beginnen. Backend folgt nach nutzbarer App. Noch kein Anwendungscode vorhanden.
 
 ## Repository
 
@@ -33,12 +33,15 @@ Repository-Einrichtung, öffentliche Veröffentlichung und gemeinsame Konzeption
 
 Repository am 28. Oktober 2026 öffentlich auf GitHub erstellt. `main` wurde erfolgreich gepusht und verfolgt `origin/main`. Dokumentationsänderungen mit `git diff --check` geprüft. Remote-Sichtbarkeit und synchroner Git-Stand werden beim Abschluss geprüft.
 
-## Offene Fragen und nächste Schritte
+## Aktueller Schritt und nächste Aufgaben
 
-1. Gemeinsam Produktdetails und Oberflächen weiter brainstormen; keine Implementierungsfreigabe vorwegnehmen.
-2. DWD-Produkte und Datenkette anhand offizieller aktueller Quellen prüfen; numerische Ortsprognose ohne Backend früh validieren.
-3. Widget-Aktualität und Watch-Umfang klären.
-4. Später App-Name, Bundle-IDs und Signing konkretisieren. Haupt-Bundle-ID vorläufig `de.linolaske.weather`, Team-ID `J2DU2P47XW` noch zu bestätigen.
-5. Endgültige Open-Source-Lizenz und App-Store-Veröffentlichung klären; noch keine Lizenz erteilt.
+1. Entwicklungsplan in `plan.md` angelegt und unabhängig durch einen Agent auf Reihenfolge und Abnahmekriterien geprüft.
+2. Alle drei Einstiegsfragen beantwortet; Geräte/Versionen, iPhone-first-TestFlight und vorläufige Identität in `decisions.md` dokumentiert.
+3. DWD-Datenvalidierung im Apple-Repo begonnen: realer RV-Lauf mit25Frames untersucht; reproduzierbares Forschungsskript und Berichte im [Apple-Repo](https://github.com/MagicalWig34653/weather-apple/tree/main/docs/research). Agent hat WMS-Punktserie erfolgreich abgefragt; alle25Werte einer nassen Zelle gegen Rohdaten abgeglichen. Direkter kleiner Datenweg ist für diesen Fall bestätigt; Einheiten-/NoData-/Aktualitätsrandfälle bleiben offen. Phase1 bleibt offen. Backend wartet auf die nutzbare App.
+4. Lizenz und spätere endgültige Identität bleiben offen, blockieren die lokale Datenvalidierung nicht.
 
-Für Details `decisions.md` und `concept-v2.md` lesen. Alle neuen Entscheidungen und Untersuchungsergebnisse fortlaufend im Repo festhalten.
+Lokale Entwicklungsumgebung geprüft: Xcode 27.1, Swift 6.4, iOS-27- und watchOS-27-Simulatoren vorhanden; Apple Silicon. Noch keine App-Builds durchgeführt.
+
+Prüfung dieses Schritts: realer Archivbericht auf25Frames, ACRR,1200×1100 und Vorläufe0..120/5 geprüft. Noch kein App-Build, keine iPhone-Performanceaussage.
+
+Agent-Prüfung abgeschlossen: Planreihenfolge, WMS-Abfrage und Forschungsskript geprüft. Numerische WMS-Property im geprüften Lauf als5-Minuten-Akkumulation erkannt; nicht ungeprüft als mm/h ausgeben. Nächster technischer Schritt im Apple-Repo: weitere Zellen/NoData und Aktualität prüfen, Datenadapter samt Fixtures/gezielten Tests beginnen; danach iPhone-Projekt aufbauen. `git diff --check` bestanden; noch keine App kompiliert oder nach TestFlight geladen.

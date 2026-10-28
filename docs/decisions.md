@@ -1,6 +1,6 @@
 # Projektstand und verbindliche Entscheidungen
 
-Stand: 28. Oktober 2026. Arbeitsname: Weather. Konzeptionsphase, noch keine Freigabe für Anwendungscode.
+Stand: 28. Oktober 2026. Arbeitsname: Weather. Entwicklung nach geklärten Einstiegsfragen freigegeben; Reihenfolge gemäß `plan.md`.
 
 ## Produkt
 
@@ -44,3 +44,15 @@ Aktuelle ausdrückliche Nutzerentscheidungen haben Vorrang. Dieses Dokument erg�
 ## Verbindliche Arbeitsweise (Nutzerentscheidung vom 28. Oktober 2026)
 
 Möglichst kostensparsam entwickeln. Agents sind Pflicht. Sessions müssen wegwerfbar sein und das Repo ist die Source of Truth; alle relevanten Ergebnisse und Entscheidungen sind immer im Repo zu dokumentieren. Der konkrete Prozess steht in `AGENTS.md`, der fortsetzbare Arbeitsstand in `docs/status.md`.
+
+## Entwicklungsstart und Testgeräte (28. Oktober 2026)
+
+- Nutzerfreigabe: Plan schreiben, Einstiegsfragen klären, danach anfangen. Alle drei Einstiegsfragen sind beantwortet; der Start ist damit freigegeben.
+- iPhone 17 Pro und 18 Pro, Apple Watch Ultra, Apple-Silicon-Macs; jeweils 27er-Systemversionen. Zunächst diese Mindestgeneration der Betriebssysteme vorsehen.
+- Erster interner TestFlight-Build nur mit brauchbarer iPhone-App; Widgets und Watch folgen danach.
+- Vorläufige Identität Weather / de.linolaske.weather darf auch für TestFlight verwendet werden. Team-ID weiterhin lokal bestätigen.
+- Datenvalidierung vor größerem UI-Ausbau; Backend bleibt zurückgestellt.
+
+## Datenvalidierung — Arbeitsbefund
+
+Ein direkter DWD-WMS-GetFeatureInfo-Request kann25Zeitpunkte als kleine JSON-Serie liefern. Bei einem nassen Kontrollpunkt stimmen alle Werte mit dem gleichen Rohdatenlauf überein. Dies ist ein validierter Kandidat für die direkte App-Ortsprognose, noch keine endgültige Datenadapterentscheidung. Die JSON-Property entspricht dort5-Minuten-Akkumulation; fehlende Werte, Laufaktualität und weitere Orte müssen vor Produktnutzung geprüft werden. Befunde im Apple-Repo unter `docs/research/`.
