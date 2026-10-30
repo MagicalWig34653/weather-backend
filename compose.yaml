@@ -1,0 +1,57 @@
+# Local development stack. Values come from .env (see .env.example), never from git.
+# Database only:  docker compose up -d --wait db      (then: RADAR_TEST_DB_HOST=127.0.0.1 RADAR_TEST_DB_PORT=23306 swift test)
+# Whole service:  docker compose --profile app up --build
+name: radar-dev
+
+services:
+  db:
+    image: mariadb:12.3
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DEV_DB_ROOT_PASSWORD:-dev-root-only}
+      MARIADB_DATABASE: showernow
+      MARIADB_USER: showernow
+      MARIADB_PASSWORD: ${DEV_DB_PASSWORD:-dev-only}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - radar-dev-db:/var/lib/mysql
+    ports:
+      - "127.0.0.1:${DEV_DB_HOST_PORT:-23306}:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # One-shot migration, deliberately separate from replica start.
+  migrate:
+    profiles: ["app"]
+    build: .
+    image: radar-dev:local
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: &radar-env
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: showernow
+      DB_USER: showernow
+      DB_PASSWORD: ${DEV_DB_PASSWORD:-dev-only}
+    command: ["migrate", "--yes"]
+
+  radar:
+    profiles: ["app"]
+    build: .
+    image: radar-dev:local
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment: *radar-env
+    ports:
+      - "127.0.0.1:${DEV_RADAR_HOST_PORT:-28090}:8080"
+
+volumes:
+  radar-dev-db:

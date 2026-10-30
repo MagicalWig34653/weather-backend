@@ -1,0 +1,9 @@
+.build
+.git
+.github
+.env
+.env.*
+docs
+deploy
+scripts
+ingest

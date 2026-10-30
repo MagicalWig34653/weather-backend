@@ -6,7 +6,7 @@ Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein 
 
 ## Status
 
-Stufe 1 (Radar-Cache) ist implementiert und lokal getestet, aber noch nicht auf dem Swarm des Betreibers ausgeführt. Der Pushdienst (Benachrichtigungen) ist noch nicht umgesetzt. Prüfstand: [Arbeitsstand](docs/status.md).
+Stufe 1 (Radar-Cache) ist in Swift implementiert und getestet (Stand siehe Arbeitsstand); sie ersetzt die frühere Python-Fassung. Der Pushdienst (Benachrichtigungen) ist noch nicht umgesetzt. Prüfstand: [Arbeitsstand](docs/status.md).
 
 ## Radar-Cache (Stufe 1)
 
@@ -14,14 +14,15 @@ Zweck: Die App soll die Deutschland-Radarkarte schnell und ohne Ortsbezug im Req
 
 Architektur (Details und Begründungen in [decisions.md](docs/decisions.md)):
 
-- Ein Swarm-Service `radar`, Standard 2 Replikate (konfigurierbar), Python 3.13 mit Pillow und PyMySQL. Jedes Replikat liefert die HTTP-API und nimmt am Ingest teil.
+- Swift 6 mit Vapor 4 (`Sources/radar`), Fachlogik ohne Vapor in `Sources/RadarCore` (Zustand, Ingest, Manifest, API-Logik, Bildpipeline). PNG-Dekodierung mit swift-png (reines Swift), WebP-Lossless über die System-Bibliothek libwebp, MariaDB über mysql-nio/MySQLKit.
+- Ein Swarm-Service `radar` (Standard 2 Replikate) plus ein One-Shot-Service `migrate` (`radar migrate --yes`). Jedes Replikat liefert die HTTP-API und nimmt am Ingest teil; Migrationen laufen nicht beim Start der Replikate.
 - Gemeinsamer Zustand in der vorhandenen MariaDB (InnoDB): `radar_run` (Lauf, Status, Lease), `radar_slot` (WebP-Bytes, SHA-256). Ein Lauf wird per Claim-Zeile (atomar, Lease, Übernahme bei Absturz) nur von einem Replikat geholt; Veröffentlichung = Statuswechsel auf `published` nach allen 25 Slots.
-- Cache im Stack: prozesslokaler LRU je Replikat (Standard 64 MB) mit Single-Flight bei Misses; die DB wird nur bei Cache-Miss gelesen. Der Reverse Proxy (Zoraxy) reicht nur durch (TLS, Domain, Routing); HTTP/2 und Kompression kommen vom Proxy, die Bilder sind bereits komprimiert. Ein optionaler nginx-Cache-Sidecar ist für spätere Last vorgesehen, aber nicht Teil von Stufe 1. Ein CDN vor Zoraxy würde dank `immutable` ohne Änderung funktionieren.
-- Keine Cookies, keine Sticky Sessions: Replikate sind stateless; das Swarm-Routing-Mesh verteilt per Round-Robin (Zoraxy nutzt den Service oder Knoten als Upstream ohne Session-Affinität). Kein Redis.
+- Cache im Stack: prozesslokaler LRU je Replikat (Standard 64 MB) mit Single-Flight bei Misses; die DB wird nur bei Cache-Miss gelesen. Der Reverse Proxy reicht nur durch (TLS, Domain, Routing). Kein Redis.
+- Keine Cookies, keine Sticky Sessions: Replikate sind stateless; das Swarm-Routing-Mesh verteilt per Round-Robin.
 
-### URL-Vertrag (für die App)
+### URL-Vertrag (für die App, unverändert gegenüber der früheren Python-Stufe)
 
-- `GET /v1/radar/latest.json`: `Cache-Control: public, max-age=30, stale-while-revalidate=30`, ETag, bei allen Replikaten identisch. 404, solange noch nichts veröffentlicht ist.
+- `GET /v1/radar/latest.json`: `Cache-Control: public, max-age=30, stale-while-revalidate=30`, ETag, bei allen Replikaten byteidentisch. 404, solange noch nichts veröffentlicht ist.
 - `GET /v1/radar/<run>/<slot>.webp`: `Cache-Control: public, max-age=31536000, immutable`, ETag (SHA-256), `If-None-Match` ergibt 304. `<run>` und `<slot>` haben die Form `20261030T1105Z` (UTC).
 - `GET /healthz`: Liveness, nur intern für den Healthcheck.
 
@@ -29,30 +30,33 @@ Architektur (Details und Begründungen in [decisions.md](docs/decisions.md)):
 
 ### Entwicklung und Tests
 
+Swift 6.2 oder neuer, `libwebp-dev` und `pkg-config` (macOS: `brew install webp`, Linux: `apt install libwebp-dev pkg-config`). Die Tests laufen ohne Datenbank gegen einen Fake; mit `RADAR_TEST_DB_HOST` zusätzlich gegen eine WEGWERF-MariaDB:
+
 ```
-cd ingest
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/ruff check .
-.venv/bin/python -m unittest discover -s . -t .            # ohne Datenbank: Fakes
-RADAR_TEST_DB_PORT=3306 .venv/bin/python -m unittest discover -s . -t .   # zusätzlich gegen eine WEGWERF-MariaDB
+swift build
+swift test                                                         # Fake, ohne Datenbank
+docker compose up -d --wait db                                     # lokale MariaDB 12.3 (compose.yaml)
+RADAR_TEST_DB_HOST=127.0.0.1 RADAR_TEST_DB_PORT=23306 RADAR_TEST_DB_USER=root \
+  RADAR_TEST_DB_PASSWORD=dev-root-only RADAR_TEST_DB_NAME=showernow swift test
+docker compose --profile app up --build                            # ganzer Dienst lokal (Port 28090)
 ```
 
-Die MariaDB-Tests löschen die Tabellen `radar_*` und `schema_migration` der Schema-Variable `RADAR_TEST_DB_NAME` (Standard `radar_test`, Benutzer `RADAR_TEST_DB_USER`/`RADAR_TEST_DB_PASSWORD`); niemals gegen die Produktionsdatenbank verwenden. Kein Test greift auf den DWD zu.
+Die MariaDB-Tests löschen die Tabellen `radar_*` und `schema_migration` in `RADAR_TEST_DB_NAME` (Standard `radar_test`); niemals gegen die Produktionsdatenbank verwenden. Kein Test greift auf den DWD zu. Unter macOS bauen die Tests ebenfalls; die CI nutzt `swift:6.2-noble`.
 
 ### Deployment (Docker Swarm)
 
-Voraussetzung (nicht Teil dieses Repos): Swarm, MariaDB mit Datenbank und Benutzer (DML + CREATE auf dem Schema), Reverse Proxy mit TLS und Domain.
+Voraussetzung (nicht Teil dieses Repos): Swarm, MariaDB mit Datenbank und Benutzer, Reverse Proxy mit TLS und Domain. Der DB-Benutzer braucht SELECT/INSERT/UPDATE/DELETE sowie CREATE auf dem Schema (der Migrationsjob nutzt denselben Benutzer; die Replikate führen selbst keine Migrationen aus).
 
-1. GitHub: Nach dem ersten Lauf von `docker-publish.yml` das Paket `<repository>-radar` unter ghcr.io auf öffentlich stellen (oder auf dem Swarm `docker login ghcr.io` verwenden und `--with-registry-auth` ergänzen). Repo-Einstellungen: Actions mit Schreibrecht auf Packages für `GITHUB_TOKEN` zulassen.
-2. Auf einem Swarm-Manager: `deploy/swarm/setup.sh` (schreibt `deploy/swarm/stack.env` aus `stack.env.example`, legt das Secret `showernow_db_password` an). `stack.env` anpassen (`DB_HOST`, `RADAR_IMAGE`).
-3. `deploy/swarm/update.sh --tag sha-<commit>` (oder ohne `--tag` für `latest`) führt `docker stack deploy` aus, beobachtet das Rolling Update (start-first, Rollback bei fehlgeschlagenem Healthcheck). Rückgängig: `docker service rollback radar_radar` oder erneut mit dem vorherigen Tag.
-4. Reverse Proxy: Upstream auf den Service-Port (Standard 38090) des Swarm; Beispiel-Labels stehen auskommentiert in `stack.yaml`.
+1. Einmalig: das ghcr.io-Paket `weather-backend-radar` nach dem ersten Lauf von `docker-publish.yml` auf öffentlich stellen.
+2. Auf einem Swarm-Manager: `deploy/swarm/setup.sh`. Der Assistent prüft Voraussetzungen, fragt alle Werte ab (oder liest `--answers-file`, `--non-interactive`, `--dry-run`), prüft die DB-Verbindung, schreibt `.env` (Modus 600, nicht versioniert), legt das Secret `showernow_db_password` an, führt den Migrationsjob aus, startet die Replikate und prüft die Erreichbarkeit.
+3. Updates: `deploy/swarm/update.sh`. Es ermittelt das neueste `sha-<commit>`-Tag hinter `edge` auf ghcr.io (oder `--tag`), sichert `.env` als `.env.bak`, führt den Migrationsjob mit dem neuen Image aus und startet das Rolling Update (start-first, Rollback bei fehlgeschlagenem Healthcheck); `scripts/swarm-deploy.sh` hält dabei eine Deployment-Sperre als Swarm-Config. Rückgängig: `docker service rollback radar_radar` oder `update.sh --tag <vorheriges Tag>`.
+4. Reverse Proxy: Upstream auf den Ingress-Port (Standard 38090).
 
-Migrationen (`ingest/migrations/*.sql`, nur additiv) wendet jedes Replikat beim Start unter einem MariaDB-Advisory-Lock an. Images: amd64 und arm64 (Annahme, da die Swarm-Architektur unbekannt ist).
+Das Image heißt fest `ghcr.io/magicalwig34653/weather-backend-radar` (Tags: `edge` und `latest` für `main`, `sha-<commit>`, Version bei `v*`-Tags); amd64 und arm64 werden nativ gebaut. Alle Variablen der `.env`: `.env.example`.
 
 ### Konfiguration
 
-Nur Umgebungsvariablen und Swarm-Secrets, siehe `deploy/swarm/stack.env.example`. Das DB-Passwort ist ausschließlich das Secret (`DB_PASSWORD_FILE`). Es werden keine Zugriffslogs geschrieben; Logs enthalten nur Lauf-IDs und Fehlerklassen.
+Nur Umgebungsvariablen (`.env` für den Stack) und das Swarm-Secret. Das DB-Passwort ist ausschließlich das Secret (`DB_PASSWORD_FILE`). Es werden keine Zugriffslogs geschrieben; Logs enthalten nur Lauf-IDs und Fehlerklassen.
 
 ### Datenschutz und Quellen
 

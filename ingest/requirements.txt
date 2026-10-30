@@ -1,2 +1,0 @@
-Pillow==13.0.0
-PyMySQL==1.2.3

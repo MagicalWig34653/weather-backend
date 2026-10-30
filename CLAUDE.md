@@ -6,7 +6,7 @@ Lies vor der Arbeit die gemeinsamen Repository-Anweisungen:
 
 Die aktuellen Produktentscheidungen stehen in `docs/decisions.md`, Plan und Arbeitsstand in `docs/plan.md` und `docs/status.md`.
 
-Dieses Backend-Repo enthält seit dem 30. Oktober 2026 den Radar-Cache (Stufe 1, siehe `README.md`); der Pushdienst folgt später.
+Dieses Backend-Repo enthält seit dem 30. Oktober 2026 den Radar-Cache (Stufe 1, Swift/Vapor, siehe `README.md`); der Pushdienst folgt später. Env-Dateien heißen immer `.env`; Vorlage für Deploy-Skripte und CI ist das Referenzprojekt todo (Struktur wie dort).
 
 Verbindlich: Hauptagent und technischer Lead koordinieren ausschließlich; jede neue Ergebnisaufgabe erhält einen frischen ausführenden Agent. Unabhängige Aufgaben mit getrenntem Dateibesitz parallel bearbeiten, zunächst höchstens drei produktive Worker. Der Ablauf steht in `docs/team.md`.
 
