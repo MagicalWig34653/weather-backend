@@ -65,7 +65,7 @@ Tatsächlich ausgeführt (lokal, Linux-Container swift:6.4-noble, arm64):
 - `shellcheck`, `docker compose config` lokal.
 
 Docker-publish ist inzwischen grün (Commit `8d3d487`; Tags `edge`, `latest`, `sha-8d3d487`; amd64 und arm64). Nicht geprüft: Tag-Lookup `edge` -> `sha-` gegen das veröffentlichte ghcr.io-Paket (Paket muss noch öffentlich gestellt werden), amd64 lokal, Last, Reverse-Proxy, Betrieb auf dem echten Swarm des Betreibers.
-Nächste Schritte: CI und Docker-publish prüfen; ghcr.io-Paket öffentlich stellen; Betreiber führt `deploy/swarm/setup.sh` aus (DB-User braucht CREATE für den Migrationsjob). Server-Installation per flachem Klon des Branches `deploy` (siehe decisions.md); Deploy-Skripte liegen jetzt komplett in `deploy/swarm/`, `stack.env.example` und `scripts/` sind entfernt, `update.sh --pull-scripts` neu.
+Nächste Schritte: CI und Docker-publish prüfen; ghcr.io-Paket öffentlich stellen; Betreiber führt `deploy/swarm/setup.sh` aus (DB-User braucht CREATE für den Migrationsjob). Server-Installation per flachem Klon des Branches `deploy` (siehe decisions.md); Deploy-Skripte liegen jetzt komplett in `deploy/swarm/`, `stack.env.example` und `scripts/` sind entfernt, `update.sh --pull-scripts` neu. Geprüft am 30. Oktober 2026: shellcheck, compose config, --help/--dry-run von setup.sh und update.sh, Pages-Build, realer Swarm-Rauchtest (setup.sh, Migrationsjob, /healthz 200 im Replikat, update.sh --pull-scripts --tag <sha> --force) aus einem flachen Klon von deploy; Swarm danach verlassen. Von außen nicht geprüft: Ingress-Port (lokales Colima), echter DWD-Lauf, update.sh --pull-scripts mit tatsächlich neuen Commits (nur "Already up to date"), Tarball-Weg (nicht dokumentiert).
 
 ## Dokumentationsseite (30. Oktober 2026)
 
