@@ -55,6 +55,7 @@ public actor SlotCache {
 public final class Api: Sendable {
     public static let immutable = "public, max-age=31536000, immutable"
     public static let latest = "public, max-age=30, stale-while-revalidate=30"
+    static let pageCSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
     static let manifestTTL: TimeInterval = 5
 
     let repo: any Repo
@@ -110,6 +111,12 @@ public final class Api: Sendable {
             return alive()
                 ? ApiResponse(status: 200, headers: [("Cache-Control", "no-store")], body: Array("ok\n".utf8))
                 : ApiResponse(status: 503, headers: [], body: Array("stale\n".utf8))
+        }
+        if let html = SitePages.render(path: path, info: config.site) {
+            let body = Array(html.utf8)
+            return respond(headers: [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "public, max-age=3600"),
+                                     ("Referrer-Policy", "no-referrer"), ("Content-Security-Policy", Self.pageCSP)],
+                           body: body, ifNoneMatch: ifNoneMatch, etag: "\"" + Hashing.sha256Hex(body).prefix(32) + "\"")
         }
         if path == "/v1/radar/latest.json" {
             let repo = self.repo, config = self.config

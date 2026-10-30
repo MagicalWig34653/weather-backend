@@ -35,6 +35,7 @@ add('index.html', 'Einstieg', c('index.md'), { title: 'Start' });
 add('architektur.html', 'Einstieg', c('architektur.md'));
 add('installation.html', 'Betrieb', c('installation.md'));
 add('betrieb.html', 'Betrieb', c('betrieb.md'));
+add('seiten.html', 'Referenz', c('seiten.md'));
 add('api.html', 'Referenz', c('api.md'), { title: 'API-Referenz' });
 const dev = read(c('entwicklung.md')).replace('{{BUILD}}', readmeSection('Entwicklung und Tests'));
 add('entwicklung.html', 'Referenz', null, { text: dev, title: 'Entwicklung' });

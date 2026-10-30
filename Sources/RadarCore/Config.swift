@@ -44,6 +44,7 @@ public struct Config: Sendable {
     public var requestTimeoutSeconds = 30.0
     public var userAgent = "ShowerNow-radar-ingest/1.0"
     public var migrationsDirectory = "migrations"
+    public var site = SiteInfo()
 
     public init() {}
 
@@ -87,6 +88,13 @@ public struct Config: Sendable {
         c.requestTimeoutSeconds = try double("REQUEST_TIMEOUT_SECONDS", c.requestTimeoutSeconds)
         c.userAgent = env["USER_AGENT"] ?? c.userAgent
         c.migrationsDirectory = env["MIGRATIONS_DIR"] ?? c.migrationsDirectory
+        func text(_ key: String) -> String { String((env[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(500)) }
+        c.site.operatorName = text("OPERATOR_NAME")
+        c.site.operatorAddress = text("OPERATOR_ADDRESS")
+        c.site.operatorEmail = text("OPERATOR_EMAIL")
+        c.site.proxyLogNote = text("PROXY_LOG_NOTE")
+        c.site.appStoreURL = text("APP_STORE_URL")
+        c.site.testflightURL = text("TESTFLIGHT_URL")
         guard (256...2048).contains(c.width) else { throw ConfigError(description: "IMAGE_WIDTH must be between 256 and 2048") }
         guard c.retentionRuns >= 15 else {
             throw ConfigError(description: "RETENTION_RUNS must be at least 15 (12 history analyses, current run, slack)")

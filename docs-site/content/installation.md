@@ -115,6 +115,9 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 | `RETENTION_RUNS` | `16` | Aufbewahrte veröffentlichte Läufe, mindestens 15. |
 | `FETCH_WORKERS` | `3` | Parallele DWD-Requests, 1 bis 6. |
 | `USER_AGENT` | `ShowerNow-radar-ingest/1.0` | Kennung gegenüber dem DWD, z. B. mit Kontakt-URL des Betreibers; keine Daten von App-Nutzern. |
+| `OPERATOR_NAME`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | leer | Verantwortlicher für `/datenschutz` und `/support`; ohne Werte zeigt die Seite einen Hinweis. Siehe [Datenschutz und Marketing-Seiten](seiten.html). |
+| `PROXY_LOG_NOTE` | leer | Ein Satz des Betreibers zur Protokollierung des Reverse Proxys (erscheint auf `/datenschutz`). |
+| `APP_STORE_URL`, `TESTFLIGHT_URL` | leer | Optionale `https`-Links auf `/marketing`. |
 | `WMS_URL` | DWD-GeoServer | Nur für Tests: anderer WMS-Endpunkt. |
 
 Die Variablen `DEV_*` in `.env.example` gehören zur lokalen Entwicklung und werden in Produktion nicht gebraucht.

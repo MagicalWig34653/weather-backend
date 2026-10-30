@@ -70,3 +70,7 @@ Nächste Schritte: CI und Docker-publish prüfen; ghcr.io-Paket öffentlich stel
 ## Dokumentationsseite (30. Oktober 2026)
 
 GitHub-Pages-Seite mit Installationsanleitung unter `docs-site/` (Generator, Inhalte), Workflow `.github/workflows/pages.yml`, Beschreibung in [pages.md](pages.md). Optionen und Variablen gegen `setup.sh --help`, `update.sh --help`, `.env.example` abgeglichen. Pages-Quelle und Veröffentlichung: siehe Git-Historie/Actions.
+
+## Öffentliche Seiten (30. Oktober 2026)
+
+`/datenschutz`, `/marketing`, `/support` im Radar-Dienst, Konfiguration über `OPERATOR_*` u. a. (siehe decisions.md und Dokumentationsseite „Datenschutz und Marketing-Seiten“). Tests: `Tests/RadarCoreTests/SitePageTests.swift`. Prüfergebnisse siehe Abschlussbericht/Commit. Offen: rechtliche Prüfung der Texte durch den Betreiber; Werte in der Server-`.env` eintragen und `update.sh` ausführen; die App-Ortssuche ist im App-Repo nicht datenschutzseitig dokumentiert und daher auf der Seite nicht erwähnt.
