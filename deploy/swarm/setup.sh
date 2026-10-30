@@ -371,6 +371,10 @@ write_env() {
     echo "DB_USER=$DB_USER"
     echo "DB_POOL_SIZE=$DB_POOL_SIZE"
     echo "DB_PASSWORD_SECRET=$DB_PASSWORD_SECRET"
+    # Optional operator details for /datenschutz, /marketing, /support: carried over unchanged (not asked here).
+    for optional in OPERATOR_NAME OPERATOR_ADDRESS OPERATOR_EMAIL PROXY_LOG_NOTE APP_STORE_URL TESTFLIGHT_URL; do
+      [ ! -f "$target" ] || grep -E "^${optional}=" "$target" || true
+    done
   } > "$tmp"
   chmod 600 "$tmp"
   if [ -f "$target" ]; then

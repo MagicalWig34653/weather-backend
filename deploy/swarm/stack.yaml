@@ -20,6 +20,12 @@ x-radar: &radar
     FETCH_WORKERS: ${FETCH_WORKERS:-3}
     USER_AGENT: ${USER_AGENT:-ShowerNow-radar-ingest/1.0}
     WMS_URL: ${WMS_URL:-https://maps.dwd.de/geoserver/ows}
+    OPERATOR_NAME: ${OPERATOR_NAME:-}
+    OPERATOR_ADDRESS: ${OPERATOR_ADDRESS:-}
+    OPERATOR_EMAIL: ${OPERATOR_EMAIL:-}
+    PROXY_LOG_NOTE: ${PROXY_LOG_NOTE:-}
+    APP_STORE_URL: ${APP_STORE_URL:-}
+    TESTFLIGHT_URL: ${TESTFLIGHT_URL:-}
   secrets: [db_password]
 services:
   migrate:
