@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run from a manager. A Swarm config provides a cross-host deployment mutex.
 set -euo pipefail
-cd "$(dirname "$0")/../deploy/swarm"
+cd "$(dirname "$0")"
 STACK=${STACK:-radar}
 [[ "$STACK" =~ ^[a-z][a-z0-9-]*$ ]] || exit 2
 lock="${STACK}_deployment-lock"

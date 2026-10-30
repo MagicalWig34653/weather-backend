@@ -1,0 +1,76 @@
+name: Deploy branch
+
+# Mirrors the deploy files of main into the branch `deploy` (orphan, only these files), so a Swarm manager can
+# `git clone --depth 1 --branch deploy` instead of cloning the whole repository. main stays the source of truth;
+# nothing is ever edited on `deploy`. The workflow does not trigger on pushes to `deploy` (no loop).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/**'
+      - '.env.example'
+      - '.github/workflows/deploy-branch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-branch
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+      - name: Build and push the deploy branch
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          out="$RUNNER_TEMP/deploy-branch"
+          if git ls-remote --exit-code --heads origin deploy >/dev/null; then
+            git fetch --depth 1 origin deploy:refs/remotes/origin/deploy
+            git worktree add -B deploy "$out" origin/deploy
+            git -C "$out" rm -rfq --ignore-unmatch .
+          else
+            git worktree add --detach "$out"
+            git -C "$out" checkout -q --orphan deploy
+            git -C "$out" rm -rfq --ignore-unmatch .
+          fi
+          mkdir -p "$out/deploy/swarm"
+          for f in stack.yaml healthcheck.sh lib.sh setup.sh update.sh swarm-deploy.sh; do
+            cp -p "deploy/swarm/$f" "$out/deploy/swarm/$f"
+          done
+          cp -p .env.example "$out/.env.example"
+          printf '%s\n' '.env' '.env.*' '!.env.example' '.env.bak' > "$out/.gitignore"
+          cat > "$out/README.md" <<'README'
+          # weather-backend: Deploy-Branch
+
+          Automatisch aus `main` gespiegelt (Workflow `deploy-branch.yml`). Nie hier ändern; Änderungen nur auf `main`.
+          Enthält nur, was ein Docker-Swarm-Manager braucht: `deploy/swarm/*` und `.env.example`.
+
+          Installation (Voraussetzungen: git, docker, curl):
+
+              git clone --depth 1 --branch deploy https://github.com/MagicalWig34653/weather-backend.git radar
+              cd radar && deploy/swarm/setup.sh
+
+          Update: `deploy/swarm/update.sh --pull-scripts` (holt zuerst neue Skripte per `git pull --ff-only`, dann neues Image).
+          Die `.env` liegt im Ordner `radar/` und wird nie versioniert.
+
+          Dokumentation: https://magicalwig34653.github.io/weather-backend/
+          README
+          git -C "$out" add -A
+          if git -C "$out" diff --cached --quiet; then
+            echo "deploy branch already up to date"
+            exit 0
+          fi
+          git -C "$out" commit -q -m "Sync from main ${SOURCE_SHA}"
+          git -C "$out" push origin HEAD:deploy

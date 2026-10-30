@@ -33,7 +33,7 @@ Es gibt keine Zugriffslogs; die Logs enthalten nur Lauf-IDs und Fehlerklassen.
 
 ## Deployment-Sperre hängt
 
-`scripts/swarm-deploy.sh` legt vor jedem Deployment die Swarm-Config `<stack>_deployment-lock` an (bei Standard-Stack `radar_deployment-lock`) und entfernt sie am Ende wieder. Sie bleibt absichtlich stehen, wenn der Migrationszustand unklar ist, zum Beispiel nach „Migration timeout“ (der Job brauchte länger als etwa 240 s) oder wenn das Skript hart beendet wurde. Meldung: „Migration state uncertain; deployment lock retained“. Neue Deployments starten dann nicht.
+`deploy/swarm/swarm-deploy.sh` legt vor jedem Deployment die Swarm-Config `<stack>_deployment-lock` an (bei Standard-Stack `radar_deployment-lock`) und entfernt sie am Ende wieder. Sie bleibt absichtlich stehen, wenn der Migrationszustand unklar ist, zum Beispiel nach „Migration timeout“ (der Job brauchte länger als etwa 240 s) oder wenn das Skript hart beendet wurde. Meldung: „Migration state uncertain; deployment lock retained“. Neue Deployments starten dann nicht.
 
 1. Prüfen, ob noch ein Migrationstask läuft: `docker service ps radar_migrate --no-trunc` und `docker service logs radar_migrate --tail 50`.
 2. Erst wenn der Task beendet ist (`Complete` oder `Failed`) und der Datenbankzustand geklärt ist, die Sperre entfernen:
@@ -43,7 +43,7 @@ docker config ls --filter name=radar_deployment-lock
 docker config rm radar_deployment-lock
 ```
 
-3. Update erneut starten (`deploy/swarm/update.sh`; bei nicht geändertem Tag mit `--force`).
+3. Update erneut starten (`deploy/swarm/update.sh`, bei Bedarf mit `--pull-scripts` für aktuelle Skripte; bei nicht geändertem Tag mit `--force`).
 
 Die Migrationen sind additiv und über den Advisory-Lock `showernow_migrate` gegen parallele Läufe geschützt.
 

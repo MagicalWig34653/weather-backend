@@ -30,7 +30,7 @@ Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein 
 - Deutsch mit dem Nutzer kommunizieren; Codebezeichner später auf Englisch. Dokumentation im bestehenden Stil halten.
 - Keine Geheimnisse, Signing-Dateien, APNs-Schlüssel, Tokens, echten Nutzerstandorte oder lokalen Zugangsdaten committen.
 - Datenschutz als Produktanforderung behandeln. Keine Standortverläufe oder identifizierende Debuglogs einführen.
-- Das Backend-Repo enthält den Radar-Cache (Swift: `Sources/`, `Tests/`, `migrations/`, `deploy/swarm/`, `scripts/`); Build-/Test-Befehle stehen im `README.md`. Nur tatsächlich ausgeführte Prüfungen als erfolgreich melden; Prüfungen der Apple-App gelten nicht als Backend-Prüfungen. Öffentliches Repo: keine Geheimnisse, echten Domains, IPs, Hostnamen oder Nutzerpfade.
+- Das Backend-Repo enthält den Radar-Cache (Swift: `Sources/`, `Tests/`, `migrations/`, `deploy/swarm/`); Build-/Test-Befehle stehen im `README.md`. Nur tatsächlich ausgeführte Prüfungen als erfolgreich melden; Prüfungen der Apple-App gelten nicht als Backend-Prüfungen. Öffentliches Repo: keine Geheimnisse, echten Domains, IPs, Hostnamen oder Nutzerpfade.
 - Keine unaufgeforderten Infrastrukturkomponenten oder plattformübergreifenden Abstraktionen einführen.
 - Änderungen an Produktumfang und Entscheidungen in `docs/decisions.md` nachvollziehbar festhalten. Das ursprüngliche Konzept nicht stillschweigend überschreiben.
 - App-Name, Bundle-ID und Team-ID sind vorläufig; keine Signing-/Store-Ressourcen ohne den entsprechenden Arbeitsauftrag anlegen.

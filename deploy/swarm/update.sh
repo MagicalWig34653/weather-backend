@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Update a running Swarm stack to the newest published backend image: find the newest `sha-<commit>` tag on GHCR,
-# write it into the env file (RADAR_IMAGE_TAG), run the migration job with the new image (scripts/swarm-deploy.sh,
+# write it into the env file (RADAR_IMAGE_TAG), run the migration job with the new image (deploy/swarm/swarm-deploy.sh,
 # which holds the cross-host deployment lock), then watch the rolling update and the readiness check.
 #
 # Usage: deploy/swarm/update.sh [options]
-#   --env-file FILE   stack variables (default: ./.env, else .env in the repository root)
+#   --env-file FILE   stack variables (default: ./.env, else .env in the top folder of the checkout)
 #   --tag TAG         use this tag (e.g. sha-6c074f7 or 0.1.0) instead of looking up the newest sha- tag
 #   --stack NAME      stack name (default: radar)
 #   --dry-run         only show what would happen (no file change, no docker calls)
+#   --pull-scripts    first update the deploy scripts: `git pull --ff-only` in this checkout (clone of the deploy branch),
+#                     then restart update.sh from the new files; .env is untracked and stays untouched
 #   --force           also redeploy when the tag did not change
 #   --yes             do not ask for confirmation
 #
@@ -19,12 +21,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ORIG_ARGS=("$@")
 STACK=radar
 STACK_SET=0
 ENV_FILE=""
 TAG=""
 DRY=0
 FORCE=0
+PULL=0
 YES=0
 FOLLOW_TAG=edge # used by lib.sh
 export FOLLOW_TAG
@@ -36,9 +40,10 @@ while [ $# -gt 0 ]; do
     --tag) TAG="${2:?missing value for --tag}"; shift 2 ;;
     --stack) STACK="${2:?missing value for --stack}"; STACK_SET=1; shift 2 ;;
     --dry-run) DRY=1; shift ;;
+    --pull-scripts) PULL=1; shift ;;
     --force) FORCE=1; shift ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -59,6 +64,21 @@ die() {
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 need curl
 [ "$DRY" = 1 ] || need docker
+
+# Optional: bring the deploy scripts to the newest state of the deploy branch (flat clone), then run the new update.sh.
+if [ "$PULL" = 1 ] && [ -z "${RADAR_SCRIPTS_PULLED:-}" ]; then
+  need git
+  git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "--pull-scripts needs a git checkout (git clone --depth 1 --branch deploy ...); this directory is none"
+  if [ "$DRY" = 1 ]; then
+    say "Dry run: would run git pull --ff-only in $(git -C "$SCRIPT_DIR" rev-parse --show-toplevel) and restart update.sh."
+  else
+    say "Updating the deploy scripts (git pull --ff-only)"
+    git -C "$SCRIPT_DIR" pull --ff-only || die "git pull failed (local changes in tracked files or diverged history?); nothing was changed"
+    args=(); for a in "${ORIG_ARGS[@]}"; do [ "$a" = --pull-scripts ] || args+=("$a"); done
+    RADAR_SCRIPTS_PULLED=1 exec "$SCRIPT_DIR/update.sh" "${args[@]+"${args[@]}"}"
+  fi
+fi
 
 if [ -z "$ENV_FILE" ]; then
   if [ -f ./.env ]; then ENV_FILE=./.env
@@ -123,13 +143,13 @@ cat "$TMP" > "$ENV_FILE"; rm -f "$TMP"
 ENV_WRITTEN=1
 say "Wrote RADAR_IMAGE_TAG=${TAG} (backup: ${ENV_FILE}.bak)."
 
-step "Migrate and start the rolling update (scripts/swarm-deploy.sh)"
+step "Migrate and start the rolling update (deploy/swarm/swarm-deploy.sh)"
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
 export RADAR_IMAGE_TAG="$TAG" STACK
-"$SCRIPT_DIR/../../scripts/swarm-deploy.sh" || die "migration or deployment failed; the previous tag stays in use"
+"$SCRIPT_DIR/swarm-deploy.sh" || die "migration or deployment failed; the previous tag stays in use"
 
 step "Watch the rollout and check the result"
 SERVICE="${STACK}_radar"

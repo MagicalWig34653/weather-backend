@@ -22,7 +22,7 @@ Ingest: alle 5 min ein Lauf ──> DWD-WMS (dwd:Niederschlagsradar)
 ## Bausteine
 
 - **Swift 6 und Vapor 4.** `Sources/radar` ist der Einstieg, `Sources/RadarCore` enthält die Fachlogik ohne Vapor (Zustand, Ingest, Manifest, API-Logik, Bildpipeline). PNG-Dekodierung mit swift-png, WebP-Lossless über die System-Bibliothek libwebp, MariaDB über mysql-nio/MySQLKit.
-- **Zwei Swarm-Services.** `radar` (Standard 2 Replikate) liefert die API und nimmt am Ingest teil. `migrate` ist ein Einmal-Dienst mit `replicas: 0`, den `scripts/swarm-deploy.sh` vor jedem Rollout startet. Migrationen laufen nicht beim Start der Replikate.
+- **Zwei Swarm-Services.** `radar` (Standard 2 Replikate) liefert die API und nimmt am Ingest teil. `migrate` ist ein Einmal-Dienst mit `replicas: 0`, den `deploy/swarm/swarm-deploy.sh` vor jedem Rollout startet. Migrationen laufen nicht beim Start der Replikate.
 - **Zustand in MariaDB, nicht in Dateien.** `radar_run` hält Lauf, Status und Lease, `radar_slot` die WebP-Bytes (MEDIUMBLOB) samt SHA-256. Kein geteiltes Volume, keine Knotenbindung.
 - **Claim und Lease.** Ein Lauf wird per atomarem INSERT auf `radar_run` von genau einem Replikat beansprucht. Die Lease verfällt bei Absturz, dann übernimmt ein anderes Replikat. Versuche pro Lauf sind begrenzt (2), fehlgeschlagene Läufe haben 240 s Cooldown. Lease-Zeiten kommen von der DB-Uhr.
 - **Atomare Veröffentlichung.** Ein Lauf wird erst nach allen 25 Slots in einer Transaktion auf `published` gesetzt. `latest.json` und Slot-Abrufe sehen nur veröffentlichte Läufe.

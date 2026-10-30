@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - run: shellcheck -x -P SCRIPTDIR deploy/swarm/*.sh scripts/*.sh
+      - run: shellcheck -x -P SCRIPTDIR deploy/swarm/*.sh
       - name: Validate the stack file and the dev compose file
         run: |
           DB_HOST=db.example.internal docker compose -f deploy/swarm/stack.yaml config --quiet

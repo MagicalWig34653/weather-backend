@@ -1,6 +1,6 @@
 # Installationsanleitung
 
-Diese Anleitung führt von einem Docker-Swarm-Manager bis zum laufenden Radar-Cache. Alle Optionen, Variablen und Namen stammen aus `deploy/swarm/setup.sh`, `deploy/swarm/update.sh`, `scripts/swarm-deploy.sh`, `.env.example` und `deploy/swarm/stack.yaml`; Domains und Zugangsdaten sind Platzhalter (`radar.example.org`, `db.example.internal`).
+Diese Anleitung führt von einem Docker-Swarm-Manager bis zum laufenden Radar-Cache. Alle Optionen, Variablen und Namen stammen aus `deploy/swarm/setup.sh`, `deploy/swarm/update.sh`, `deploy/swarm/swarm-deploy.sh`, `.env.example` und `deploy/swarm/stack.yaml`; Domains und Zugangsdaten sind Platzhalter (`radar.example.org`, `db.example.internal`).
 
 ## Voraussetzungen
 
@@ -8,7 +8,7 @@ Nicht Teil dieses Repos und vorher bereitzustellen:
 
 | Baustein | Anforderung |
 |---|---|
-| Docker Swarm | Ein Manager-Knoten, auf dem das Setup läuft. Fehlt der Swarm, bietet `setup.sh` `docker swarm init` an (siehe `--swarm-init`). Auf dem Manager werden `docker`, `curl` und `openssl` gebraucht. |
+| Docker Swarm | Ein Manager-Knoten, auf dem das Setup läuft. Fehlt der Swarm, bietet `setup.sh` `docker swarm init` an (siehe `--swarm-init`). Auf dem Manager werden `git`, `docker`, `curl` und `openssl` gebraucht. |
 | MariaDB | Extern, Version 12.3, von allen Swarm-Knoten aus erreichbar. Eine Datenbank und ein Benutzer mit den unten genannten Rechten. |
 | Image | `ghcr.io/magicalwig34653/weather-backend-radar`. Das GHCR-Paket muss **öffentlich** sein (einmalig nach dem ersten Lauf von `docker-publish.yml` umstellen), sonst scheitern Pull und Tag-Lookup. amd64 und arm64 sind veröffentlicht. |
 | Reverse Proxy | Extern, zum Beispiel Zoraxy, mit TLS und Domain. Keine Sticky Sessions nötig, kein Cache nötig (der Cache liegt in den Replikaten). Upstream: ein oder mehrere Swarm-Knoten auf Port **38090** (Routing-Mesh, Standardwert von `RADAR_PORT`). |
@@ -27,12 +27,16 @@ Die Migration `001_radar.sql` legt `radar_run`, `radar_slot` und (vom Migrations
 
 ## Schritt für Schritt
 
-### 1. Repository klonen
+### 1. Deploy-Branch klonen
+
+Der Server braucht nicht das ganze Repository. Der Branch `deploy` enthält nur `deploy/swarm/*` (Stackfile, Setup, Update, Deploy-Skript, Healthcheck, Hilfsfunktionen), `.env.example` und eine kurze README. Er wird bei jeder Änderung auf `main` automatisch gespiegelt und nie von Hand geändert.
 
 ```sh
-git clone https://github.com/MagicalWig34653/weather-backend.git
-cd weather-backend
+git clone --depth 1 --branch deploy https://github.com/MagicalWig34653/weather-backend.git radar
+cd radar
 ```
+
+Die `.env` liegt später im Ordner `radar/` (neben `deploy/`), nicht versioniert.
 
 ### 2. Setup-Assistent
 
@@ -48,7 +52,7 @@ Optionen (aus `setup.sh --help`):
 
 | Option | Wirkung |
 |---|---|
-| `--env-file FILE` | Zu schreibende (und, falls vorhanden, als Vorgabe gelesene) Env-Datei. Standard: `.env` im Repository-Root. |
+| `--env-file FILE` | Zu schreibende (und, falls vorhanden, als Vorgabe gelesene) Env-Datei. Standard: `.env` im Ordner des Klons. |
 | `--answers-file FILE` | Antworten als `KEY=VALUE` (gleiche Namen wie in `.env`, zusätzlich `DB_PASSWORD` oder `DB_PASSWORD_FILE`, optional `CHECK_NETWORK`, `SWARM_ADVERTISE_ADDR`). Die Datei wird geparst, nie ausgeführt. |
 | `--non-interactive` | Keine Rückfragen. Werte kommen aus Antwortdatei, `SETUP_<KEY>`-Umgebungsvariablen, vorhandener Env-Datei oder Standardwerten (in dieser Reihenfolge). |
 | `--reconfigure` | Alle Werte erneut abfragen; bestehende Werte sind die Vorgabe. Ohne diese Option wird eine vorhandene `.env` unverändert wiederverwendet (idempotenter Neustart). |
@@ -85,7 +89,7 @@ deploy/swarm/setup.sh --non-interactive --answers-file answers.env --swarm-init
 
 ### 3. Variablen der `.env`
 
-`setup.sh` schreibt diese Datei (Modus 600, nicht versioniert, Vorlage `.env.example`); `update.sh` und `scripts/swarm-deploy.sh` lesen sie.
+`setup.sh` schreibt diese Datei (Modus 600, nicht versioniert, Vorlage `.env.example`); `update.sh` und `deploy/swarm/swarm-deploy.sh` lesen sie.
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -127,7 +131,7 @@ Ein Secret lässt sich nicht ändern. Zum Rotieren ein neues Secret mit anderem 
 
 ### 5. Migrationsjob und Deploy
 
-Das übernimmt `scripts/swarm-deploy.sh` (vom Setup und von `update.sh` aufgerufen):
+Das übernimmt `deploy/swarm/swarm-deploy.sh` (vom Setup und von `update.sh` aufgerufen):
 
 1. Es legt die Swarm-Config `<stack>_deployment-lock` als Sperre gegen parallele Deployments an.
 2. Existiert der Service `<stack>_radar` noch nicht, wird der Stack mit 0 Replikaten angelegt.
@@ -157,10 +161,11 @@ deploy/swarm/update.sh
 
 | Option | Wirkung |
 |---|---|
-| `--env-file FILE` | Env-Datei, Standard `./.env`, sonst `.env` im Repository-Root. |
+| `--env-file FILE` | Env-Datei, Standard `./.env`, sonst `.env` im Ordner des Klons. |
 | `--tag TAG` | Dieses Tag verwenden (z. B. `sha-6c074f7` oder `0.1.0`) statt der Suche. |
 | `--stack NAME` | Stack-Name, Standard aus `RADAR_STACK`, sonst `radar`. |
 | `--dry-run` | Zeigt, was passieren würde; keine Dateiänderung, keine Docker-Aufrufe. Die Tag-Suche auf ghcr.io läuft dennoch (nur lesend). |
+| `--pull-scripts` | Zuerst die Deploy-Skripte aktualisieren (`git pull --ff-only` im Klon des Branches `deploy`), dann `update.sh` aus den neuen Dateien neu starten. Die `.env` ist nicht versioniert und bleibt unberührt. Ohne Git-Klon bricht die Option mit einer Meldung ab. |
 | `--force` | Auch dann neu ausrollen, wenn sich das Tag nicht geändert hat. |
 | `--yes` | Rückfrage („Database backed up?“) überspringen. |
 

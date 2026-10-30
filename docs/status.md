@@ -56,7 +56,7 @@ Im [Apple-Repo](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/
 
 ## Radar-Cache Stufe 1 in Swift (30. Oktober 2026)
 
-Die Python-Fassung ist entfernt; Ersatz: Swift 6 / Vapor 4 (`Sources/RadarCore`, `Sources/radar`), `Tests/`, `migrations/`, `deploy/swarm/` (nach Vorlage des Projekts todo), `scripts/swarm-deploy.sh`, `Dockerfile`, `compose.yaml`, `.env.example`. Entscheidungen: [decisions.md](decisions.md).
+Die Python-Fassung ist entfernt; Ersatz: Swift 6 / Vapor 4 (`Sources/RadarCore`, `Sources/radar`), `Tests/`, `migrations/`, `deploy/swarm/` (nach Vorlage des Projekts todo), `deploy/swarm/swarm-deploy.sh`, `Dockerfile`, `compose.yaml`, `.env.example`. Entscheidungen: [decisions.md](decisions.md).
 
 Tatsächlich ausgeführt (lokal, Linux-Container swift:6.4-noble, arm64):
 - `swift test`: 24 Tests grün, Contract-Tests je einmal gegen den Fake und gegen eine Wegwerf-MariaDB 12.3 (Claim-Konkurrenz, Lease-Übernahme, Versuchslimit, Cooldown, atomare Veröffentlichung, Retention, 404-freies latest.json der letzten 3 Läufe, ETag/304, Single-Flight, kein Set-Cookie, identische Manifeste, BLOB-Roundtrip) plus Bild-Tests (WebP pixelgenau).
@@ -65,7 +65,7 @@ Tatsächlich ausgeführt (lokal, Linux-Container swift:6.4-noble, arm64):
 - `shellcheck`, `docker compose config` lokal.
 
 Docker-publish ist inzwischen grün (Commit `8d3d487`; Tags `edge`, `latest`, `sha-8d3d487`; amd64 und arm64). Nicht geprüft: Tag-Lookup `edge` -> `sha-` gegen das veröffentlichte ghcr.io-Paket (Paket muss noch öffentlich gestellt werden), amd64 lokal, Last, Reverse-Proxy, Betrieb auf dem echten Swarm des Betreibers.
-Nächste Schritte: CI und Docker-publish prüfen; ghcr.io-Paket öffentlich stellen; Betreiber führt `deploy/swarm/setup.sh` aus (DB-User braucht CREATE für den Migrationsjob).
+Nächste Schritte: CI und Docker-publish prüfen; ghcr.io-Paket öffentlich stellen; Betreiber führt `deploy/swarm/setup.sh` aus (DB-User braucht CREATE für den Migrationsjob). Server-Installation per flachem Klon des Branches `deploy` (siehe decisions.md); Deploy-Skripte liegen jetzt komplett in `deploy/swarm/`, `stack.env.example` und `scripts/` sind entfernt, `update.sh --pull-scripts` neu.
 
 ## Dokumentationsseite (30. Oktober 2026)
 

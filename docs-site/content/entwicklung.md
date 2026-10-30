@@ -8,7 +8,7 @@ Die MariaDB-Tests brauchen eine Wegwerf-Datenbank. `compose.yaml` startet eine l
 
 ## CI und Veröffentlichung
 
-- **CI** (`.github/workflows/ci.yml`): `swift build` und `swift test` im Container `swift:6.2-noble` gegen eine MariaDB-12.3-Service-Instanz ohne DWD-Zugriff; zusätzlich `shellcheck` für `deploy/swarm/*.sh` und `scripts/*.sh` sowie `docker compose config` für Stack- und Dev-Compose-Datei.
+- **CI** (`.github/workflows/ci.yml`): `swift build` und `swift test` im Container `swift:6.2-noble` gegen eine MariaDB-12.3-Service-Instanz ohne DWD-Zugriff; zusätzlich `shellcheck` für `deploy/swarm/*.sh` sowie `docker compose config` für Stack- und Dev-Compose-Datei.
 - **Docker publish** (`.github/workflows/docker-publish.yml`): pro Architektur ein nativer Build (`ubuntu-24.04` für amd64, `ubuntu-24.04-arm` für arm64, keine QEMU-Emulation), danach ein Multi-Arch-Manifest je Tag.
 - **Tags:** `edge` und `latest` für `main`, `sha-<commit>`, bei `v*`-Tags die Version und `major.minor`. Produktion sollte ein festes `sha-`- oder Versions-Tag nutzen.
 - **Pages** (`.github/workflows/pages.yml`): baut diese Seite, siehe `docs/pages.md`.
