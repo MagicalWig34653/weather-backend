@@ -21,3 +21,7 @@ backups/
 # Rechnerbezogene Repository-Pfade bleiben privat.
 /LOCAL_WORKSPACE.md
 core
+
+# GitHub-Pages-Generator
+docs-site/node_modules/
+docs-site/dist/

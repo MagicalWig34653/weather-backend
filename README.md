@@ -66,6 +66,7 @@ Quelle: Deutscher Wetterdienst. Die Bilder sind aus DWD-Rasterdaten (WMS `dwd:Ni
 
 ## Einstieg
 
+- [Dokumentationsseite mit Installationsanleitung](https://magicalwig34653.github.io/weather-backend/) ([Aufbau](docs/pages.md))
 - [Entwicklungsplan](docs/plan.md)
 
 - [Arbeitsstand und nächste Schritte](docs/status.md)

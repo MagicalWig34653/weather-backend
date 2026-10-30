@@ -64,5 +64,9 @@ Tatsächlich ausgeführt (lokal, Linux-Container swift:6.4-noble, arm64):
 - Echter lokaler Docker-Swarm (selbst angelegt, davor inaktiv), Wegwerf-MariaDB 12.3: `setup.sh` (non-interactive, Antwortdatei, Dry-Run), Secret, Migrationsjob, 3 Replikate mit bash-Healthcheck, `update.sh --tag` Rolling Update, manueller Rollback, automatischer Rollback bei kaputtem Image (`.env` wird zurückgesetzt), fehlgeschlagener Migrationsjob verhindert den Rollout. Ein echter DWD-Lauf: latest.json 404 -> 200 mit 25 Slots, ETag/304, immutable-Header, byteidentisches Manifest über alle Replikate, kein Set-Cookie.
 - `shellcheck`, `docker compose config` lokal.
 
-Nicht geprüft: Tag-Lookup `edge` -> `sha-` gegen ghcr.io (Image noch nicht veröffentlicht), amd64 lokal, Last, Reverse-Proxy, Betrieb auf dem echten Swarm des Betreibers.
+Docker-publish ist inzwischen grün (Commit `8d3d487`; Tags `edge`, `latest`, `sha-8d3d487`; amd64 und arm64). Nicht geprüft: Tag-Lookup `edge` -> `sha-` gegen das veröffentlichte ghcr.io-Paket (Paket muss noch öffentlich gestellt werden), amd64 lokal, Last, Reverse-Proxy, Betrieb auf dem echten Swarm des Betreibers.
 Nächste Schritte: CI und Docker-publish prüfen; ghcr.io-Paket öffentlich stellen; Betreiber führt `deploy/swarm/setup.sh` aus (DB-User braucht CREATE für den Migrationsjob).
+
+## Dokumentationsseite (30. Oktober 2026)
+
+GitHub-Pages-Seite mit Installationsanleitung unter `docs-site/` (Generator, Inhalte), Workflow `.github/workflows/pages.yml`, Beschreibung in [pages.md](pages.md). Optionen und Variablen gegen `setup.sh --help`, `update.sh --help`, `.env.example` abgeglichen. Pages-Quelle und Veröffentlichung: siehe Git-Historie/Actions.

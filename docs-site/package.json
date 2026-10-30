@@ -1,0 +1,9 @@
+{
+  "name": "showernow-backend-docs-site",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Statischer Generator fuer die GitHub-Pages-Dokumentation (Markdown in content/ und ausgewaehlte Dateien aus docs/).",
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": { "marked": "15.0.12" }
+}
