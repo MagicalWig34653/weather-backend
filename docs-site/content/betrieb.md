@@ -15,7 +15,7 @@ curl -i http://127.0.0.1:38090/healthz
 curl -i http://127.0.0.1:38090/v1/radar/latest.json
 ```
 
-Es gibt keine Zugriffslogs; die Logs enthalten nur Lauf-IDs und Fehlerklassen.
+Der Radar-Dienst führt keine Zugriffsprotokolle und speichert keine IP-Adressen oder Abfragedetails; seine Logs enthalten nur Lauf-IDs und Fehlerklassen. Ob der vorgeschaltete Reverse Proxy Zugriffe protokolliert, bestimmt der Betreiber (siehe Installation, Schritt 6).
 
 ## Typische Fehlerbilder
 

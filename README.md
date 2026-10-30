@@ -56,11 +56,11 @@ Das Image heißt fest `ghcr.io/magicalwig34653/weather-backend-radar` (Tags: `ed
 
 ### Konfiguration
 
-Nur Umgebungsvariablen (`.env` für den Stack) und das Swarm-Secret. Das DB-Passwort ist ausschließlich das Secret (`DB_PASSWORD_FILE`). Es werden keine Zugriffslogs geschrieben; Logs enthalten nur Lauf-IDs und Fehlerklassen.
+Nur Umgebungsvariablen (`.env` für den Stack) und das Swarm-Secret. Das DB-Passwort ist ausschließlich das Secret (`DB_PASSWORD_FILE`). Der Radar-Dienst selbst führt keine Zugriffsprotokolle und speichert keine IP-Adressen oder Abfragedetails; Logs enthalten nur Lauf-IDs und Fehlerklassen. Ein vorgeschalteter Reverse Proxy sieht technisch bedingt die IP-Adresse jedes Abrufs. Ob und wie lange er protokolliert, bestimmt der Betreiber (bei Zoraxy die Einstellung der Zugriffslogs prüfen und gegebenenfalls abschalten oder kurz halten).
 
 ### Datenschutz und Quellen
 
-Requests enthalten keinen Ortsbezug: feste Pfade je Lauf/Slot, Ganzbild für Deutschland; keine Cookies, keine Zugriffsprotokolle mit IP/Query. Die Anfragen an den DWD enthalten nur Layer, Zeit und feste Deutschland-BBox.
+Requests enthalten keinen Ortsbezug: feste Pfade je Lauf/Slot, Ganzbild für Deutschland; keine Cookies; der Radar-Dienst führt keine Zugriffsprotokolle mit IP-Adressen oder Abfragedetails (Proxy: siehe Konfiguration). Die Anfragen an den DWD enthalten nur Layer, Zeit und feste Deutschland-BBox.
 
 Quelle: Deutscher Wetterdienst. Die Bilder sind aus DWD-Rasterdaten (WMS `dwd:Niederschlagsradar`) bildlich wiedergegeben und verlustfrei in WebP umgewandelt (Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben); der Vermerk steht im Manifest und muss in der App an der Karte sichtbar bleiben. Lizenz der Daten: CC BY 4.0 / GeoNutzV. Der DWD sichert keine Verfügbarkeit zu.
 

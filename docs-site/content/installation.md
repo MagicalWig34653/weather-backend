@@ -140,7 +140,7 @@ Das übernimmt `deploy/swarm/swarm-deploy.sh` (vom Setup und von `update.sh` auf
 
 ### 6. Reverse Proxy
 
-Im Reverse Proxy (zum Beispiel Zoraxy) die Domain auf `http://<Swarm-Knoten>:38090` zeigen lassen, mit TLS am Proxy. Keine Sticky Sessions, kein Proxy-Cache, Header unverändert durchreichen. Mehrere Knoten dürfen als Upstream eingetragen werden, da jeder Knoten das Routing-Mesh bedient.
+Im Reverse Proxy (zum Beispiel Zoraxy) die Domain auf `http://<Swarm-Knoten>:38090` zeigen lassen, mit TLS am Proxy. Keine Sticky Sessions, kein Proxy-Cache, Header unverändert durchreichen. Mehrere Knoten dürfen als Upstream eingetragen werden, da jeder Knoten das Routing-Mesh bedient. Zugriffslogs des Proxys prüfen: Der Proxy sieht die IP-Adresse jedes Abrufs; ob und wie lange er sie protokolliert, bestimmt der Betreiber (bei Zoraxy die Einstellung der Zugriffslogs prüfen und gegebenenfalls abschalten oder kurz halten).
 
 ### 7. Verifikation
 

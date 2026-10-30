@@ -22,7 +22,7 @@ Der Radar-Cache ist das Backend der Regen-App ShowerNow. Er holt alle 5 Minuten 
 ## Datenschutz
 
 - Requests enthalten **keinen Ortsbezug**: feste Pfade je Lauf und Slot, Ganzbild für Deutschland.
-- Keine Cookies, keine Sticky Sessions, keine Zugriffsprotokolle mit IP oder Query. Logs enthalten nur Lauf-IDs und Fehlerklassen.
+- Keine Cookies, keine Sticky Sessions. Der Radar-Dienst führt keine Zugriffsprotokolle und speichert keine IP-Adressen oder Abfragedetails; Logs enthalten nur Lauf-IDs und Fehlerklassen. Ein vorgeschalteter Reverse Proxy sieht technisch bedingt die IP-Adresse jedes Abrufs; ob und wie lange er protokolliert, bestimmt der Betreiber.
 - Anfragen an den DWD enthalten nur Layer, Zeit und eine feste Deutschland-BBox.
 - Das Datenbank-Passwort liegt ausschließlich als Swarm-Secret vor.
 
