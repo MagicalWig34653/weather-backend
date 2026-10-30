@@ -15,6 +15,7 @@ private func manifestJSON(_ repo: any Repo, _ cfg: Config) async throws -> [Stri
     return try #require(try JSONSerialization.jsonObject(with: Data(body)) as? [String: Any])
 }
 
+extension DatabaseSuites {
 @Suite("Repo and service contract", .serialized)
 struct ContractTests {
     @Test(arguments: RepoKind.allCases)
@@ -164,9 +165,11 @@ struct ContractTests {
             let (ing, c) = ingestor(repo, edit: { $0.retentionRuns = 15 }); cfg = c
             _ = try await ing.process(run: run0.addingTimeInterval(Double(i) * 300))
         }
-        #expect(try await repo.getSlot(runID: "20261030T1105Z", slotID: "20261030T1105Z") == nil)
-        #expect(try await repo.getSlot(runID: "20261030T1110Z", slotID: "20261030T1110Z") == nil)
-        #expect(try await repo.getSlot(runID: "20261030T1115Z", slotID: "20261030T1115Z") != nil)
+        // Beyond the newest 15 runs only the analysis slot stays (HISTORY_HOURS, default 48), forecast slots go.
+        #expect(try await repo.getSlot(runID: "20261030T1105Z", slotID: "20261030T1105Z") != nil)
+        #expect(try await repo.getSlot(runID: "20261030T1105Z", slotID: "20261030T1110Z") == nil)
+        #expect(try await repo.getSlot(runID: "20261030T1110Z", slotID: "20261030T1115Z") == nil)
+        #expect(try await repo.getSlot(runID: "20261030T1115Z", slotID: "20261030T1120Z") != nil)
         let doc = try await manifestJSON(repo, cfg)
         #expect((doc["slots"] as? [Any])?.count == 12 + 25)
     }
@@ -265,4 +268,5 @@ struct ContractTests {
         try await repo.migrate()
         try await repo.ping()
     }
+}
 }

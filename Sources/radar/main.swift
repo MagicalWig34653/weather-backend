@@ -31,12 +31,13 @@ func httpFetch(config: Config) -> Fetch {
     }
 }
 
-func runIngestLoop(config: Config, repo: any Repo, heartbeat: Heartbeat, logger: Logger) async {
+func runIngestLoop(config: Config, repo: any Repo, heartbeat: Heartbeat, activity: ActivityFlag, logger: Logger) async {
     let ingestor = Ingestor(config: config, repo: repo, fetch: httpFetch(config: config), owner: replicaID())
     var failures = 0
     while !Task.isCancelled {
         heartbeat.beat()
         let run = TimeUtil.latestRun(now: Date(), availabilityDelay: config.availabilityDelaySeconds)
+        activity.set(true)
         do {
             if try await ingestor.process(run: run) { logger.info("published run \(TimeUtil.toID(run))") }
             failures = 0
@@ -46,6 +47,7 @@ func runIngestLoop(config: Config, repo: any Repo, heartbeat: Heartbeat, logger:
             failures += 1
             logger.warning("run \(TimeUtil.toID(run)) not published (\(type(of: error))); consecutive failures: \(failures)")
         }
+        activity.set(false)
         var wake = TimeUtil.nextWakeup(now: Date(), availabilityDelay: config.availabilityDelaySeconds)
             .addingTimeInterval(Double.random(in: 0..<max(config.jitterSeconds, 0.001)))
         if failures > 2 { wake = wake.addingTimeInterval(Double(min(60 * (failures - 2), 600))) }  // capped at 10 minutes
@@ -54,6 +56,34 @@ func runIngestLoop(config: Config, repo: any Repo, heartbeat: Heartbeat, logger:
             try? await Task.sleep(nanoseconds: UInt64(min(30, max(0.5, wake.timeIntervalSinceNow)) * 1e9))
         }
     }
+}
+
+/// Low-priority history backfill (leader only); starts after the first regular run and pauses while that one works.
+func runBackfillLoop(config: Config, repo: any Repo, activity: ActivityFlag, logger: Logger) async {
+    let backfiller = Backfiller(config: config, repo: repo, fetch: httpFetch(config: config), owner: replicaID(),
+                                isBusy: { activity.isBusy })
+    try? await Task.sleep(nanoseconds: UInt64((45 + Double.random(in: 0..<15)) * 1e9))
+    var lastRemaining = -1
+    while !Task.isCancelled {
+        var pause = 60.0
+        do {
+            let result = try await backfiller.tick()
+            if result.isLeader && (result.stored > 0 || result.failed > 0 || result.remaining != lastRemaining) {
+                logger.info("history backfill: stored \(result.stored), failed \(result.failed), missing \(result.remaining)")
+            }
+            lastRemaining = result.remaining
+            if result.errorPause { pause = 300; logger.warning("history backfill paused after consecutive failures") }
+            else if result.isLeader && result.remaining > 0 { pause = 10 }
+        } catch is CancellationError {
+            break
+        } catch {
+            logger.warning("history backfill tick failed (\(type(of: error)))")
+            pause = 120
+        }
+        var slept = 0.0
+        while !Task.isCancelled, slept < pause { try? await Task.sleep(nanoseconds: 1_000_000_000); slept += 1 }
+    }
+    await backfiller.release()
 }
 
 func serve(config: Config) async throws {
@@ -81,17 +111,20 @@ func serve(config: Config) async throws {
 
     let logger = app.logger
     try await repo.ping()
-    let loop = Task { await runIngestLoop(config: config, repo: repo, heartbeat: heartbeat, logger: logger) }
+    let activity = ActivityFlag()
+    let loop = Task { await runIngestLoop(config: config, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
+    let backfill = Task { await runBackfillLoop(config: config, repo: repo, activity: activity, logger: logger) }
     do {
         try await app.execute()
     } catch {
-        loop.cancel()
-        await loop.value
+        loop.cancel(); backfill.cancel()
+        await loop.value; await backfill.value
         try? await app.asyncShutdown()
         await repo.shutdown()
         throw error
     }
-    loop.cancel()
+    loop.cancel(); backfill.cancel()
+    await backfill.value
     await loop.value  // let a running ingest hand its run over before the DB pool goes away
     try await app.asyncShutdown()
     await repo.shutdown()

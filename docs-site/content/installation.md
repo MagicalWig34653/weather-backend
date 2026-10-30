@@ -112,7 +112,8 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 | Variable | Standard | Bedeutung |
 |---|---|---|
 | `CACHE_MAX_MB` | `64` | LRU-Cache je Replikat. |
-| `RETENTION_RUNS` | `16` | Aufbewahrte veröffentlichte Läufe, mindestens 15. |
+| `RETENTION_RUNS` | `16` | Aufbewahrte veröffentlichte Läufe mit allen Vorhersage-Slots, mindestens 15. |
+| `HISTORY_HOURS` | `48` | Aufbewahrte und über `history.json` ausgelieferte Vergangenheit (Analysebilder), 1 bis 72 Stunden. Ungültige Werte verhindern den Start. Das DWD-WMS liefert Zeitwerte nur etwa 90 Stunden zurück. |
 | `FETCH_WORKERS` | `3` | Parallele DWD-Requests, 1 bis 6. |
 | `USER_AGENT` | `ShowerNow-radar-ingest/1.0` | Kennung gegenüber dem DWD, z. B. mit Kontakt-URL des Betreibers; keine Daten von App-Nutzern. |
 | `OPERATOR_NAME`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` | leer | Verantwortlicher für `/datenschutz` und `/support`; ohne Werte zeigt die Seite einen Hinweis. Siehe [Datenschutz und Marketing-Seiten](seiten.html). |

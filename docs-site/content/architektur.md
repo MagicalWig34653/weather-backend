@@ -40,7 +40,11 @@ Etwa jede dritte GetMap-Antwort des DWD ist ein HTTP-200 mit XML-Fehler `Invalid
 
 ## Retention
 
-Standard 16 veröffentlichte Läufe, mindestens 15 (12 historische Analysen der Zeitleiste, aktueller Lauf, Reserve). Kleinere Werte verweigert die Konfiguration. Läufe in Arbeit werden nach 1 h Inaktivität gelöscht.
+Standard 16 veröffentlichte Läufe, mindestens 15 (12 historische Analysen der Zeitleiste, aktueller Lauf, Reserve). Kleinere Werte verweigert die Konfiguration. Die Vorhersage-Slots (+5 bis +120 min) älterer Läufe werden danach gelöscht; der Analyse-Slot jedes Laufs bleibt `HISTORY_HOURS` (Standard 48) plus 15 Minuten Reserve erhalten und wird über `history.json` ausgeliefert. Das Fenster hängt von der Nominalzeit des gerade veröffentlichten Laufs ab, nicht von der Uhr; so bleibt jeder Slot erhalten, der in einer noch gültigen `latest.json` oder `history.json` steht. Läufe in Arbeit werden nach 1 h Inaktivität gelöscht.
+
+**Speicherbedarf:** 576 Analyse-Slots (48 h) mal Slotgröße. Gemessen wurden verlustfreie WebP-Bilder von 6 bis 29 KB (trocken bis Regen am 30.10.2026), also etwa 4 bis 17 MB; dazu 16 volle Läufe mit je 25 Slots. Starker Regen über ganz Deutschland wurde nicht gemessen (Annahme: bis etwa 50 KB je Bild, also unter 30 MB für 48 h). Der LRU-Cache je Replikat (64 MB) reicht für die aktuellen Slots plus die Historie; bei 72 h und Dauerregen `CACHE_MAX_MB` auf 96 anheben.
+
+**Nachholen (Backfill):** Beim Start und nach jedem Leader-Wechsel holt genau ein Replikat (Lease in `radar_lock`) fehlende Analyse-Slots der letzten `HISTORY_HOURS` aus der WMS-Historie des DWD nach, neueste zuerst. Es pausiert, solange das eigene Replikat den regulären 5-Minuten-Lauf bearbeitet, nutzt 2 parallele Requests mit 3 s Abstand (höchstens 20 Requests pro Minute und pro Durchlauf), 3 Versuche je Slot für den bekannten XML-Fehler `InvalidDimensionValue`, 10 min Sperre je gescheitertem Slot und 5 min Pause nach 6 Fehlern in Folge. Fertige Slots werden nie erneut geladen; ein Neustart setzt dort fort, wo es aufgehört hat.
 
 ## Bildformat
 

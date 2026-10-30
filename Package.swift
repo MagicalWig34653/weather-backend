@@ -38,7 +38,8 @@ let package = Package(
         ),
         .testTarget(
             name: "RadarCoreTests",
-            dependencies: ["RadarCore", .product(name: "PNG", package: "swift-png")]
+            dependencies: ["RadarCore", .product(name: "PNG", package: "swift-png")],
+            exclude: ["Fixtures"]
         ),
     ]
 )

@@ -31,6 +31,16 @@ Der Radar-Dienst führt keine Zugriffsprotokolle und speichert keine IP-Adressen
 | Update bricht mit „rollout did not succeed“ ab | Swarm rollt selbst zurück; `update.sh` stellt die `.env` wieder her. Ursache wie bei „Replikate starten nicht“. |
 | `docker config create` schlägt fehl: Konfiguration existiert („deployment-lock“) | Siehe nächster Abschnitt. |
 
+## Historie nachholen (Backfill)
+
+Nach dem ersten Start mit `HISTORY_HOURS=48` fehlen die 576 Analysebilder der letzten 48 Stunden. Ein Replikat holt sie nach. Rechnung: 576 Slots, etwa ein Drittel der Antworten ist der XML-Fehler, also rund 850 Requests einmalig. Bei höchstens 20 Requests pro Minute dauert das etwa 45 bis 60 Minuten (jeder Durchlauf pausiert zusätzlich 10 s). Danach fällt nur noch pro 5-Minuten-Lauf ein Slot an, der ohnehin vom regulären Lauf stammt. Fortschritt: Logzeile `history backfill: stored N, failed N, missing N`; `history.json` zeigt die gefüllten Slots (Lücken sind erlaubt).
+
+| Fehlerbild | Ursache und Abhilfe |
+|---|---|
+| `missing` sinkt nicht | Meist DWD-Fehler: nach 6 Fehlern in Folge pausiert das Nachholen 5 Minuten. Slots, die 4-mal scheitern, werden nicht weiter versucht. |
+| Kein Log vom Backfill | Ein anderes Replikat ist Leader (Lease 3 Minuten); bei dessen Ausfall übernimmt ein anderes. |
+| Zeitwerte älter als etwa 90 Stunden | Der DWD liefert sie nicht mehr; deshalb ist `HISTORY_HOURS` auf 72 begrenzt. |
+
 ## Deployment-Sperre hängt
 
 `deploy/swarm/swarm-deploy.sh` legt vor jedem Deployment die Swarm-Config `<stack>_deployment-lock` an (bei Standard-Stack `radar_deployment-lock`) und entfernt sie am Ende wieder. Sie bleibt absichtlich stehen, wenn der Migrationszustand unklar ist, zum Beispiel nach „Migration timeout“ (der Job brauchte länger als etwa 240 s) oder wenn das Skript hart beendet wurde. Meldung: „Migration state uncertain; deployment lock retained“. Neue Deployments starten dann nicht.
@@ -52,6 +62,7 @@ Die Migrationen sind additiv und über den Advisory-Lock `showernow_migrate` geg
 - **Replikate:** `RADAR_REPLICAS` (Standard 2). Zwei genügen für unterbrechungsfreie Rolling Updates; die Last ist klein. Änderung in der `.env`, dann `deploy/swarm/update.sh --force` oder `docker service scale radar_radar=<n>` (Letzteres überschreibt die `.env` nicht).
 - **Ressourcenlimits:** `RADAR_CPU_LIMIT` (z. B. `1.5`) und `RADAR_MEMORY_LIMIT` (z. B. `512M`), `0` = unbegrenzt. Passende Werte sind nicht gemessen; erst beobachten, dann begrenzen.
 - **Retention:** `RETENTION_RUNS` (Standard 16, Minimum 15). Bei 16 Läufen liegt der Datenbestand nach den Messungen unter etwa 25 MB.
+- **Historie:** `HISTORY_HOURS` (Standard 48, 1 bis 72). Der Datenbestand wächst um etwa 4 bis 17 MB (576 Analysebilder, siehe Architektur).
 - **Cache:** `CACHE_MAX_MB` (Standard 64) je Replikat. Die aktuellen Slots belegen etwa 0,2 bis 2 MB; der LRU ist reichlich bemessen. Der Reverse Proxy braucht keinen Cache.
 - **Ingest:** `FETCH_WORKERS` (Standard 3) bewusst klein halten, um den DWD zu schonen.
 

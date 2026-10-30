@@ -38,6 +38,8 @@ public struct Config: Sendable {
     public var wmsURL = "https://maps.dwd.de/geoserver/ows"
     public var width = 1024
     public var retentionRuns = 16
+    /// How much past (analysis slots, 5-minute grid) is kept and served via history.json.
+    public var historyHours = 48
     public var workers = 3
     public var availabilityDelaySeconds = 200.0
     public var jitterSeconds = 20.0
@@ -82,6 +84,7 @@ public struct Config: Sendable {
         c.wmsURL = env["WMS_URL"] ?? c.wmsURL
         c.width = try int("IMAGE_WIDTH", c.width)
         c.retentionRuns = try int("RETENTION_RUNS", c.retentionRuns)
+        c.historyHours = try int("HISTORY_HOURS", c.historyHours)
         c.workers = try int("FETCH_WORKERS", c.workers)
         c.availabilityDelaySeconds = try double("AVAILABILITY_DELAY_SECONDS", c.availabilityDelaySeconds)
         c.jitterSeconds = try double("JITTER_SECONDS", c.jitterSeconds)
@@ -98,6 +101,9 @@ public struct Config: Sendable {
         guard (256...2048).contains(c.width) else { throw ConfigError(description: "IMAGE_WIDTH must be between 256 and 2048") }
         guard c.retentionRuns >= 15 else {
             throw ConfigError(description: "RETENTION_RUNS must be at least 15 (12 history analyses, current run, slack)")
+        }
+        guard (1...72).contains(c.historyHours) else {
+            throw ConfigError(description: "HISTORY_HOURS must be between 1 and 72 (the DWD WMS history reaches back about 90 hours)")
         }
         guard (1...10).contains(c.dbPoolSize) else { throw ConfigError(description: "DB_POOL_SIZE must be between 1 and 10") }
         guard (1...6).contains(c.workers) else { throw ConfigError(description: "FETCH_WORKERS must be between 1 and 6") }

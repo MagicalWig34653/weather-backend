@@ -118,3 +118,6 @@ final class Locked<Value>: @unchecked Sendable {
     init(_ value: Value) { self.value = value }
     func withLock<T>(_ body: (inout Value) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(&value) }
 }
+
+/// All suites that share the one test database run inside this parent so that they never overlap.
+@Suite("Database", .serialized) enum DatabaseSuites {}

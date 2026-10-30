@@ -98,7 +98,9 @@ public final class Ingestor: Sendable {
             try? await repo.fail(runID: runID, owner: owner, cooldownSeconds: Self.failCooldownSeconds)
             throw error
         }
-        _ = try? await repo.retain(keepPublished: config.retentionRuns, staleAfter: Self.staleAfter)
+        // Analysis slots stay for HISTORY_HOURS plus 15 minutes of slack (derived from the run time, same on all replicas).
+        let keepSince = run.addingTimeInterval(-(Double(config.historyHours) * 3600 + 900))
+        _ = try? await repo.retain(keepPublished: config.retentionRuns, keepAnalysisSince: keepSince, staleAfter: Self.staleAfter)
         return true
     }
 }

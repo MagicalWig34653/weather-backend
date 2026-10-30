@@ -9,7 +9,9 @@ public actor MemoryRepo: Repo {
         var attempts: Int
         var lease: Date
         var publishedAt: Date?
+        var backfilled = false
     }
+    private var leaders: [String: (owner: String, until: Date)] = [:]
     private let clock: @Sendable () -> Date
     private var runs: [String: Run] = [:]
     private var slots: [String: [String: (ref: SlotRef, type: String, sha: String, data: [UInt8])]] = [:]
@@ -21,16 +23,20 @@ public actor MemoryRepo: Repo {
     public func migrate() async throws {}
     public func ping() async throws {}
 
-    public func tryClaim(runID: String, nominal: Date, owner: String, leaseSeconds: Int, maxAttempts: Int) async throws -> Bool {
+    public func tryClaim(runID: String, nominal: Date, owner: String, leaseSeconds: Int, maxAttempts: Int, backfill: Bool) async throws -> Bool {
         let now = clock()
         guard var run = runs[runID] else {
             runs[runID] = Run(nominal: nominal, status: "claimed", owner: owner, attempts: 1,
-                              lease: now.addingTimeInterval(Double(leaseSeconds)))
+                              lease: now.addingTimeInterval(Double(leaseSeconds)), backfilled: backfill)
             return true
         }
         if run.status == "published" || run.lease >= now || run.attempts >= maxAttempts { return false }
         run.status = "claimed"; run.owner = owner; run.attempts += 1
         run.lease = now.addingTimeInterval(Double(leaseSeconds))
+        if backfill {
+            run.backfilled = true
+            slots[runID] = slots[runID]?.filter { $0.value.ref.slotIndex == 0 }
+        }
         runs[runID] = run
         return true
     }
@@ -75,10 +81,36 @@ public actor MemoryRepo: Repo {
 
     public func historySlots(since: Date, before: Date) async throws -> [SlotRef] {
         var out: [SlotRef] = []
+        for (runID, run) in runs where run.status == "published" && !run.backfilled && run.nominal >= since && run.nominal < before {
+            out += (slots[runID] ?? [:]).values.map(\.ref).filter { $0.slotIndex == 0 }
+        }
+        return out.sorted { $0.slotTime < $1.slotTime }
+    }
+
+    public func analysisSlots(since: Date, before: Date) async throws -> [SlotRef] {
+        var out: [SlotRef] = []
         for (runID, run) in runs where run.status == "published" && run.nominal >= since && run.nominal < before {
             out += (slots[runID] ?? [:]).values.map(\.ref).filter { $0.slotIndex == 0 }
         }
         return out.sorted { $0.slotTime < $1.slotTime }
+    }
+
+    public func settledRunTimes(since: Date, until: Date, maxAttempts: Int) async throws -> Set<Date> {
+        let now = clock()
+        return Set(runs.values.filter {
+            $0.nominal >= since && $0.nominal <= until && ($0.status == "published" || $0.attempts >= maxAttempts || $0.lease >= now)
+        }.map(\.nominal))
+    }
+
+    public func acquireLeader(name: String, owner: String, leaseSeconds: Int) async throws -> Bool {
+        let now = clock()
+        if let current = leaders[name], current.owner != owner, current.until >= now { return false }
+        leaders[name] = (owner, now.addingTimeInterval(Double(leaseSeconds)))
+        return true
+    }
+
+    public func releaseLeader(name: String, owner: String) async throws {
+        if leaders[name]?.owner == owner { leaders[name] = nil }
     }
 
     public func getSlot(runID: String, slotID: String) async throws -> SlotBlob? {
@@ -86,9 +118,15 @@ public actor MemoryRepo: Repo {
         return SlotBlob(contentType: v.type, sha256: v.sha, data: v.data)
     }
 
-    public func retain(keepPublished: Int, staleAfter: TimeInterval) async throws -> Int {
-        let published = runs.filter { $0.value.status == "published" }.sorted { $0.value.nominal > $1.value.nominal }
-        var doomed = published.dropFirst(max(0, keepPublished)).map(\.key)
+    public func retain(keepPublished: Int, keepAnalysisSince: Date, staleAfter: TimeInterval) async throws -> Int {
+        let full = runs.filter { $0.value.status == "published" && !$0.value.backfilled }.sorted { $0.value.nominal > $1.value.nominal }
+        if full.count >= keepPublished, keepPublished > 0 {
+            let cutoff = full[keepPublished - 1].value.nominal
+            for (id, run) in runs where run.status == "published" && run.nominal < cutoff {
+                slots[id] = slots[id]?.filter { $0.value.ref.slotIndex == 0 }
+            }
+        }
+        var doomed = runs.filter { $0.value.status == "published" && $0.value.nominal < keepAnalysisSince }.map(\.key)
         let cutoff = clock().addingTimeInterval(-staleAfter)
         doomed += runs.filter { $0.value.status != "published" && $0.value.lease < cutoff }.map(\.key)
         for id in doomed { runs[id] = nil; slots[id] = nil }

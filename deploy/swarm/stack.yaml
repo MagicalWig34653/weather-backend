@@ -17,6 +17,7 @@ x-radar: &radar
     DB_POOL_SIZE: ${DB_POOL_SIZE:-4}
     CACHE_MAX_MB: ${CACHE_MAX_MB:-64}
     RETENTION_RUNS: ${RETENTION_RUNS:-16}
+    HISTORY_HOURS: ${HISTORY_HOURS:-48}
     FETCH_WORKERS: ${FETCH_WORKERS:-3}
     USER_AGENT: ${USER_AGENT:-ShowerNow-radar-ingest/1.0}
     WMS_URL: ${WMS_URL:-https://maps.dwd.de/geoserver/ows}

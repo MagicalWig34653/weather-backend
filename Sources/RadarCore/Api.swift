@@ -55,6 +55,7 @@ public actor SlotCache {
 public final class Api: Sendable {
     public static let immutable = "public, max-age=31536000, immutable"
     public static let latest = "public, max-age=30, stale-while-revalidate=30"
+    public static let history = "public, max-age=60, stale-while-revalidate=60"
     static let pageCSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
     static let manifestTTL: TimeInterval = 5
 
@@ -64,12 +65,19 @@ public final class Api: Sendable {
     let clock: @Sendable () -> Date
     public let cache: SlotCache
     private let manifestState = ManifestState()
+    private let historyState = ManifestState()
 
+    /// Short memo with single-flight: concurrent requests share one build.
     actor ManifestState {
         var value: (at: Date, body: [UInt8]?)?
-        func get(now: Date, ttl: TimeInterval, build: () async throws -> [UInt8]?) async throws -> [UInt8]? {
+        var flight: Task<[UInt8]?, Error>?
+        func get(now: Date, ttl: TimeInterval, build: @escaping @Sendable () async throws -> [UInt8]?) async throws -> [UInt8]? {
             if let value, now.timeIntervalSince(value.at) <= ttl { return value.body }
-            let body = try await build()
+            if let flight { return try await flight.value }
+            let task = Task { try await build() }
+            flight = task
+            defer { flight = nil }
+            let body = try await task.value
             value = (now, body)
             return body
         }
@@ -125,6 +133,15 @@ public final class Api: Sendable {
             }) else { return Self.notFound }
             let etag = "\"" + Hashing.sha256Hex(body).prefix(32) + "\""
             return respond(headers: [("Content-Type", "application/json"), ("Cache-Control", Self.latest)],
+                           body: body, ifNoneMatch: ifNoneMatch, etag: etag)
+        }
+        if path == "/v1/radar/history.json" {
+            let repo = self.repo, config = self.config
+            guard let body = try await historyState.get(now: clock(), ttl: Self.manifestTTL, build: {
+                try await Manifest.buildHistory(repo: repo, config: config)
+            }) else { return Self.notFound }
+            let etag = "\"" + Hashing.sha256Hex(body).prefix(32) + "\""
+            return respond(headers: [("Content-Type", "application/json"), ("Cache-Control", Self.history)],
                            body: body, ifNoneMatch: ifNoneMatch, etag: etag)
         }
         if let (runID, slotID) = Self.parseSlotRoute(path) {
