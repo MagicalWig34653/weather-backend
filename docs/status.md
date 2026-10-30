@@ -53,3 +53,12 @@ Lokale Repo-Zuordnung eingerichtet und durch Agent geprüft: `LOCAL_WORKSPACE.md
 Die verbindliche kleine Hierarchie mit ausschließlich koordinierendem Hauptagenten und technischem Lead steht in `team.md`. Frische ausführende Agents übernehmen abgegrenzte Aufgaben; Sessions bleiben aus dem Repository fortsetzbar.
 
 Im [Apple-Repo](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md) liegt inzwischen der geprüfte native iPhone-Prototyp mit zwölf erfolgreichen Datentests, Quellen-/Datenschutz-Smoke und abschließend erfolgreichem Orts-CRUD-Smoke vor. Unabhängiges Review ohne offene P1-/P2-Befunde; Live-Providergrenzen bleiben dokumentiert. Icon-Design und TestFlight-Upload sind noch offen, keine fertige Version 1. Backend-Implementierung bleibt zurückgestellt. Dieser Backend-Checkpoint ändert ausschließlich Prozess-/Statusdokumentation; keine Builds oder Anwendungstests ausgeführt.
+
+## Radar-Cache Stufe 1 (30. Oktober 2026)
+
+Umgesetzt: `ingest/` (Python-Dienst: Claim, Ingest, Veröffentlichung, API mit LRU/ETag), `ingest/migrations/`, `deploy/swarm/` (Stackfile, `setup.sh`, `update.sh`, `stack.env.example`), GitHub-Workflows (CI mit MariaDB-Service, Image-Publish nach ghcr.io). Entscheidungen: [decisions.md](decisions.md).
+
+Geprüft (tatsächlich ausgeführt, lokal): `ruff check`; alle Unit-Tests mit In-Memory-Fake und zusätzlich gegen eine lokale MariaDB 12.3 (Wegwerf-Container) inklusive Claim-Konkurrenz, Lease-Übernahme, atomarer Veröffentlichung, Retention, ETag/304, Single-Flight; `shellcheck` für beide Skripte; `docker compose config` für das Stackfile; Docker-Build des Images (arm64); Rauchtest des Containers gegen lokale MariaDB mit echtem DWD (ein Lauf, 25 Slots veröffentlicht, `latest.json` ausgeliefert, Healthcheck healthy).
+Nicht geprüft: Ausführung von `setup.sh`/`update.sh` und `docker stack deploy` auf einem echten Swarm; Mehr-Replikat-Betrieb unter Swarm (Konkurrenz nur per Threads/Fake und DB-Test); GitHub-Actions-Läufe; amd64-Build; Lastverhalten bei Regenlage; Zoraxy-Anbindung; ghcr.io-Veröffentlichung.
+Manuell durch den Betreiber: DB und Benutzer anlegen, `setup.sh` (Secret, `stack.env`), Paketsichtbarkeit auf ghcr.io, Actions-Berechtigung, Proxy-Upstream, optional DWD-Anfrage.
+Nächste Schritte: App-Anbindung (Build 9, separater Auftrag); Praxisbeobachtung der Fehlerrate des DWD und der Ingest-Dauer; Nasslagen-Größen messen; optional nginx-Cache-Sidecar; später Benachrichtigungen auf derselben Pipeline.

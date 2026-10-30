@@ -6,7 +6,7 @@ Lies vor der Arbeit die gemeinsamen Repository-Anweisungen:
 
 Die aktuellen Produktentscheidungen stehen in `docs/decisions.md`, Plan und Arbeitsstand in `docs/plan.md` und `docs/status.md`.
 
-Dieses Backend-Repo ist noch ein Planungsrepo ohne Anwendung und Build-/Test-/Deployment-Konfiguration; zuerst wird die Apple-App entwickelt.
+Dieses Backend-Repo enthält seit dem 30. Oktober 2026 den Radar-Cache (Stufe 1, siehe `README.md`); der Pushdienst folgt später.
 
 Verbindlich: Hauptagent und technischer Lead koordinieren ausschließlich; jede neue Ergebnisaufgabe erhält einen frischen ausführenden Agent. Unabhängige Aufgaben mit getrenntem Dateibesitz parallel bearbeiten, zunächst höchstens drei produktive Worker. Der Ablauf steht in `docs/team.md`.
 

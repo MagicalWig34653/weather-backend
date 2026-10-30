@@ -20,3 +20,12 @@ backups/
 
 # Rechnerbezogene Repository-Pfade bleiben privat.
 /LOCAL_WORKSPACE.md
+
+# Lokale Stack-Konfiguration (Platzhalter nur in stack.env.example)
+deploy/swarm/stack.env
+deploy/swarm/stack.env.bak
+deploy/swarm/*.env.*.bak
+__pycache__/
+*.pyc
+.ruff_cache/
+.venv/
