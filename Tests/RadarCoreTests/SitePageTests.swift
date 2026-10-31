@@ -38,6 +38,14 @@ struct SitePageTests {
         #expect(q.status == 200)
     }
 
+    @Test func privacyMentionsAppleMapsAndSearch() async throws {
+        let t = text(try await api(fullInfo).handle(path: "/datenschutz", ifNoneMatch: nil))
+        #expect(t.contains("<h2>6. Kartenansicht und Ortssuche (Apple)</h2>"))
+        #expect(t.contains("Apple MapKit") && t.contains("Suchtext") && t.contains("Datenschutzbestimmungen von Apple"))
+        #expect(t.contains("<h2>10. Quellen</h2>"))
+        #expect(!t.contains("href=\"http"))
+    }
+
     @Test func configuredValuesAppearAndNoticeIsHidden() async throws {
         let t = text(try await api(fullInfo).handle(path: "/datenschutz", ifNoneMatch: nil))
         #expect(t.contains("Erika Beispiel") && t.contains("Musterweg 1<br>12345 Musterstadt"))

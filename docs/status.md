@@ -82,3 +82,7 @@ Umgesetzt: `HISTORY_HOURS` (Standard 48, 1-72) in `Config`, `.env.example`, `sta
 Gemessen (Einzelrequests 30.10.2026): WMS-Zeitwerte bis 90 h zurück abrufbar (auch 24/48/60/72/84 h), 96 h und 108 h je fünfmal XML-Fehler; GetCapabilities nennt nur einen veralteten Zeitbereich und taugt nicht als Grenze. Daher Maximum 72 h. Bildgrößen (trocken bis leichter Regen): WebP 6-29 KB, PNG 45-111 KB. Starker Regen wurde nicht gemessen (Annahme bis ca. 50 KB). Rechnung: 576 Slots, ca. 850 Requests einmalig, bei 20 Requests/min ca. 45-60 min.
 
 Geprüft: `swift test` lokal (macOS) mit Wegwerf-MariaDB 12.3: 46 Tests grün (Fake und MariaDB), 981 s (Debug-Build, PNG-Erzeugung langsam); ohne DB 46 Tests (Fake). Echter Rauchtest mit `HISTORY_HOURS=2`: Backfill lief, `history.json` mit 23 Analyse-Slots aufsteigend, Slot per Pfad abrufbar (WebP, ca. 6,5 KB), ETag/304, `latest.json` byteidentisch vor/nach Backfill, 22 nachgeholte Läufe plus der reguläre. Nicht geprüft: Betrieb mit 48 h auf dem echten Swarm, Regen-Bildgrößen, Mehrreplikat-Leaderwechsel im echten Swarm (nur Test gegen MariaDB).
+
+## Datenschutzseite: Apple-Karte und Ortssuche (31. Oktober 2026)
+
+`/datenschutz` hat den neuen Abschnitt 6 „Kartenansicht und Ortssuche (Apple)“ (Quelle: Diagnosebericht des App-Repos, Teil 2); Test `privacyMentionsAppleMapsAndSearch`, `docs-site/content/seiten.md` und `decisions.md` angepasst. Offen: Betreiberfreigabe des Textes; Apples Datenverarbeitung nicht geprüft.

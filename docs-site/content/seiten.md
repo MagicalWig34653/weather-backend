@@ -12,6 +12,10 @@ Der Radar-Dienst liefert zusätzlich drei kleine, öffentliche HTML-Seiten, die 
 
 Die Seiten sind selbst enthalten (kein externes JavaScript, CSS oder Fonts; helles und dunkles Layout inline), werden mit `Content-Type: text/html; charset=utf-8`, `Cache-Control: public, max-age=3600`, ETag (`If-None-Match` ergibt `304`) und Sicherheits-Headern ausgeliefert (`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restriktive `Content-Security-Policy`). `HEAD` funktioniert; es gibt keine Cookies und, wie bei allen Routen, keine Zugriffsprotokolle. `/v1/radar/*` und `/healthz` bleiben unverändert.
 
+## Inhalt der Datenschutzseite
+
+Zehn Abschnitte: Verantwortlicher, Überblick, Radarkarte und Radar-Dienst, Direktabruf beim DWD, Standort und gespeicherte Orte, Kartenansicht und Ortssuche (Apple), lokale Einordnung, keine Debuglogs mit Personenbezug, Rechte, Quellen. Abschnitt 6 nennt, dass die Basiskarte und die Ortssuche Apple MapKit nutzen, dass Suchtext und ein fester Suchbereich (Deutschland, nicht der Standort) samt IP-Adresse an Apple gehen, dass der Suchtext weder Radar-Dienst noch DWD erreicht und dass gewählte Punkte nur lokal gespeichert werden. Für Apples Verarbeitung verweist er ohne Link auf deren Datenschutzbestimmungen. Grundlage ist der Diagnosebericht des App-Repos (Datenflüsse im Code belegt; Kachelabruf und Apples Praxis nicht geprüft).
+
 ## Konfiguration
 
 Alle Angaben zum Verantwortlichen kommen aus Umgebungsvariablen; im Repository steht nichts davon. Eintrag in der `.env` auf dem Server (Vorlage: `.env.example`), danach `update.sh` ausführen, damit die Replikate die Werte erhalten. Die `.env` wird von der Shell gelesen: Werte mit Leerzeichen in doppelte Anführungszeichen setzen, ohne `$`, Backticks und doppelte Anführungszeichen im Wert.
@@ -29,4 +33,4 @@ Sind die drei Pflichtwerte nicht gesetzt, zeigt `/datenschutz` sichtbar den Hinw
 
 ## Rechtlicher Hinweis
 
-Die Texte fassen die technisch belegten Datenflüsse zusammen (Radar-Dienst ohne Zugriffsprotokolle, Proxy, Direktabruf beim DWD, Standort nur lokal). Sie sind keine Rechtsberatung. Der Betreiber muss Datenschutzerklärung, Verantwortlichen-Angaben und gegebenenfalls ein Impressum selbst rechtlich prüfen, bevor die URLs in App Store Connect eingetragen werden. Die Rechte der Betroffenen sind nur allgemein genannt (Art. 15 bis 21 DSGVO, Beschwerde bei einer Aufsichtsbehörde).
+Die Texte fassen die technisch belegten Datenflüsse zusammen (Radar-Dienst ohne Zugriffsprotokolle, Proxy, Direktabruf beim DWD, Apple-Karte und Ortssuche über MapKit, Standort nur lokal). Sie sind keine Rechtsberatung. Der Betreiber muss Datenschutzerklärung, Verantwortlichen-Angaben und gegebenenfalls ein Impressum selbst rechtlich prüfen, bevor die URLs in App Store Connect eingetragen werden. Die Rechte der Betroffenen sind nur allgemein genannt (Art. 15 bis 21 DSGVO, Beschwerde bei einer Aufsichtsbehörde).

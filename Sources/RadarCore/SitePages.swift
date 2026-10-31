@@ -132,16 +132,20 @@ public enum SitePages {
         <h2>5. Standort und gespeicherte Orte</h2>
         <p>Der Standortzugriff ist optional und wird erst angefragt, wenn du den Standort verwenden willst. Es gibt keine Hintergrundortung und keine Standortverläufe. Der Standort verbleibt auf dem Gerät; für die Prognose wird nur der Punkt an den DWD gesendet (siehe Abschnitt 4). Gespeicherte Orte liegen ausschließlich lokal auf dem Gerät.</p>
 
-        <h2>6. Lokale Einordnung</h2>
+        <h2>6. Kartenansicht und Ortssuche (Apple)</h2>
+        <p>Die Karte und die Ortssuche der App nutzen Apple MapKit. Für die Basiskarte ruft dein Gerät die Kartendaten des angezeigten Ausschnitts von Apple ab. Wenn du nach einem Ort suchst, sendet die App deinen Suchtext und einen festen Suchbereich (Deutschland, nicht dein Standort) an Apple. Dabei sieht Apple technisch bedingt deine IP-Adresse. Der Suchtext geht nicht an den Radar-Dienst und nicht an den DWD. Die Verarbeitung durch Apple richtet sich nach den Datenschutzbestimmungen von Apple.</p>
+        <p>Ein Punkt, den du per Suche, langem Druck auf die Karte oder über die Standortfunktion wählst, wird nur lokal auf dem Gerät gespeichert. An den DWD geht für die Prognose lediglich dieser Punkt (siehe Abschnitt 4). Der Radar-Dienst erhält keinen Ort.</p>
+
+        <h2>7. Lokale Einordnung</h2>
         <p>Die kurze Einordnung der Regenlage erstellt Apple Foundation Models auf dem Gerät. Dabei werden keine Koordinaten oder Ortsnamen an Dritte gesendet.</p>
 
-        <h2>7. Keine Debuglogs mit Personenbezug</h2>
+        <h2>8. Keine Debuglogs mit Personenbezug</h2>
         <p>Die App protokolliert keine URLs, Standorte oder Fehler-Rohdaten. Zwischenspeicher liegen im Arbeitsspeicher beziehungsweise lokal auf dem Gerät.</p>
 
-        <h2>8. Deine Rechte</h2>
+        <h2>9. Deine Rechte</h2>
         <p>Dir stehen nach der Datenschutz-Grundverordnung (DSGVO) insbesondere die Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch zu (Art. 15 bis 21 DSGVO). Zudem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren. Wende dich für Anfragen an die oben genannte Stelle.</p>
 
-        <h2>9. Quellen</h2>
+        <h2>10. Quellen</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet.</p>
         """
         return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der ShowerNow-App und des Radar-Dienstes.", body: body)
