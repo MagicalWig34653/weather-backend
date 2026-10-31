@@ -41,7 +41,7 @@ public enum Manifest {
             + "\"path\":\(jsonString(slotPath(runID: ref.runID, slotID: ref.slotID)))}"
     }
 
-    private static func imageJSON(config: Config) -> String {
+    static func imageJSON(config: Config) -> String {
         let bbox = RadarConstants.bbox
         let sw = RadarConstants.mercatorToWGS84(x: bbox[0], y: bbox[1])
         let ne = RadarConstants.mercatorToWGS84(x: bbox[2], y: bbox[3])

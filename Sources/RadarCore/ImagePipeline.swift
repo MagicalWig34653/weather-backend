@@ -39,12 +39,12 @@ public enum ImagePipeline {
 
     /// Throws `ImageError` when the response is not a plausible radar PNG
     /// (XML error such as InvalidDimensionValue, truncated, wrong size).
-    public static func validatePNG(_ data: [UInt8], width: Int, height: Int) throws -> RGBAImage {
+    public static func validatePNG(_ data: [UInt8], width: Int, height: Int, sizeRange: ClosedRange<Int>? = nil) throws -> RGBAImage {
         if let first = data.first(where: { $0 != 0x20 && $0 != 0x0A && $0 != 0x0D && $0 != 0x09 }), first == 0x3C {
             throw ImageError.invalid("XML/text response instead of an image")
         }
         guard data.starts(with: pngSignature) else { throw ImageError.invalid("not a PNG") }
-        guard (minBytes...maxBytes).contains(data.count) else { throw ImageError.invalid("implausible size \(data.count) bytes") }
+        guard (sizeRange ?? minBytes...maxBytes).contains(data.count) else { throw ImageError.invalid("implausible size \(data.count) bytes") }
         let image: PNG.Image
         do {
             var source = ByteSource(data)
@@ -75,19 +75,51 @@ public enum ImagePipeline {
                          pixels: Array(UnsafeBufferPointer(start: pointer, count: Int(width) * Int(height) * 4)))
     }
 
-    /// Lossless and exact: the DWD palette stays unchanged (259-260 distinct RGBA values, PNG8 would be lossy).
-    public static func toWebP(_ image: RGBAImage) throws -> [UInt8] {
+    /// Number of cells of a `grid` x `grid` raster that consist (almost) only of pure black pixels (alpha ignored).
+    /// A missing server-side tile renders black; real satellite or mask images have no such cell.
+    public static func blackCells(_ image: RGBAImage, grid: Int = 16) -> Int {
+        let cellW = max(1, image.width / grid), cellH = max(1, image.height / grid)
+        var count = 0
+        for gy in 0..<grid {
+            for gx in 0..<grid {
+                var black = 0, total = 0
+                var y = gy * cellH
+                while y < min((gy + 1) * cellH, image.height) {
+                    var x = gx * cellW
+                    while x < min((gx + 1) * cellW, image.width) {
+                        let o = (y * image.width + x) * 4
+                        if image.pixels[o] == 0 && image.pixels[o + 1] == 0 && image.pixels[o + 2] == 0 { black += 1 }
+                        total += 1
+                        x += 2
+                    }
+                    y += 2
+                }
+                if total > 0, Double(black) / Double(total) > 0.995 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// Lossless and exact by default: the DWD palette stays unchanged (259-260 distinct RGBA values, PNG8 would be lossy).
+    /// `lossless: false` is for photographic layers (satellite colour composites), `quality` 0-100.
+    public static func toWebP(_ image: RGBAImage, lossless: Bool = true, quality: Float = 100) throws -> [UInt8] {
         var config = WebPConfig()
         guard WebPConfigInit(&config) != 0 else { throw ImageError.invalid("webp config") }
-        config.lossless = 1
-        config.quality = 100
-        config.method = 6
-        config.exact = 1
+        if lossless {
+            config.lossless = 1
+            config.quality = 100
+            config.method = 6
+            config.exact = 1
+        } else {
+            config.lossless = 0
+            config.quality = quality
+            config.method = 4
+        }
         guard WebPValidateConfig(&config) != 0 else { throw ImageError.invalid("webp config invalid") }
         var picture = WebPPicture()
         guard WebPPictureInit(&picture) != 0 else { throw ImageError.invalid("webp picture") }
         defer { WebPPictureFree(&picture) }
-        picture.use_argb = 1
+        picture.use_argb = lossless ? 1 : 0
         picture.width = Int32(image.width)
         picture.height = Int32(image.height)
         let imported = image.pixels.withUnsafeBufferPointer { buffer in

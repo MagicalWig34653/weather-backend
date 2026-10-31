@@ -26,7 +26,7 @@ func httpFetch(config: Config) -> Fetch {
         var request = HTTPClientRequest(url: url)
         request.headers.add(name: "User-Agent", value: userAgent)
         let response = try await HTTPClient.shared.execute(request, timeout: .seconds(Int64(timeout)))
-        var body = try await response.body.collect(upTo: 4_000_000)
+        var body = try await response.body.collect(upTo: 8_000_000)
         return body.readBytes(length: body.readableBytes) ?? []
     }
 }
@@ -84,6 +84,31 @@ func runBackfillLoop(config: Config, repo: any Repo, activity: ActivityFlag, log
         while !Task.isCancelled, slept < pause { try? await Task.sleep(nanoseconds: 1_000_000_000); slept += 1 }
     }
     await backfiller.release()
+}
+
+/// Loop of one additional layer (leader-only work inside `tick`); polls gently, never faster than every 2 minutes.
+func runLayerLoop(spec: LayerSpec, config: Config, repo: any Repo, logger: Logger) async {
+    let ingestor = LayerIngestor(spec: spec, config: config, repo: repo, fetch: httpFetch(config: config), owner: replicaID())
+    let interval = spec.kind == .forecast ? 600.0 : max(120.0, spec.stepSeconds / 3)
+    try? await Task.sleep(nanoseconds: UInt64((20 + Double.random(in: 0..<30)) * 1e9))
+    var failures = 0
+    while !Task.isCancelled {
+        var pause = interval
+        do {
+            let r = try await ingestor.tick()
+            if r.stored > 0 || r.failed > 0 { logger.info("layer \(spec.id): stored \(r.stored), failed \(r.failed)") }
+            failures = r.failed > 0 && r.stored == 0 ? failures + 1 : 0
+        } catch is CancellationError {
+            break
+        } catch {
+            failures += 1
+            logger.warning("layer \(spec.id) tick failed (\(type(of: error)))")
+        }
+        if failures > 2 { pause += Double(min(60 * (failures - 2), 600)) }
+        var slept = 0.0
+        while !Task.isCancelled, slept < pause { try? await Task.sleep(nanoseconds: 1_000_000_000); slept += 1 }
+    }
+    await ingestor.release()
 }
 
 /// HTTP/2 transport to APNs (AsyncHTTPClient negotiates h2 via ALPN). Not yet exercised against the real service.
@@ -173,16 +198,21 @@ func serve(config: Config) async throws {
     let loop = Task { await runIngestLoop(config: config, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
     let backfill = Task { await runBackfillLoop(config: config, repo: repo, activity: activity, logger: logger) }
     let pushLoop = Task { await runPushLoop(config: config, repo: repo, logger: logger) }
+    let layerLoops = config.layers.compactMap { id in
+        LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, repo: repo, logger: logger) } }
+    }
     do {
         try await app.execute()
     } catch {
-        loop.cancel(); backfill.cancel(); pushLoop.cancel()
+        loop.cancel(); backfill.cancel(); pushLoop.cancel(); layerLoops.forEach { $0.cancel() }
+        for t in layerLoops { await t.value }
         await loop.value; await backfill.value; await pushLoop.value
         try? await app.asyncShutdown()
         await repo.shutdown()
         throw error
     }
-    loop.cancel(); backfill.cancel(); pushLoop.cancel()
+    loop.cancel(); backfill.cancel(); pushLoop.cancel(); layerLoops.forEach { $0.cancel() }
+    for t in layerLoops { await t.value }
     await backfill.value
     await pushLoop.value
     await loop.value  // let a running ingest hand its run over before the DB pool goes away

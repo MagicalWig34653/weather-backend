@@ -24,6 +24,13 @@ public enum TimeUtil {
         Date(timeIntervalSince1970: (date.timeIntervalSince1970 / step).rounded(.down) * step)
     }
 
+    /// Floors a date to a multiple of `interval` seconds since the epoch (UTC grid).
+    public static func floor(_ date: Date, to interval: TimeInterval) -> Date {
+        Date(timeIntervalSince1970: (date.timeIntervalSince1970 / interval).rounded(.down) * interval)
+    }
+
+    public static func year(of date: Date) -> Int { components(date).year ?? 0 }
+
     /// `20261030T1105Z`
     public static func toID(_ date: Date) -> String {
         let c = components(date)

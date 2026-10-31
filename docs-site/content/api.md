@@ -71,6 +71,15 @@ Analysebilder der Vergangenheit (Schema 1, additiv; `latest.json` bleibt unverä
 
 Größe: bis zu 576 Einträge, etwa 60 KB.
 
+## Zusatzebenen `/v1/layers/<ebene>/…`
+
+Ebenen: `pressure`, `lightning`, `clouds`, `cloudmask`. Nur aktiv, wenn in `LAYERS` aktiviert; sonst `404`. Das Radar-API (`/v1/radar/…`, Schema 1) ist davon unberührt.
+
+- `GET /v1/layers/<ebene>/latest.json`: Cache-Header wie Radar (`max-age=30, stale-while-revalidate=30`), `ETag`/`304`, `404` solange nichts veröffentlicht ist.
+- `GET /v1/layers/<ebene>/<run>/<slot>.webp`: `public, max-age=31536000, immutable`, `ETag`. Pfade in `slots[].path` sind relativ zu `/v1/layers/<ebene>/`.
+- Schema 1 mit eigenem Slot-Katalog: `layer`, `title`, `kind` (`forecast` Luftdruck mit `analysis`/`forecast`-Slots und `forecast_horizon_minutes`; `observation` mit `history_hours`), `run`, `reference_time`, `generated_at`, `step_minutes` (60, 5, 10, 15), `image` (wie Radar: EPSG:3857, gleiche bbox, `width`/`height`), `slots`, `attribution`, `modification_notice` und, falls die Quelle eine Legende nennt, `legend` (`url`, `width`, `height`; nur Verweis, nichts gespeichert). Wolkenebenen: deckende Bilder (`clouds` WebP verlustbehaftet, `cloudmask` verlustfrei). Quelle: DWD `Quelle: Deutscher Wetterdienst`; EUMETSAT wörtlich `Contains modified EUMETSAT Meteosat data <Jahr>` (Jahr der Veröffentlichung des neuesten Slots).
+- Beobachtungsebenen listen nur veröffentlichte Slots, Lücken sind erlaubt; EUMETSAT-Bilder mit fehlenden (schwarzen) Kacheln werden nie veröffentlicht.
+
 ## `GET /healthz`
 
 Liveness für den Healthcheck (nur intern gedacht): `200` mit Body `ok`, `503` mit `stale`, wenn die Ingest-Schleife nicht mehr lebt. Prüft nicht die Datenaktualität.

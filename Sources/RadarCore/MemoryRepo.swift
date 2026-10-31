@@ -12,8 +12,11 @@ public actor MemoryRepo: Repo {
         var backfilled = false
     }
     var push = MemoryPushStore()
+    var layerRuns: [String: Run] = [:]
+    var layerSlots: [String: [String: (ref: SlotRef, type: String, sha: String, data: [UInt8])]] = [:]
     private var leaders: [String: (owner: String, until: Date)] = [:]
     private let clock: @Sendable () -> Date
+    func clockNow() -> Date { clock() }
     private var runs: [String: Run] = [:]
     private var slots: [String: [String: (ref: SlotRef, type: String, sha: String, data: [UInt8])]] = [:]
 

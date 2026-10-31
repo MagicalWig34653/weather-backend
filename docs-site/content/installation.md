@@ -113,6 +113,10 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 |---|---|---|
 | `CACHE_MAX_MB` | `64` | LRU-Cache je Replikat. |
 | `RETENTION_RUNS` | `16` | Aufbewahrte veröffentlichte Läufe mit allen Vorhersage-Slots, mindestens 15. |
+| `LAYERS` | `radar` | Zusatzebenen, kommagetrennt: `pressure` (Luftdruck, DWD ICON), `lightning` (Blitzdichte, DWD), `clouds` (Geo Colour, EUMETSAT), `cloudmask` (Wolkenmaske, EUMETSAT). Ohne Eintrag startet nichts Neues; die Migration `004` muss vorher gelaufen sein (`update.sh`). Unbekannte Namen verhindern den Start. |
+| `PRESSURE_FORECAST_HOURS` | `48` | Vorhersagestunden je Luftdruck-Lauf (1 bis 168); jeder Lauf kostet so viele Abrufe. `PRESSURE_RETENTION_RUNS` (Standard 2, 2 bis 8) bestimmt die behaltenen Läufe. |
+| `LIGHTNING_HISTORY_HOURS`, `CLOUDS_HISTORY_HOURS`, `CLOUDMASK_HISTORY_HOURS` | `3` | Aufbewahrte Vergangenheit je Beobachtungsebene (1 bis 24 Stunden). |
+| `LAYER_PAUSE_SECONDS` | `2` | Pause zwischen zwei Abrufen einer Zusatzebene (0 bis 60); je Ebene arbeitet nur ein Replikat (Leader), nie parallel. |
 | `HISTORY_HOURS` | `48` | Aufbewahrte und über `history.json` ausgelieferte Vergangenheit (Analysebilder), 1 bis 72 Stunden. Ungültige Werte verhindern den Start. Das DWD-WMS liefert Zeitwerte nur etwa 90 Stunden zurück. |
 | `FETCH_WORKERS` | `3` | Parallele DWD-Requests, 1 bis 6. |
 | `USER_AGENT` | `ShowerNow-radar-ingest/1.0` | Kennung gegenüber dem DWD, z. B. mit Kontakt-URL des Betreibers; keine Daten von App-Nutzern. |

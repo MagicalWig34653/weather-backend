@@ -67,6 +67,7 @@ public final class Api: Sendable {
     let push: PushApi
     private let manifestState = ManifestState()
     private let historyState = ManifestState()
+    private let layerStates: [String: ManifestState] = Dictionary(uniqueKeysWithValues: LayerCatalog.order.map { ($0, ManifestState()) })
 
     /// Short memo with single-flight: concurrent requests share one build.
     actor ManifestState {
@@ -113,6 +114,19 @@ public final class Api: Sendable {
         return (String(parts[0]), String(parts[1]))
     }
 
+    /// `/v1/layers/<layer>/latest.json` -> (layer, nil); `/v1/layers/<layer>/<run>/<slot>.webp` -> (layer, (run, slot)).
+    static func parseLayerRoute(_ path: String) -> (layer: String, slot: (String, String)?)? {
+        let prefix = "/v1/layers/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let parts = path.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard let layer = parts.first, LayerCatalog.specs[layer] != nil else { return nil }
+        if parts.count == 2, parts[1] == "latest.json" { return (layer, nil) }
+        guard parts.count == 3, parts[2].hasSuffix(".webp") else { return nil }
+        let slotID = String(parts[2].dropLast(5))
+        guard TimeUtil.fromID(parts[1]) != nil, TimeUtil.fromID(slotID) != nil else { return nil }
+        return (layer, (parts[1], slotID))
+    }
+
     private static let notFound = ApiResponse(status: 404, headers: [("Cache-Control", "no-store")], body: [])
 
     /// Push registration routes (/v1/push/...); 404 when push is disabled or the path is unknown.
@@ -157,6 +171,22 @@ public final class Api: Sendable {
             else { return Self.notFound }
             return respond(headers: [("Content-Type", blob.contentType), ("Cache-Control", Self.immutable)],
                            body: blob.data, ifNoneMatch: ifNoneMatch, etag: "\"\(blob.sha256)\"")
+        }
+        if let route = Self.parseLayerRoute(path), let spec = config.spec(for: route.layer), let state = layerStates[route.layer] {
+            let repo = self.repo, config = self.config
+            if let (runID, slotID) = route.slot {
+                guard let blob = try await cache.load("layer:\(spec.id)/\(runID)/\(slotID)",
+                                                      { try await repo.layerGetSlot(layer: spec.id, runID: runID, slotID: slotID) })
+                else { return Self.notFound }
+                return respond(headers: [("Content-Type", blob.contentType), ("Cache-Control", Self.immutable)],
+                               body: blob.data, ifNoneMatch: ifNoneMatch, etag: "\"\(blob.sha256)\"")
+            }
+            guard let body = try await state.get(now: clock(), ttl: Self.manifestTTL, build: {
+                try await LayerManifest.build(repo: repo, config: config, spec: spec)
+            }) else { return Self.notFound }
+            let etag = "\"" + Hashing.sha256Hex(body).prefix(32) + "\""
+            return respond(headers: [("Content-Type", "application/json"), ("Cache-Control", Self.latest)],
+                           body: body, ifNoneMatch: ifNoneMatch, etag: etag)
         }
         return Self.notFound
     }

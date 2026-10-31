@@ -61,6 +61,10 @@ Voraussetzung (nicht Teil dieses Repos): Swarm, MariaDB mit Datenbank und Benutz
 
 Das Image heißt fest `ghcr.io/magicalwig34653/weather-backend-radar` (Tags: `edge` und `latest` für `main`, `sha-<commit>`, Version bei `v*`-Tags); amd64 und arm64 werden nativ gebaut. Alle Variablen der `.env`: `.env.example`.
 
+### Zusatzebenen (optional)
+
+`LAYERS=pressure,lightning,clouds,cloudmask` (Standard nur Radar) schaltet weitere Ebenen unter `/v1/layers/<ebene>/latest.json` und `/v1/layers/<ebene>/<run>/<slot>.webp` ein; eigenes Manifest, Slot-Katalog, Leader-Lease und Retention je Ebene (Migration `004`). Details: `docs-site/content/api.md`, Variablen: `.env.example`.
+
 ### Konfiguration
 
 Nur Umgebungsvariablen (`.env` für den Stack) und das Swarm-Secret. Das DB-Passwort ist ausschließlich das Secret (`DB_PASSWORD_FILE`). Der Radar-Dienst selbst führt keine Zugriffsprotokolle und speichert keine IP-Adressen oder Abfragedetails; Logs enthalten nur Lauf-IDs und Fehlerklassen. Ein vorgeschalteter Reverse Proxy sieht technisch bedingt die IP-Adresse jedes Abrufs. Ob und wie lange er protokolliert, bestimmt der Betreiber (bei Zoraxy die Einstellung der Zugriffslogs prüfen und gegebenenfalls abschalten oder kurz halten).

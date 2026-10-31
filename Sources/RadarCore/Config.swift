@@ -60,6 +60,18 @@ public struct Config: Sendable {
     public var userAgent = "ShowerNow-radar-ingest/1.0"
     public var migrationsDirectory = "migrations"
     public var site = SiteInfo()
+    /// Additional layers (`LAYERS`); the radar always runs. Default: none.
+    public var layers: [String] = []
+    public var eumetsatWMSURL = "https://view.eumetsat.int/geoserver/wms"
+    /// Hours of ICON forecast per pressure run (`PRESSURE_FORECAST_HOURS`, 1-168).
+    public var pressureForecastHours = 48
+    public var pressureRetentionRuns = 2
+    /// Hours of past slots kept and listed per observation layer (`LIGHTNING_/CLOUDS_/CLOUDMASK_HISTORY_HOURS`).
+    public var lightningHistoryHours = 3
+    public var cloudsHistoryHours = 3
+    public var cloudmaskHistoryHours = 3
+    /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
+    public var layerPauseSeconds = 2.0
     public var push = PushSettings()
 
     public init() {}
@@ -104,6 +116,14 @@ public struct Config: Sendable {
         c.jitterSeconds = try double("JITTER_SECONDS", c.jitterSeconds)
         c.requestTimeoutSeconds = try double("REQUEST_TIMEOUT_SECONDS", c.requestTimeoutSeconds)
         c.userAgent = env["USER_AGENT"] ?? c.userAgent
+        c.eumetsatWMSURL = env["EUMETSAT_WMS_URL"] ?? c.eumetsatWMSURL
+        c.pressureForecastHours = try int("PRESSURE_FORECAST_HOURS", c.pressureForecastHours)
+        c.pressureRetentionRuns = try int("PRESSURE_RETENTION_RUNS", c.pressureRetentionRuns)
+        c.lightningHistoryHours = try int("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours)
+        c.cloudsHistoryHours = try int("CLOUDS_HISTORY_HOURS", c.cloudsHistoryHours)
+        c.cloudmaskHistoryHours = try int("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours)
+        c.layerPauseSeconds = try double("LAYER_PAUSE_SECONDS", c.layerPauseSeconds)
+        c.layers = try LayerCatalog.parse(env["LAYERS"])
         c.migrationsDirectory = env["MIGRATIONS_DIR"] ?? c.migrationsDirectory
         func text(_ key: String) -> String { String((env[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(500)) }
         c.site.operatorName = text("OPERATOR_NAME")
@@ -140,6 +160,13 @@ public struct Config: Sendable {
         guard (1...72).contains(c.historyHours) else {
             throw ConfigError(description: "HISTORY_HOURS must be between 1 and 72 (the DWD WMS history reaches back about 90 hours)")
         }
+        guard (1...168).contains(c.pressureForecastHours) else { throw ConfigError(description: "PRESSURE_FORECAST_HOURS must be between 1 and 168") }
+        guard (2...8).contains(c.pressureRetentionRuns) else { throw ConfigError(description: "PRESSURE_RETENTION_RUNS must be between 2 and 8") }
+        for (key, hours) in [("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours), ("CLOUDS_HISTORY_HOURS", c.cloudsHistoryHours),
+                             ("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours)] where !(1...24).contains(hours) {
+            throw ConfigError(description: "\(key) must be between 1 and 24")
+        }
+        guard (0...60).contains(c.layerPauseSeconds) else { throw ConfigError(description: "LAYER_PAUSE_SECONDS must be between 0 and 60") }
         guard (1...10).contains(c.dbPoolSize) else { throw ConfigError(description: "DB_POOL_SIZE must be between 1 and 10") }
         guard (1...6).contains(c.workers) else { throw ConfigError(description: "FETCH_WORKERS must be between 1 and 6") }
         return c

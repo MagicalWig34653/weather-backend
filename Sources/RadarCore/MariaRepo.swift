@@ -332,7 +332,7 @@ public final class MariaRepo: Repo, @unchecked Sendable {
 extension MariaRepo {
     /// Test helper for disposable databases only.
     public func dropAllForTests() async throws {
-        for table in ["push_outbox", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
+        for table in ["layer_slot", "layer_run", "push_outbox", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
             try await rawExecute("DROP TABLE IF EXISTS \(table)")
         }
     }

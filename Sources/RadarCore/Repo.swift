@@ -30,7 +30,7 @@ public struct PublishedRun: Sendable, Equatable {
 
 /// State storage. Contract (see tests): claim/renew/fail/publish are atomic and owner-checked;
 /// readers only see published runs. All times are UTC with second resolution.
-public protocol Repo: PushRepo {
+public protocol Repo: PushRepo, LayerRepo {
     func migrate() async throws
     func ping() async throws
     /// `backfill` marks an analysis-only run (one slot) created by the backfill; a takeover then drops stale forecast slots.
@@ -55,6 +55,25 @@ public protocol Repo: PushRepo {
     /// Keeps the newest `keepPublished` full runs completely; older published runs keep only their analysis slot
     /// until `keepAnalysisSince` and are deleted entirely before it. Unpublished leftovers expire after `staleAfter`.
     func retain(keepPublished: Int, keepAnalysisSince: Date, staleAfter: TimeInterval) async throws -> Int
+}
+
+/// Additional map layers: same claim/publish contract as the radar, keyed by layer id. Observation layers use one run
+/// per slot (run id = slot id); forecast layers one run per reference time with several slots.
+public protocol LayerRepo: Sendable {
+    func layerTryClaim(layer: String, runID: String, nominal: Date, owner: String, leaseSeconds: Int, maxAttempts: Int) async throws -> Bool
+    func layerRenew(layer: String, runID: String, owner: String, leaseSeconds: Int) async throws -> Bool
+    func layerPutSlot(layer: String, _ ref: SlotRef, contentType: String, data: [UInt8]) async throws
+    func layerPublish(layer: String, runID: String, owner: String, expectedSlots: Int) async throws -> Bool
+    func layerFail(layer: String, runID: String, owner: String, cooldownSeconds: Int) async throws
+    func layerIsPublished(layer: String, runID: String) async throws -> Bool
+    func layerLatestPublished(layer: String) async throws -> PublishedRun?
+    func layerPublishedSlots(layer: String, runID: String) async throws -> [SlotRef]
+    /// Slot 0 of all published runs with nominal time in [since, before), ascending.
+    func layerFirstSlots(layer: String, since: Date, before: Date) async throws -> [SlotRef]
+    func layerGetSlot(layer: String, runID: String, slotID: String) async throws -> SlotBlob?
+    /// Deletes published runs that are not among the newest `keepNewest` AND older than `keepSince`, and unpublished
+    /// leftovers after `staleAfter`. Returns the number of deleted runs.
+    func layerRetain(layer: String, keepNewest: Int, keepSince: Date, staleAfter: TimeInterval) async throws -> Int
 }
 
 /// Push registration, evaluation state and outbox. Times are passed in by the caller (UTC, second resolution).
