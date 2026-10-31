@@ -93,7 +93,7 @@ Umgesetzt (Details: [decisions.md](decisions.md), API: `docs-site/content/api.md
 
 Geprüft (31.10., macOS, Debug): `swift build` ok; `swift test` 83 Tests grün ohne DB (Fake) und 83 Tests grün zusätzlich gegen Wegwerf-MariaDB 12.3 (Docker, tmpfs). Neue Tests: `Tests/RadarCoreTests/PushTests.swift` (Automat, Farbzuordnung, Repo-Vertrag Memory+MariaDB, API, ApnsClient mit Fake-Transport inkl. JWT-Signatur, PushService mit FakeApnsSender).
 
-Nicht geprüft/offen: kein Aufruf des echten APNs (kein Key, kein Gerät); die Farbzuordnung ist nicht gegen echte Radarpixel verifiziert (nur gegen die Legendentabelle); Last und Leader-Wechsel nicht gemessen; `stack.yaml`/`setup.sh` nicht um Secret und `APNS_*` erweitert (absichtlich, sonst scheitert der Rollout ohne Secret); `/datenschutz` unverändert (Änderungsbedarf in decisions.md); Ruhezeiten, Obergrenze Installationen, Proxy-Rate-Limit offen. Nutzeraufgaben: APNs-Key und Push-Capability anlegen, Secret `showernow_apns_key` erzeugen, Stack um Secret/Variablen erweitern, Datenschutztext und App-Privacy freigeben, Test auf Gerät (Sandbox/TestFlight).
+Nicht geprüft/offen: kein Aufruf des echten APNs (kein Key, kein Gerät); die Farbzuordnung ist nicht gegen echte Radarpixel verifiziert (nur gegen die Legendentabelle); Last und Leader-Wechsel nicht gemessen; `stack.yaml`/`setup.sh` zunächst nicht um Secret und `APNS_*` erweitert (später per Overlay umgesetzt, siehe unten); `/datenschutz` unverändert (Änderungsbedarf in decisions.md); Ruhezeiten, Obergrenze Installationen, Proxy-Rate-Limit offen. Nutzeraufgaben: APNs-Key und Push-Capability anlegen, Secret `showernow_apns_key` erzeugen, Stack um Secret/Variablen erweitern, Datenschutztext und App-Privacy freigeben, Test auf Gerät (Sandbox/TestFlight).
 
 ## Push-Erweiterungen (31. Oktober 2026)
 
@@ -104,3 +104,11 @@ Offen/Nutzeraufgaben: echter APNs-Aufruf nie geprüft (Testmeldung gegen Fake); 
 ## Zusatzebenen (31. Oktober 2026)
 
 Umgesetzt: `LAYERS`-Schalter, Ebenen pressure/lightning/clouds/cloudmask, Migration 004, `LayerIngestor`, `LayerManifest`, Routen, Tests (`LayerTests.swift`, Fake-Quellen, Memory und MariaDB). Geprüft (macOS, Debug): `swift build`; `swift test` 94 Tests grün gegen Fake und Wegwerf-MariaDB 12.3 (tmpfs, danach entfernt); live gegen DWD/EUMETView einzeln per curl geprüft (GetMap 200, EPSG:3857). Offen: Lauf im echten Dienst, Lastbeobachtung, App-Anbindung.
+
+## Push im Stack, Status-Endpunkt, Fehlersuche (31. Oktober 2026)
+
+Umgesetzt (Details: [decisions.md](decisions.md)): Overlay `deploy/swarm/stack.push.yaml` (nur bei `PUSH_ENABLED=true` eingebunden), APNS-Variablen in `stack.yaml`, Secret-Prüfung in `update.sh`/`swarm-deploy.sh`, Push-Fragen im `setup.sh`, `LAYERS` und Tuning bleiben bei `--reconfigure` erhalten, Workflow `deploy-branch.yml` spiegelt `stack.push.yaml`, `GET /v1/status` (Tests in `LayerTests.swift`), `BUILD_REVISION` (Dockerfile-Argument, Workflow), Fehlersuche „Ebenen 404“ in `docs-site/content/betrieb.md`.
+
+Geprüft (macOS): `swift build`; `swift test` 107 Tests grün (Fake, ohne Datenbank; MariaDB-Fälle nicht gelaufen); `bash -n` und ShellCheck der Skripte; `docker stack config` mit/ohne Overlay (Secret nur mit Overlay, Variablen durchgereicht); `setup.sh --dry-run --non-interactive` mit Push an/aus; `update.sh` mit gefälschtem `docker` (Secret fehlt: Abbruch vor jeder Änderung). Nicht geprüft: Verhalten eines fehlenden externen Secrets und Rollout mit Secret in einem echten Swarm; echter `docker secret create` im Assistenten; Deploy-Branch-Spiegelung siehe Bericht des Pushs.
+
+Nutzeraufgaben: auf dem Server `deploy/swarm/update.sh --pull-scripts --force` (holt Skripte und Overlay, gleicher Tag braucht `--force`); für Push zuvor Secret `showernow_apns_key` anlegen und in der `.env` `PUSH_ENABLED=true`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` setzen; für Ebenen `LAYERS=...` in der `.env`; danach `curl /v1/status`. `/v1/status` und `BUILD_REVISION` gibt es erst mit einem neu gebauten Image.

@@ -122,9 +122,12 @@ if [ "$TAG" = "$CURRENT_TAG" ] && [ "$FORCE" = 0 ]; then
   exit 0
 fi
 if [ "$DRY" = 1 ]; then
-  echo "Dry run: would set RADAR_IMAGE_TAG=${TAG}, run the migration job, then roll ${STACK}_radar."
+  echo "Dry run: would (with PUSH_ENABLED=true: check the APNs key secret, then) set RADAR_IMAGE_TAG=${TAG}, run the migration job, then roll ${STACK}_radar."
   exit 0
 fi
+
+# Push enabled: the APNs key secret must exist before anything is rolled out (clear error instead of a failed deploy).
+require_push_secret "$ENV_FILE"
 
 step "Confirm"
 if [ "$YES" = 0 ]; then

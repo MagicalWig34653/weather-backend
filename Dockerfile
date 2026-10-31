@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=build /src/.build/release/radar /usr/local/bin/radar
 COPY migrations /app/migrations
+ARG BUILD_REVISION=
+ENV BUILD_REVISION=$BUILD_REVISION
 ENV MIGRATIONS_DIR=/app/migrations HTTP_PORT=8080
 USER radar
 EXPOSE 8080

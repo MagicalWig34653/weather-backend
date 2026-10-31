@@ -31,6 +31,24 @@ Der Radar-Dienst führt keine Zugriffsprotokolle und speichert keine IP-Adressen
 | Update bricht mit „rollout did not succeed“ ab | Swarm rollt selbst zurück; `update.sh` stellt die `.env` wieder her. Ursache wie bei „Replikate starten nicht“. |
 | `docker config create` schlägt fehl: Konfiguration existiert („deployment-lock“) | Siehe nächster Abschnitt. |
 
+## Diagnose: `GET /v1/status` und „Ebenen 404“
+
+`GET /v1/status` (intern/Betreiber, `Cache-Control: no-store`, keine Geheimnisse, keine Nutzerdaten) liefert JSON: `revision` (Commit des Images oder `null`), `push` (nur Boolean), `now` und je Ebene (`radar`, `pressure`, `lightning`, `clouds`, `cloudmask`) `enabled`, `has_data` und bei Daten `latest_run` und `published_at`. `/healthz` bleibt unverändert (`ok`/`stale`). Ein `404` auf `/v1/layers/<ebene>/latest.json` bedeutet entweder „Ebene nicht aktiviert“ (`enabled: false`) oder „noch keine Daten“ (`enabled: true`, `has_data: false`); ein Image ohne `/v1/status` antwortet dort `404` und ist zu alt.
+
+```sh
+curl -s http://127.0.0.1:38090/v1/status
+```
+
+Die Umgebungsvariable `LAYERS` (kommagetrennt aus `pressure`, `lightning`, `clouds`, `cloudmask`; `radar` läuft immer) schaltet die Zusatzebenen ein; ohne sie ist nur das Radar aktiv und jede Ebenen-Route antwortet `404`. Zugehörige Stellschrauben: `PRESSURE_FORECAST_HOURS`, `PRESSURE_RETENTION_RUNS`, `LIGHTNING_HISTORY_HOURS`, `CLOUDS_HISTORY_HOURS`, `CLOUDMASK_HISTORY_HOURS`, `LAYER_PAUSE_SECONDS` (siehe `.env.example`).
+
+Symptom „Ebenen 404“, mögliche Ursachen in dieser Reihenfolge prüfen:
+
+1. **`LAYERS` fehlt in der `.env`** auf dem Server oder die `.env` wurde nicht übernommen: `grep ^LAYERS .env`. `update.sh` und `swarm-deploy.sh` lesen nur diese Datei; `.env.example` wirkt nicht. Ältere `setup.sh --reconfigure`-Läufe schrieben die `.env` ohne `LAYERS` neu; neuere Skripte übernehmen die Zeile (`update.sh --pull-scripts` holt sie).
+2. **Gleicher Image-Tag:** `update.sh` tut bei unverändertem Tag nichts. Geänderte `.env` oder `stack.yaml` brauchen `update.sh --force` (neue Skripte: `--pull-scripts --force`).
+3. **Image zu alt:** das laufende Image kennt `LAYERS` noch nicht (Ebenen seit Commit 37e5f2e) oder `/v1/status` fehlt. `docker service ps radar_radar` zeigt das Tag; `update.sh` auf das neueste `sha-`-Tag.
+4. **Migration oder Datenbankrechte:** Migration `004` (Ebenen) und `005` (`ALTER` auf `push_sub`) laufen im Migrationsjob; fehlen `CREATE`/`ALTER`, scheitert er und der Rollout bleibt aus (`docker service logs radar_migrate`).
+5. **Aktiviert, aber noch keine Daten:** `enabled: true`, `has_data: false`. Die erste Veröffentlichung folgt nach einigen Minuten; sonst Ingest-Log auf Fehlerklassen prüfen (Quelle DWD/EUMETSAT nicht erreichbar, schwarze Kacheln werden nie veröffentlicht).
+
 ## Historie nachholen (Backfill)
 
 Nach dem ersten Start mit `HISTORY_HOURS=48` fehlen die 576 Analysebilder der letzten 48 Stunden. Ein Replikat holt sie nach. Rechnung: 576 Slots, etwa ein Drittel der Antworten ist der XML-Fehler, also rund 850 Requests einmalig. Bei höchstens 20 Requests pro Minute dauert das etwa 45 bis 60 Minuten (jeder Durchlauf pausiert zusätzlich 10 s). Danach fällt nur noch pro 5-Minuten-Lauf ein Slot an, der ohnehin vom regulären Lauf stammt. Fortschritt: Logzeile `history backfill: stored N, failed N, missing N`; `history.json` zeigt die gefüllten Slots (Lücken sind erlaubt).

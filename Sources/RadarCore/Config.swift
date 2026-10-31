@@ -73,6 +73,8 @@ public struct Config: Sendable {
     /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
     public var layerPauseSeconds = 2.0
     public var push = PushSettings()
+    /// Commit the image was built from (`BUILD_REVISION`, hex, at most 40 characters); shown by `/v1/status` only.
+    public var buildRevision: String?
 
     public init() {}
 
@@ -132,6 +134,9 @@ public struct Config: Sendable {
         c.site.proxyLogNote = text("PROXY_LOG_NOTE")
         c.site.appStoreURL = text("APP_STORE_URL")
         c.site.testflightURL = text("TESTFLIGHT_URL")
+        if let rev = env["BUILD_REVISION"]?.lowercased(), !rev.isEmpty, rev.count <= 40, rev.allSatisfy({ $0.isHexDigit }) {
+            c.buildRevision = String(rev.prefix(12))
+        }
         c.push.enabled = (env["PUSH_ENABLED"] ?? "").lowercased() == "true"
         if let raw = env["APNS_ENV"], !raw.isEmpty {
             switch raw.lowercased() {

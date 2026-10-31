@@ -124,10 +124,11 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 | `PROXY_LOG_NOTE` | leer | Ein Satz des Betreibers zur Protokollierung des Reverse Proxys (erscheint auf `/datenschutz`). |
 | `APP_STORE_URL`, `TESTFLIGHT_URL` | leer | Optionale `https`-Links auf `/marketing`. |
 | `WMS_URL` | DWD-GeoServer | Nur für Tests: anderer WMS-Endpunkt. |
+| `BUILD_REVISION` | leer | Commit des Images (setzt der Docker-Workflow als Build-Argument); nur in `/v1/status` sichtbar. |
 | `PUSH_ENABLED` | `false` | Optionaler Pushdienst (Registrierungs-API, Auswertung, APNs-Versand). Mit `true` sind die vier `APNS_*`-Werte Pflicht und `IMAGE_WIDTH` muss `1024` sein; sonst Startfehler. |
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | leer | Key-ID (10 Zeichen), Team-ID und `apns-topic` (Bundle-ID). Keine Geheimnisse, aber Betreiberwerte. |
 | `APNS_ENV` | `production` | `sandbox`, `production` oder `both`: erlaubte APNs-Umgebungen. Jede Installation meldet ihre Umgebung; der Sender nutzt den passenden Apple-Host. Meldungen einer nicht erlaubten Umgebung werden verworfen, die Testmeldung antwortet `409`. Beim Start steht die erlaubte Menge im Log. |
-| `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`). |
+| `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`; vom Overlay `stack.push.yaml` eingehängt, siehe unten). |
 
 Die Variablen `DEV_*` in `.env.example` gehören zur lokalen Entwicklung und werden in Produktion nicht gebraucht.
 
@@ -152,15 +153,19 @@ Der Dienst nutzt einen einzigen `.p8`-Schlüssel für alle erlaubten Umgebungen.
 
 Fehlbedienung zeigt sich zur Laufzeit, nicht beim Start (der Dienst prüft den Schlüssel nicht gegen Apple): Testmeldung `POST /v1/push/installations/<uuid>/test` liefert `apns_bad_device_token` oder `apns_key_rejected` mit Apples Reason; im regulären Versand zählt das Log die Apple-Reasons je Lauf (`apns reasons BadDeviceToken=…`), nie Token oder Schlüssel.
 
-#### Optional: Secret `showernow_apns_key` (nur Beschreibung, noch nicht im Stack verdrahtet)
+#### Optional: Push einschalten (Secret `showernow_apns_key`)
 
-Der Pushdienst braucht den APNs-Auth-Key (`.p8`) aus dem Apple-Developer-Konto. Er wird wie das DB-Passwort als Swarm-Secret angelegt, nie als Umgebungswert und nie im Repo:
+Der Pushdienst braucht den APNs-Auth-Key (`.p8`) aus dem Apple-Developer-Konto. Er wird wie das DB-Passwort als Swarm-Secret angelegt, nie als Umgebungswert und nie im Repo. Der Setup-Assistent fragt alles ab (Push an/aus, Key-ID, Team-ID, Topic, Umgebung, Pfad zur `.p8`) und legt das Secret mit `docker secret create <name> <datei>` an, ohne den Inhalt zu lesen oder auszugeben; er warnt, wenn die Datei für andere Benutzer lesbar ist. Von Hand:
 
 ```sh
 docker secret create showernow_apns_key /pfad/zu/AuthKey_XXXXXXXXXX.p8
+# in der .env: PUSH_ENABLED=true, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_ENV (optional APNS_KEY_SECRET)
+deploy/swarm/update.sh --pull-scripts --force
 ```
 
-`deploy/swarm/stack.yaml` verweist bewusst noch nicht darauf (ein externes Secret muss existieren, sonst scheitert jeder Rollout). Zum Aktivieren sind nötig: Secret anlegen, im Stack `secrets: [db_password, apns_key]` mit `APNS_KEY_FILE: /run/secrets/apns_key` sowie `PUSH_ENABLED`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` durchreichen und ein Beispiel-Secretblock `apns_key: {external: true, name: ${APNS_KEY_SECRET:-showernow_apns_key}}` ergänzen. Rotation: neues Secret mit neuem Namen. Migration `003_push.sql` läuft über den normalen Migrationsjob und ist additiv (neue Tabellen `push_*`).
+Verdrahtung: `deploy/swarm/stack.yaml` reicht `PUSH_ENABLED` (Standard `false`), `APNS_KEY_FILE=/run/secrets/apns_key`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` und `APNS_ENV` durch. Das externe Secret selbst hängt nur im Overlay `deploy/swarm/stack.push.yaml` (Name über `APNS_KEY_SECRET`, Standard `showernow_apns_key`), das `swarm-deploy.sh` nur bei `PUSH_ENABLED=true` zusätzlich einbindet. Grund: Ein im Stack referenziertes externes Secret muss existieren, sonst scheitert `docker stack deploy` mit „secret not found“; so bleiben Installationen ohne Push unberührt. `update.sh` und `swarm-deploy.sh` prüfen bei `PUSH_ENABLED=true` vor dem Rollout, dass das Secret existiert und die drei APNS-Werte gesetzt sind, und brechen sonst mit klarer Meldung ab, bevor etwas geändert wird. Rotation: neues Secret mit neuem Namen anlegen, `APNS_KEY_SECRET` anpassen, `update.sh --force`. Migration `003_push.sql` läuft über den normalen Migrationsjob und ist additiv (neue Tabellen `push_*`).
+
+Geprüft: `docker stack config` (Docker 29) mit und ohne Overlay zeigt das Secret nur mit Overlay; das Verhalten bei einem fehlenden externen Secret im echten Swarm sowie der Rollout mit Secret sind nicht gegen einen Swarm geprüft.
 
 ### 5. Migrationsjob und Deploy
 

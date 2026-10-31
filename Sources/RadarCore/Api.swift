@@ -134,6 +134,31 @@ public final class Api: Sendable {
         await push.handle(method: method, path: path, secret: secret, body: body) ?? Self.notFound
     }
 
+    /// Data-sparing diagnosis for operators: which layers are enabled, whether each has published data, push on/off.
+    /// No secrets, no per-user data; helps to tell "layer not enabled" from "no data yet" (both answer 404 on the layer routes).
+    func status() async throws -> ApiResponse {
+        func iso(_ d: Date) -> String { TimeUtil.toISO(d) }
+        var layers: [[String: Any]] = []
+        for id in ["radar"] + LayerCatalog.order {
+            let enabled = id == "radar" || config.layers.contains(id)
+            var entry: [String: Any] = ["id": id, "enabled": enabled, "has_data": false]
+            if enabled {
+                let run = id == "radar" ? try await repo.latestPublished() : try await repo.layerLatestPublished(layer: id)
+                if let run {
+                    entry["has_data"] = true
+                    entry["latest_run"] = run.runID
+                    entry["published_at"] = iso(run.publishedAt)
+                }
+            }
+            layers.append(entry)
+        }
+        let doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
+                                  "now": iso(clock()), "layers": layers]
+        let body = try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys])
+        return ApiResponse(status: 200, headers: [("Content-Type", "application/json"), ("Cache-Control", "no-store"),
+                                                  ("X-Content-Type-Options", "nosniff")], body: Array(body))
+    }
+
     public func handle(path rawPath: String, ifNoneMatch: String?) async throws -> ApiResponse {
         let path = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? rawPath
         if path == "/healthz" {
@@ -141,6 +166,7 @@ public final class Api: Sendable {
                 ? ApiResponse(status: 200, headers: [("Cache-Control", "no-store")], body: Array("ok\n".utf8))
                 : ApiResponse(status: 503, headers: [], body: Array("stale\n".utf8))
         }
+        if path == "/v1/status" { return try await status() }
         if let html = SitePages.render(path: path, info: config.site) {
             let body = Array(html.utf8)
             return respond(headers: [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "public, max-age=3600"),

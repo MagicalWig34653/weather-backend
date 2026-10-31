@@ -201,6 +201,37 @@ struct LayerServiceTests {
     }
 
     @Test(arguments: RepoKind.allCases)
+    func statusEndpointDistinguishesDisabledAndEmptyLayers(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let cfg = layerConfig(["lightning", "clouds"]) { $0.buildRevision = "abc1234" }
+        let src = FakeSources(cfg)
+        _ = try await ingestor("lightning", repo, cfg, src).tick()
+        let res = try await Api(repo: repo, config: cfg).handle(path: "/v1/status", ifNoneMatch: nil)
+        #expect(res.status == 200)
+        #expect(res.headers.contains { $0.0 == "Cache-Control" && $0.1 == "no-store" })
+        let doc = try #require(try JSONSerialization.jsonObject(with: Data(res.body)) as? [String: Any])
+        #expect(doc["revision"] as? String == "abc1234")
+        #expect(doc["push"] as? Bool == false)
+        let layers = try #require(doc["layers"] as? [[String: Any]])
+        func entry(_ id: String) -> [String: Any]? { layers.first { $0["id"] as? String == id } }
+        #expect(layers.count == 5)
+        #expect(entry("radar")?["enabled"] as? Bool == true && entry("radar")?["has_data"] as? Bool == false)
+        #expect(entry("lightning")?["enabled"] as? Bool == true && entry("lightning")?["has_data"] as? Bool == true)
+        #expect(entry("lightning")?["latest_run"] is String)
+        #expect(entry("clouds")?["enabled"] as? Bool == true && entry("clouds")?["has_data"] as? Bool == false)
+        #expect(entry("pressure")?["enabled"] as? Bool == false && entry("pressure")?["latest_run"] == nil)
+        // no secrets or per-user data in the document
+        let text = String(decoding: res.body, as: UTF8.self)
+        #expect(!text.contains("APNS") && !text.contains("secret"))
+    }
+
+    @Test func buildRevisionEnvParsing() throws {
+        #expect(try Config.fromEnvironment([:]).buildRevision == nil)
+        #expect(try Config.fromEnvironment(["BUILD_REVISION": "0123456789ABCDEF0123"]).buildRevision == "0123456789ab")
+        #expect(try Config.fromEnvironment(["BUILD_REVISION": "not hex!"]).buildRevision == nil)
+    }
+
+    @Test(arguments: RepoKind.allCases)
     func apiRoutesAndHeaders(kind: RepoKind) async throws {
         let repo = try await kind.make()
         let on = layerConfig(["lightning"])

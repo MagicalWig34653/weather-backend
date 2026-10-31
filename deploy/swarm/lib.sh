@@ -75,3 +75,21 @@ wait_for_rollout() {
     sleep 3; waited=$((waited + 3))
   done
 }
+
+# Push (optional): value of a KEY=VALUE line of an env file (last one wins, quotes stripped); empty when unset.
+env_value() { sed -n "s/^$2=//p" "$1" | tail -n 1 | tr -d "\"'"; }
+
+# Dies with a clear message when push is enabled (PUSH_ENABLED=true in the env file) but the Swarm secret with the
+# .p8 key does not exist. Without this check `docker stack deploy` fails late with a bare "secret not found".
+# Usage: require_push_secret ENV_FILE. Needs docker; prints no secret value.
+require_push_secret() {
+  local file="$1" enabled name
+  enabled="$(env_value "$file" PUSH_ENABLED)"
+  [ "$enabled" = true ] || return 0
+  name="$(env_value "$file" APNS_KEY_SECRET)"; name="${name:-showernow_apns_key}"
+  docker secret inspect "$name" >/dev/null 2>&1 \
+    || die "PUSH_ENABLED=true, but the Swarm secret '${name}' (the APNs .p8 key) does not exist. Create it first: docker secret create ${name} /path/to/AuthKey_XXXXXXXXXX.p8 (or set PUSH_ENABLED=false in ${file}). Nothing was changed."
+  local missing=""
+  for k in APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC; do [ -n "$(env_value "$file" "$k")" ] || missing="$missing $k"; done
+  [ -z "$missing" ] || die "PUSH_ENABLED=true, but these values are missing in ${file}:${missing}. Nothing was changed."
+}

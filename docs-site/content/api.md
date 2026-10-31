@@ -84,6 +84,10 @@ Ebenen: `pressure`, `lightning`, `clouds`, `cloudmask`. Nur aktiv, wenn in `LAYE
 
 Liveness für den Healthcheck (nur intern gedacht): `200` mit Body `ok`, `503` mit `stale`, wenn die Ingest-Schleife nicht mehr lebt. Prüft nicht die Datenaktualität.
 
+## `GET /v1/status`
+
+Datensparsame Betreiberdiagnose (additiv, `Cache-Control: no-store`). JSON: `schema` (1), `revision` (Commit des Images oder `null`), `push` (Boolean, kein Geheimnis), `now`, `layers[]` mit `id` (`radar`, `pressure`, `lightning`, `clouds`, `cloudmask`), `enabled`, `has_data` und, falls Daten vorliegen, `latest_run` und `published_at`. Unterscheidet „Ebene nicht aktiviert“, „noch keine Daten“ und „Daten vorhanden“; bei Datenbankfehler `503`. Keine Nutzerdaten, keine Konfigurationswerte außer den genannten.
+
 ## Push-Registrierung `/v1/push/…` (optional, Standard aus)
 
 Nur aktiv mit `PUSH_ENABLED=true`. Opt-in je Ort; es werden keine Koordinaten und keine Ortsnamen übertragen, sondern eine Rasterzelle des Radarbilds (siehe unten). Keine Cookies, keine Zugriffsprotokolle. Alle Antworten: `Cache-Control: no-store`, Fehler als `{"error":"<code>"}`. Rechtlich/technisch ist die Zelle (ca. 1 km) weiterhin personenbezogen.
