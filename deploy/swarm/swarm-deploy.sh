@@ -21,6 +21,13 @@ image=${RADAR_MIGRATE_IMAGE:-ghcr.io/magicalwig34653/weather-backend-radar:${RAD
 # RADAR_MIGRATE_IMAGE (full reference) only overrides the migration image and must match an override file
 # if the stack image is overridden too. Extra stack files (e.g. overrides) may be passed as space-separated STACK_EXTRA_FILES.
 compose_args=(-c stack.yaml)
+# Optional push: only when PUSH_ENABLED=true (needs the external secret apns_key, see stack.push.yaml). Without push the
+# stack does not reference the secret, so a missing secret cannot break the rollout.
+if [[ "${PUSH_ENABLED:-false}" == true ]]; then
+  docker secret inspect "${APNS_KEY_SECRET:-showernow_apns_key}" >/dev/null 2>&1 \
+    || { echo "PUSH_ENABLED=true, but the Swarm secret ${APNS_KEY_SECRET:-showernow_apns_key} does not exist (docker secret create ...)." >&2; exit 1; }
+  compose_args+=(-c stack.push.yaml)
+fi
 for f in ${STACK_EXTRA_FILES:-}; do compose_args+=(-c "$f"); done
 # The DB is external: the one-shot migration below fails (without retry) if the DB is unreachable.
 # Required: DB_HOST and the external secrets (see .env.example).

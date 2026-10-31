@@ -1,0 +1,18 @@
+version: '3.8'
+# Optional overlay: mounts the APNs key for the push service (rain-start notifications).
+# swarm-deploy.sh adds this file automatically when PUSH_ENABLED=true is set in the env file; without push the stack
+# does not reference the secret, so a missing secret cannot break the rollout of installations that do not use push.
+# Needs the external Swarm secret showernow_apns_key (the .p8 key from the Apple developer portal; name via APNS_KEY_SECRET):
+#   docker secret create showernow_apns_key ./AuthKey_XXXXXXXXXX.p8
+# The key is mounted as a file (/run/secrets/apns_key) and never appears in the image, the env file or the repository.
+# The settings (PUSH_ENABLED, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_ENV) are part of stack.yaml.
+services:
+  # migrate loads the same configuration and fails fast on a missing key, so it gets the secret too.
+  migrate:
+    secrets: [apns_key]
+  radar:
+    secrets: [apns_key]
+secrets:
+  apns_key:
+    external: true
+    name: ${APNS_KEY_SECRET:-showernow_apns_key}

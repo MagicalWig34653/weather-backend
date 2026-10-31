@@ -6,7 +6,9 @@
 # Usage: deploy/swarm/setup.sh [options]
 #   --env-file FILE      env file to write and, when it exists, to read as defaults (default: .env in the top folder of the checkout, next to deploy/)
 #   --answers-file FILE  KEY=VALUE answers (same names as in the env file, plus the secret value DB_PASSWORD or
-#                        DB_PASSWORD_FILE, optionally CHECK_NETWORK, SWARM_ADVERTISE_ADDR); parsed, never executed
+#                        DB_PASSWORD_FILE, optionally CHECK_NETWORK, SWARM_ADVERTISE_ADDR; push: PUSH_ENABLED=true, APNS_KEY_ID,
+#                        APNS_TEAM_ID, APNS_TOPIC, APNS_ENV, APNS_KEY_SECRET and APNS_KEY_SOURCE = path of the .p8 file,
+#                        only used to create the Swarm secret); parsed, never executed
 #   --non-interactive    never prompt; take answers (file, SETUP_<KEY> env vars, existing env file, defaults)
 #   --reconfigure        prompt again for every value, existing env values are the defaults
 #                        (without it an existing env file is reused as is: idempotent re-run)
@@ -47,7 +49,7 @@ while [ $# -gt 0 ]; do
     --no-deploy) NO_DEPLOY=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unbekannte Option: $1 (siehe --help)" >&2; exit 64 ;;
   esac
 done
@@ -146,6 +148,18 @@ valid_mem() { [[ "$1" =~ ^([0-9]+[bBkKmMgG]?)$ ]] || bad "Speicher-Limit wie 512
 valid_ident() { [[ "$1" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$ ]] || bad "Name aus Buchstaben, Ziffern, _ . -"; }
 valid_bool() { [[ "$1" == true || "$1" == false ]] || bad "true oder false"; }
 valid_any() { return 0; }
+valid_keyid() { [[ "$1" =~ ^[A-Z0-9]{10}$ ]] || bad "10 Zeichen A-Z0-9 (Key-ID bzw. Team-ID aus dem Apple-Developer-Konto)"; }
+valid_topic() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ && "$1" == *.* ]] || bad "Bundle-ID wie de.example.showernow"; }
+valid_apnsenv() { [[ "$1" == production || "$1" == sandbox || "$1" == both ]] || bad "production (TestFlight/App Store), sandbox (Xcode-Debug) oder both"; }
+valid_p8() {
+  if [ -z "$1" ] || [ ! -f "$1" ] || [ ! -r "$1" ] || ! grep -q 'BEGIN PRIVATE KEY' "$1" 2>/dev/null; then
+    bad "lesbare .p8-Datei (beginnt mit -----BEGIN PRIVATE KEY-----) angeben"; return 1
+  fi
+  # Warn (never print the content) when other users can read the key file.
+  local mode; mode="$(stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || true)"
+  case "$mode" in *[0-7][1-7]) warn "Die Schlüsseldatei ist für andere Benutzer lesbar (Modus $mode); nach dem Anlegen des Secrets löschen oder 'chmod 600'." ;; esac
+  return 0
+}
 valid_baseurl() { [ -z "$1" ] || [[ "$1" =~ ^https?://[a-z0-9.-]+(:[0-9]{1,5})?$ ]] || bad "URL wie https://radar.example.org (ohne Pfad und Schrägstrich am Ende; leer = keine öffentliche Prüfung)"; }
 
 # ---------------------------------------------------------------- docker helpers
@@ -271,6 +285,38 @@ ask DB_USER "DB_USER" "showernow" valid_ident
 ask DB_POOL_SIZE "DB_POOL_SIZE (1-10)" "4" valid_replicas
 ask DB_PASSWORD_SECRET "Name des Swarm-Secrets für das DB-Passwort" "showernow_db_password" valid_ident
 
+# ---------------------------------------------------------------- Step 5b: push (optional)
+step "Push-Benachrichtigungen (APNs, optional)"
+echo "Regenbeginn-Benachrichtigungen für die App. Ohne Push (Standard) bleibt der Radar-Cache unverändert und braucht den Schlüssel nicht."
+lookup PUSH_ENABLED ''; push_src="$SRC"
+PUSH_DEFAULT=n; [ "$(get PUSH_ENABLED false)" != true ] || PUSH_DEFAULT=y
+if [ "$NONINTERACTIVE" = 1 ] || [ "$push_src" = answer ] || [ "$push_src" = env ] || { [ "$REUSE" = 1 ] && [ "$push_src" = existing ]; }; then
+  [ "$(get PUSH_ENABLED false)" = true ] && PUSH_ENABLED=true || PUSH_ENABLED=false
+elif confirm "Push aktivieren?" "$PUSH_DEFAULT"; then PUSH_ENABLED=true; else PUSH_ENABLED=false; fi
+APNS_KEY_ID=""; APNS_TEAM_ID=""; APNS_TOPIC=""; APNS_ENV=""; APNS_KEY_SECRET=""; APNS_KEY_SOURCE=""; SS_APNS=""
+if [ "$PUSH_ENABLED" = true ]; then
+  ask APNS_KEY_ID "APNs Key-ID" "$(get APNS_KEY_ID '')" valid_keyid \
+    "Developer-Konto > Certificates, Identifiers & Profiles > Keys: Key-ID des Schlüssels mit APNs-Berechtigung."
+  ask APNS_TEAM_ID "Apple Team-ID" "$(get APNS_TEAM_ID '')" valid_keyid
+  ask APNS_TOPIC "Topic (Bundle-ID der App)" "$(get APNS_TOPIC '')" valid_topic
+  ask APNS_ENV "Erlaubte APNs-Umgebung (production/sandbox/both)" "production" valid_apnsenv \
+    "TestFlight und App Store nutzen production, Xcode-Debug-Builds sandbox. 'both' braucht einen Schlüssel für beide Umgebungen."
+  ask APNS_KEY_SECRET "Name des Swarm-Secrets für die .p8-Datei" "showernow_apns_key" valid_ident
+  if secret_exists "$APNS_KEY_SECRET"; then
+    SS_APNS=exists
+    say "Secret '$APNS_KEY_SECRET' existiert bereits und bleibt unverändert."
+  else
+    SS_APNS=create
+    if [ "$DRY" = 1 ] && [ -z "$(get APNS_KEY_SOURCE '')" ]; then
+      APNS_KEY_SOURCE="(Trockenlauf: Pfad der .p8-Datei wird erst im echten Lauf abgefragt)"
+    else
+      ask APNS_KEY_SOURCE "Pfad der .p8-Datei (AuthKey_XXXXXXXXXX.p8)" "$(get APNS_KEY_SOURCE '')" valid_p8 \
+        "Die Datei wird nur in das Swarm-Secret übernommen (Inhalt wird nie angezeigt oder kopiert). Danach aus Downloads/Backup-Ordnern entfernen und sicher archivieren."
+      valid_p8 "$APNS_KEY_SOURCE" || true # repeats the check only to show the file-permission warning
+    fi
+  fi
+fi
+
 # ---------------------------------------------------------------- Step 6: secret
 step "Secret"
 SECRET_KEYS="DB_PASSWORD"
@@ -343,6 +389,10 @@ for key in $SECRET_KEYS; do
   case "${!status}" in exists) st="vorhanden, bleibt unverändert" ;; *) st="wird angelegt" ;; esac
   printf 'Secret %-28s %s\n' "$(secret_name "$key")" "$st"
 done
+printf 'Push (APNs):       %s\n' "$([ "$PUSH_ENABLED" = true ] && echo "an, Key-ID $APNS_KEY_ID, Team $APNS_TEAM_ID, Topic $APNS_TOPIC, Umgebung $APNS_ENV" || echo aus)"
+if [ "$PUSH_ENABLED" = true ]; then
+  printf 'Secret %-28s %s\n' "$APNS_KEY_SECRET" "$([ "$SS_APNS" = exists ] && echo 'vorhanden, bleibt unverändert' || echo 'wird aus der .p8-Datei angelegt')"
+fi
 echo "Danach: Migrationsjob (deploy/swarm/swarm-deploy.sh), Rolling Update, Health-Prüfung."
 echo "Sichern Sie vor einem Update einer bestehenden Installation die Datenbank."
 if [ "$DRY" = 0 ] && [ "$YES" = 0 ] && [ "$NONINTERACTIVE" = 0 ]; then
@@ -371,8 +421,19 @@ write_env() {
     echo "DB_USER=$DB_USER"
     echo "DB_POOL_SIZE=$DB_POOL_SIZE"
     echo "DB_PASSWORD_SECRET=$DB_PASSWORD_SECRET"
-    # Optional operator details for /datenschutz, /marketing, /support: carried over unchanged (not asked here).
-    for optional in OPERATOR_NAME OPERATOR_ADDRESS OPERATOR_EMAIL PROXY_LOG_NOTE APP_STORE_URL TESTFLIGHT_URL; do
+    if [ "$PUSH_ENABLED" = true ]; then
+      echo "PUSH_ENABLED=true"
+      echo "APNS_KEY_ID=$APNS_KEY_ID"
+      echo "APNS_TEAM_ID=$APNS_TEAM_ID"
+      echo "APNS_TOPIC=$APNS_TOPIC"
+      echo "APNS_ENV=$APNS_ENV"
+      echo "APNS_KEY_SECRET=$APNS_KEY_SECRET"
+    fi
+    # Optional values not asked here (operator details, layers and tuning) are carried over unchanged, so that
+    # --reconfigure does not silently drop e.g. LAYERS (the layer routes would answer 404 afterwards).
+    for optional in OPERATOR_NAME OPERATOR_ADDRESS OPERATOR_EMAIL PROXY_LOG_NOTE APP_STORE_URL TESTFLIGHT_URL \
+        LAYERS PRESSURE_FORECAST_HOURS PRESSURE_RETENTION_RUNS LIGHTNING_HISTORY_HOURS CLOUDS_HISTORY_HOURS CLOUDMASK_HISTORY_HOURS \
+        LAYER_PAUSE_SECONDS HISTORY_HOURS RETENTION_RUNS CACHE_MAX_MB FETCH_WORKERS USER_AGENT WMS_URL; do
       [ ! -f "$target" ] || grep -E "^${optional}=" "$target" || true
     done
   } > "$tmp"
@@ -393,6 +454,7 @@ if [ "$DRY" = 1 ]; then
     status="SS_$key"
     [ "${!status}" = exists ] || echo "  docker secret create $(secret_name "$key") -   (Wert nicht angezeigt)"
   done
+  [ "$PUSH_ENABLED" = true ] && [ "$SS_APNS" != exists ] && echo "  docker secret create $APNS_KEY_SECRET <APNS_KEY_SOURCE>   (.p8-Inhalt nicht angezeigt)"
   echo "  deploy/swarm/swarm-deploy.sh   (STACK=$RADAR_STACK, Migrationsjob, danach Rollout mit $RADAR_REPLICAS Replikaten)"
   echo "  Rollout abwarten, GET /v1/radar/latest.json (200 oder 404) auf dem Ingress-Port${PUBLIC_BASE_URL:+ und $PUBLIC_BASE_URL} prüfen"
   say "Trockenlauf beendet; es wurden keine Docker-Aufrufe ausgeführt."
@@ -410,6 +472,15 @@ for key in $SECRET_KEYS; do
   say "Secret '$name' angelegt."
 done
 for key in $SECRET_KEYS; do printf -v "SV_$key" '%s' ''; done
+if [ "$PUSH_ENABLED" = true ] && [ "$SS_APNS" = create ]; then
+  if secret_exists "$APNS_KEY_SECRET"; then
+    say "Secret '$APNS_KEY_SECRET' wurde inzwischen angelegt, unverändert gelassen."
+  else
+    # The file is handed to docker directly; its content is neither read into a variable nor printed.
+    docker secret create "$APNS_KEY_SECRET" "$APNS_KEY_SOURCE" >/dev/null
+    say "Secret '$APNS_KEY_SECRET' angelegt. Die Datei kann jetzt aus Downloads/Backup-Ordnern entfernt werden."
+  fi
+fi
 
 if [ "$NO_DEPLOY" = 1 ]; then
   say "--no-deploy: Env-Datei und Secret sind bereit. Deploy später mit: set -a; . $ENV_FILE; set +a; STACK=$RADAR_STACK $SCRIPT_DIR/swarm-deploy.sh"
