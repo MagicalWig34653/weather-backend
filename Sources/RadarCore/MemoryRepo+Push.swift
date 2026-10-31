@@ -70,7 +70,7 @@ extension MemoryRepo {
         guard push.subs.values.filter({ $0.installID == installationID }).count < maxPerInstallation else { return .limitReached }
         push.subs[id] = .init(installID: installationID, value: PushSubscription(
             id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY, threshold: input.threshold,
-            leadMinutes: input.leadMinutes, enabled: input.enabled), createdAt: now)
+            leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive), createdAt: now)
         return .created
     }
 
@@ -78,7 +78,7 @@ extension MemoryRepo {
         guard var sub = push.subs[id], sub.installID == installationID else { return false }
         sub.value = PushSubscription(id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY,
                                      threshold: input.threshold, leadMinutes: input.leadMinutes, enabled: input.enabled,
-                                     state: .dry, lastSentAt: sub.value.lastSentAt)
+                                     state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive)
         push.subs[id] = sub
         return true
     }
@@ -92,6 +92,10 @@ extension MemoryRepo {
     public func subscriptions(installationID: String) async throws -> [PushSubscription] {
         push.subs.values.filter { $0.installID == installationID }.sorted { $0.createdAt == $1.createdAt ? $0.value.id < $1.value.id : $0.createdAt < $1.createdAt }
             .map(\.value)
+    }
+
+    public func installation(id: String) async throws -> PushInstallation? {
+        push.installs[id].map { PushInstallation(token: $0.token, env: $0.env, locale: $0.locale) }
     }
 
     public func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription] {

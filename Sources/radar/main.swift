@@ -126,24 +126,28 @@ struct AhcApnsTransport: ApnsTransport {
 }
 
 /// Leader-only push loop: evaluation after each radar run, outbox delivery, retention. Idle when push is disabled.
-func runPushLoop(config: Config, repo: any Repo, logger: Logger) async {
-    guard config.push.enabled else { return }
-    let client = HTTPClient(eventLoopGroupProvider: .singleton)
-    let sender: any ApnsSender
+func makeApnsSender(config: Config, client: HTTPClient, logger: Logger) -> (any ApnsSender)? {
+    guard config.push.enabled else { return nil }
     do {
-        sender = try ApnsClient(keyPEM: config.push.keyPEM, keyID: config.push.keyID, teamID: config.push.teamID,
-                                topic: config.push.topic, transport: AhcApnsTransport(client: client))
+        let sender = try ApnsClient(keyPEM: config.push.keyPEM, keyID: config.push.keyID, teamID: config.push.teamID,
+                                    topic: config.push.topic, transport: AhcApnsTransport(client: client))
+        let envs = config.push.environments.map(\.rawValue).sorted().joined(separator: ",")
+        logger.info("push: APNs environments allowed: \(envs); the key must be valid for each of them (otherwise APNs answers BadDeviceToken/InvalidProviderToken)")
+        return sender
     } catch {
         logger.error("push disabled: APNs key not readable")
-        try? await client.shutdown()
-        return
+        return nil
     }
+}
+
+func runPushLoop(config: Config, repo: any Repo, sender: (any ApnsSender)?, logger: Logger) async {
+    guard config.push.enabled, let sender else { return }
     let service = PushService(config: config, repo: repo, sender: sender, owner: replicaID())
     while !Task.isCancelled {
         do {
             let tick = try await service.tick()
             if tick.evaluatedRun != nil || tick.sent + tick.dropped + tick.retried + tick.unregistered > 0 || tick.purged.installations > 0 {
-                logger.info("push: run \(tick.evaluatedRun ?? "-") queued \(tick.queued), sent \(tick.sent), retry \(tick.retried), dropped \(tick.dropped), removed \(tick.unregistered), purged \(tick.purged.installations)")
+                logger.info("push: run \(tick.evaluatedRun ?? "-") queued \(tick.queued), sent \(tick.sent), retry \(tick.retried), dropped \(tick.dropped), removed \(tick.unregistered), purged \(tick.purged.installations)\(tick.apnsReasons.isEmpty ? "" : ", apns reasons \(tick.apnsReasons.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ","))")")
             }
         } catch is CancellationError {
             break
@@ -153,7 +157,6 @@ func runPushLoop(config: Config, repo: any Repo, logger: Logger) async {
         try? await Task.sleep(nanoseconds: 15_000_000_000)
     }
     await service.release()
-    try? await client.shutdown()
 }
 
 func serve(config: Config) async throws {
@@ -162,7 +165,9 @@ func serve(config: Config) async throws {
     let app = try await Application.make(env)
     let repo = MariaRepo(config: config)
     let heartbeat = Heartbeat()
-    let api = Api(repo: repo, config: config, alive: { heartbeat.isAlive })
+    let apnsClient = HTTPClient(eventLoopGroupProvider: .singleton)
+    let sender = makeApnsSender(config: config, client: apnsClient, logger: app.logger)
+    let api = Api(repo: repo, config: config, sender: sender, alive: { heartbeat.isAlive })
     app.http.server.configuration.serverName = nil
 
     // No access logs (no IPs, no paths). Database errors never leak details to clients.
@@ -197,7 +202,7 @@ func serve(config: Config) async throws {
     let activity = ActivityFlag()
     let loop = Task { await runIngestLoop(config: config, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
     let backfill = Task { await runBackfillLoop(config: config, repo: repo, activity: activity, logger: logger) }
-    let pushLoop = Task { await runPushLoop(config: config, repo: repo, logger: logger) }
+    let pushLoop = Task { await runPushLoop(config: config, repo: repo, sender: sender, logger: logger) }
     let layerLoops = config.layers.compactMap { id in
         LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, repo: repo, logger: logger) } }
     }
@@ -207,6 +212,7 @@ func serve(config: Config) async throws {
         loop.cancel(); backfill.cancel(); pushLoop.cancel(); layerLoops.forEach { $0.cancel() }
         for t in layerLoops { await t.value }
         await loop.value; await backfill.value; await pushLoop.value
+        try? await apnsClient.shutdown()
         try? await app.asyncShutdown()
         await repo.shutdown()
         throw error
@@ -215,6 +221,7 @@ func serve(config: Config) async throws {
     for t in layerLoops { await t.value }
     await backfill.value
     await pushLoop.value
+    try? await apnsClient.shutdown()
     await loop.value  // let a running ingest hand its run over before the DB pool goes away
     try await app.asyncShutdown()
     await repo.shutdown()

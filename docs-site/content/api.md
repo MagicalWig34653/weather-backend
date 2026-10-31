@@ -98,10 +98,29 @@ Authentifizierung: Header `X-Installation-Secret` (zufällig, 32 bis 128 Zeichen
 | `POST /v1/push/installations/<uuid>/subscriptions` | Abo-Felder | `201` `{"id":"<uuid>"}`; `409 subscription_limit` ab 10 Abos |
 | `PUT /v1/push/installations/<uuid>/subscriptions/<sub>` | Abo-Felder | `204`, setzt den Automaten zurück; `404` falls fremd/unbekannt |
 | `DELETE /v1/push/installations/<uuid>/subscriptions/<sub>` | – | `204` / `404` |
+| `POST /v1/push/installations/<uuid>/test` | – | `200` `{"sent":true,"environment":"…"}`, siehe Testmeldung |
 
-Abo-Felder: `grid_version` (`1`), `cell_x` (0 bis 1023), `cell_y` (0 bis 1310), `threshold` (Intensitätsklasse 1 bis 15 der DWD-Legende, mm/h, siehe `PushIntensity`), `lead_minutes` (`10`, `20` oder `30`), optional `enabled` (Standard `true`). Das Raster ist das Pixelraster des Ingest-Bildes (1024 × 1311, EPSG:3857, feste Bbox aus `latest.json`): `x = floor((X - bbox0) / (bbox2 - bbox0) * 1024)`, `y = floor((bbox3 - Y) / (bbox3 - bbox1) * 1311)` mit Web-Mercator-Meterwerten `X`, `Y`. Die App rechnet lokal; der Server sieht nie eine Koordinate.
+Abo-Felder: `grid_version` (`1`), `cell_x` (0 bis 1023), `cell_y` (0 bis 1310), `threshold` (Intensitätsklasse 1 bis 15 der DWD-Legende, mm/h, siehe `PushIntensity`), `lead_minutes` (`10`, `20` oder `30`), optional `enabled` (Standard `true`), optional `time_sensitive` (Boolean, Standard `false`; nur `true`/`false`, andere Typen ergeben `400`; `null` zählt als nicht gesetzt). Mit `true` setzt der Sender im `aps`-Payload `interruption-level: time-sensitive`, sonst fehlt das Feld. Die Antwort der Abo-Liste enthält `time_sensitive`. `PUT` ersetzt alle Felder: fehlt `time_sensitive`, wird es `false`. Ob die App Zeitkritisch nutzen darf, entscheidet ihr Entitlement `com.apple.developer.usernotifications.time-sensitive` (Sache der App, nicht des Backends; Entitlement-Name laut Recherche des App-Repos eine Annahme). Das Raster ist das Pixelraster des Ingest-Bildes (1024 × 1311, EPSG:3857, feste Bbox aus `latest.json`): `x = floor((X - bbox0) / (bbox2 - bbox0) * 1024)`, `y = floor((bbox3 - Y) / (bbox3 - bbox1) * 1311)` mit Web-Mercator-Meterwerten `X`, `Y`. Die App rechnet lokal; der Server sieht nie eine Koordinate.
 
 Grenzen: Body höchstens 2 KB (`413`), Token 32 bis 200 Hexzeichen, 60 Anfragen je Installation und Minute (`429`, im Speicher je Replikat, ohne IP), globale Obergrenze für Registrierungen je Replikat und Minute, höchstens 10 Abos je Installation. Ein Reverse Proxy sollte zusätzlich ein Rate-Limit je Quelle setzen.
+
+Testmeldung (`POST /v1/push/installations/<uuid>/test`, ohne Body, Authentifizierung wie die übrigen Routen): sendet sofort eine Mitteilung „ShowerNow Testmeldung“ (`en`: „ShowerNow test notification“, Typ `test`, ohne Ort, ohne Abo-Bezug, ohne `interruption-level`) an das Gerätetoken der eigenen Installation in deren registrierter Umgebung. Es ist ein Token je Installation; Abos haben kein eigenes Token. Es wird nichts gespeichert (keine Outbox, keine neuen Felder); Ablauf der Meldung nach 10 Minuten. Grenze: 3 Testmeldungen je Installation und Stunde (im Speicher je Replikat), danach `429` `test_rate_limited` mit `Retry-After: 3600`. Fehler als `{"error":"<code>"}`, bei Apple-Fehlern zusätzlich `reason` (Apples Reason-Text, nie Token oder Schlüssel):
+
+| Status | `error` | Bedeutung |
+|---|---|---|
+| `404` | – | Push nicht aktiv (`PUSH_ENABLED=false`) wie bei allen Push-Routen |
+| `401` | `unauthorized` | Geheimnis falsch oder Installation unbekannt |
+| `405` | `method_not_allowed` | nur `POST` |
+| `409` | `environment_not_allowed` | die registrierte Umgebung steht nicht in `APNS_ENV` |
+| `429` | `test_rate_limited` | mehr als 3 Testmeldungen in einer Stunde |
+| `503` | `apns_unavailable` | APNs-Schlüssel beim Start nicht lesbar |
+| `502` | `apns_bad_device_token` | Apple `BadDeviceToken`: Token passt nicht zur Umgebung (oder Schlüssel/Topic) |
+| `502` | `apns_key_rejected` | Apple `InvalidProviderToken`: Schlüssel, Key-ID oder Team-ID ungültig, oder Schlüssel gilt nicht für diese Umgebung |
+| `502` | `apns_unavailable` | vorübergehend (403 `ExpiredProviderToken`, 429, 5xx, Netz); später erneut versuchen |
+| `502` | `apns_rejected` | anderer dauerhafter Apple-Fehler |
+| `410` | `token_unregistered` | Apple meldet das Token als ungültig; die Installation wird wie beim normalen Versand gelöscht, die App registriert sich neu |
+
+Umgebung je Installation: Die App meldet bei `PUT` `env` (`sandbox` für Debug-Builds, `production` für TestFlight/App Store). Der Sender wählt je Meldung den Host der Installation (`api.sandbox.push.apple.com` oder `api.push.apple.com`); `APNS_ENV=both` erlaubt beide Umgebungen im selben Betrieb, `sandbox`/`production` nur die genannte (andere Meldungen werden verworfen, die Testmeldung antwortet `409`). Es gibt genau einen Schlüssel je Betrieb (`APNS_KEY_FILE`), er wird für beide Hosts verwendet. Ob ein Schlüssel für beide Umgebungen reicht, siehe Installation.
 
 Regel „Regen beginnt in N Minuten“: Nach jedem neuen Radarlauf wertet der Leader (`acquireLeader("push")`) die abonnierten Zellen aus. Pixelfarbe wird der nächsten Legendenfarbe (Toleranz) zugeordnet, transparente oder unbekannte Pixel zählen als trocken. Meldung nur, wenn die Zelle jetzt trocken ist, innerhalb von `lead_minutes` die Schwelle erreicht wird und dies in zwei aufeinanderfolgenden Läufen gilt (Hysterese). Danach höchstens eine Meldung je Abo und 60 Minuten; Wiederbewaffnung, wenn die Zelle für die nächsten 30 Minuten trocken ist. Läufe, die älter als 20 Minuten sind, lösen nichts aus. Der Payload enthält nur `loc-key` `RAIN_STARTS_IN`, die Minuten und `thread-id` (Abo-ID), keinen Ortsnamen. Löschung: 410 von Apple, `DELETE`, oder 60 Tage ohne Aktivität (`last_seen`); Outbox-Einträge werden nach 6 Stunden entfernt.
 

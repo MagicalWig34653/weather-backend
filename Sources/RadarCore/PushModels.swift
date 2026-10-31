@@ -42,10 +42,13 @@ public struct PushSubscription: Sendable, Equatable {
     public var enabled: Bool
     public var state: PushState
     public var lastSentAt: Date?
+    /// Optional per-subscription flag: the rain-start notification carries `interruption-level: time-sensitive`.
+    public var timeSensitive: Bool
     public init(id: String, gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int,
-                enabled: Bool, state: PushState = .dry, lastSentAt: Date? = nil) {
+                enabled: Bool, state: PushState = .dry, lastSentAt: Date? = nil, timeSensitive: Bool = false) {
         self.id = id; self.gridVersion = gridVersion; self.cellX = cellX; self.cellY = cellY; self.threshold = threshold
         self.leadMinutes = leadMinutes; self.enabled = enabled; self.state = state; self.lastSentAt = lastSentAt
+        self.timeSensitive = timeSensitive
     }
 }
 
@@ -57,10 +60,19 @@ public struct PushSubscriptionInput: Sendable, Equatable {
     public var threshold: Int
     public var leadMinutes: Int
     public var enabled: Bool
-    public init(gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int, enabled: Bool) {
+    public var timeSensitive: Bool
+    public init(gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int, enabled: Bool, timeSensitive: Bool = false) {
         self.gridVersion = gridVersion; self.cellX = cellX; self.cellY = cellY; self.threshold = threshold
-        self.leadMinutes = leadMinutes; self.enabled = enabled
+        self.leadMinutes = leadMinutes; self.enabled = enabled; self.timeSensitive = timeSensitive
     }
+}
+
+/// Delivery target of an installation (device token, APNs environment, language); used by the test notification.
+public struct PushInstallation: Sendable, Equatable {
+    public var token: String
+    public var env: PushEnvironment
+    public var locale: String
+    public init(token: String, env: PushEnvironment, locale: String) { self.token = token; self.env = env; self.locale = locale }
 }
 
 public enum UpsertResult: Sendable, Equatable { case created, updated, forbidden }

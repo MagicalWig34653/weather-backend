@@ -95,6 +95,12 @@ Geprüft (31.10., macOS, Debug): `swift build` ok; `swift test` 83 Tests grün o
 
 Nicht geprüft/offen: kein Aufruf des echten APNs (kein Key, kein Gerät); die Farbzuordnung ist nicht gegen echte Radarpixel verifiziert (nur gegen die Legendentabelle); Last und Leader-Wechsel nicht gemessen; `stack.yaml`/`setup.sh` nicht um Secret und `APNS_*` erweitert (absichtlich, sonst scheitert der Rollout ohne Secret); `/datenschutz` unverändert (Änderungsbedarf in decisions.md); Ruhezeiten, Obergrenze Installationen, Proxy-Rate-Limit offen. Nutzeraufgaben: APNs-Key und Push-Capability anlegen, Secret `showernow_apns_key` erzeugen, Stack um Secret/Variablen erweitern, Datenschutztext und App-Privacy freigeben, Test auf Gerät (Sandbox/TestFlight).
 
+## Push-Erweiterungen (31. Oktober 2026)
+
+Umgesetzt (Details: [decisions.md](decisions.md), API: `docs-site/content/api.md`): Testmeldung `POST /v1/push/installations/<uuid>/test`, Abo-Feld `time_sensitive` (Migration `005_push_time_sensitive.sql`), klare Umgebungs-/Schlüsselfehler, Apple-Reasons im Log, Doku zu Schlüssel und `APNS_ENV`. Geprüft (31.10., macOS, Debug): `swift build` ok; `swift test` 105 Tests grün ohne DB (Fake) und zusätzlich gegen Wegwerf-MariaDB 12 (Docker, tmpfs, danach entfernt; Migration 005 lief dabei). Neue Tests in `PushTests.swift`: Testmeldung (Payload, Auth, Rate-Limit, Fehlerabbildung, kein Geheimnis in Antworten), `time_sensitive` (API, Repo Memory+MariaDB, Payload), `APNS_ENV=both` mit Host je Installation.
+
+Offen/Nutzeraufgaben: echter APNs-Aufruf nie geprüft (Testmeldung gegen Fake); ob ein umgebungsbeschränkter Schlüssel am falschen Host `InvalidProviderToken` oder `BadDeviceToken` liefert, ist unbelegt; Datenbankrecht `ALTER` für den Migrationsbenutzer; für Produktion `PUSH_ENABLED=true`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` und Secret `showernow_apns_key` (Stack weiter nicht verdrahtet); Time-Sensitive-Entitlement in der App; `/datenschutz` weiter nicht geändert.
+
 ## Zusatzebenen (31. Oktober 2026)
 
 Umgesetzt: `LAYERS`-Schalter, Ebenen pressure/lightning/clouds/cloudmask, Migration 004, `LayerIngestor`, `LayerManifest`, Routen, Tests (`LayerTests.swift`, Fake-Quellen, Memory und MariaDB). Geprüft (macOS, Debug): `swift build`; `swift test` 94 Tests grün gegen Fake und Wegwerf-MariaDB 12.3 (tmpfs, danach entfernt); live gegen DWD/EUMETView einzeln per curl geprüft (GetMap 200, EPSG:3857). Offen: Lauf im echten Dienst, Lastbeobachtung, App-Anbindung.

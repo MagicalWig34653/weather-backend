@@ -71,11 +71,22 @@ public enum PushEvaluator {
         }
     }
 
-    public static func payload(minutes: Int, subscriptionID: String) -> String {
-        let object: [String: Any] = [
-            "aps": ["alert": ["loc-key": "RAIN_STARTS_IN", "loc-args": [String(minutes)]], "sound": "default", "thread-id": subscriptionID],
-            "type": "rain-start", "minutes": minutes,
-        ]
+    /// `interruption-level` is only present for time-sensitive subscriptions (default: the system's `active`).
+    public static func payload(minutes: Int, subscriptionID: String, timeSensitive: Bool = false) -> String {
+        var aps: [String: Any] = ["alert": ["loc-key": "RAIN_STARTS_IN", "loc-args": [String(minutes)]], "sound": "default", "thread-id": subscriptionID]
+        if timeSensitive { aps["interruption-level"] = "time-sensitive" }
+        return encode(["aps": aps, "type": "rain-start", "minutes": minutes])
+    }
+
+    /// Test notification: plain, clearly labelled text (no place, no coordinates, no subscription data).
+    public static func testPayload(locale: String) -> String {
+        let en = locale == "en"
+        let alert = ["title": en ? "ShowerNow test notification" : "ShowerNow Testmeldung",
+                     "body": en ? "Notifications work on this device. This is only a test." : "Mitteilungen funktionieren auf diesem Gerät. Dies ist nur ein Test."]
+        return encode(["aps": ["alert": alert, "sound": "default", "thread-id": "test"], "type": "test"])
+    }
+
+    private static func encode(_ object: [String: Any]) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         return String(decoding: data, as: UTF8.self)
     }

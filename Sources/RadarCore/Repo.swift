@@ -90,6 +90,8 @@ public protocol PushRepo: Sendable {
     func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool
     func deleteSubscription(installationID: String, id: String) async throws -> Bool
     func subscriptions(installationID: String) async throws -> [PushSubscription]
+    /// Delivery target of an authenticated installation (nil when unknown).
+    func installation(id: String) async throws -> PushInstallation?
     /// All enabled subscriptions of a raster version (for the evaluation after a radar run).
     func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription]
     func lastEvaluatedRun() async throws -> String?

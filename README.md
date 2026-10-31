@@ -48,7 +48,7 @@ Die MariaDB-Tests löschen die Tabellen `radar_*` und `schema_migration` in `RAD
 
 ### Optionaler Pushdienst
 
-Standardmäßig aus (`PUSH_ENABLED=false`). Registrierungs-API `/v1/push/…` (Opt-in je Ort, nur Rasterzelle, keine Koordinaten), Auswertung nach jedem Radarlauf (Regel „Regen beginnt in N Minuten“) und APNs-Versand nur durch den Leader `push`. Beschreibung: Dokumentationsseite API und Installation, Entscheidungen in `docs/decisions.md`. Der APNs-Versand ist nur gegen einen Fake geprüft.
+Standardmäßig aus (`PUSH_ENABLED=false`). Registrierungs-API `/v1/push/…` (Opt-in je Ort, nur Rasterzelle, keine Koordinaten), Auswertung nach jedem Radarlauf (Regel „Regen beginnt in N Minuten“) und APNs-Versand nur durch den Leader `push`. Beschreibung: Dokumentationsseite API und Installation, Entscheidungen in `docs/decisions.md`. Zusätzlich: Testmeldung `POST /v1/push/installations/<uuid>/test` (3 pro Stunde je Installation), optionales Abo-Feld `time_sensitive` (Migration `005_push_time_sensitive.sql`, braucht das Datenbankrecht `ALTER`) und APNs-Umgebung je Installation (`APNS_ENV=sandbox|production|both`). Der APNs-Versand ist nur gegen einen Fake geprüft.
 
 ### Deployment (Docker Swarm)
 

@@ -209,6 +209,25 @@ struct PushRepoTests {
     }
 
     @Test(arguments: RepoKind.allCases)
+    func timeSensitiveFlagAndInstallationLookup(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        try await register(repo, token: tokenA, env: .production)
+        #expect(try await repo.installation(id: installA) == PushInstallation(token: tokenA, env: .production, locale: "de"))
+        #expect(try await repo.installation(id: installB) == nil)
+        let plain = newID(), urgent = newID()
+        _ = try await repo.addSubscription(installationID: installA, id: plain, input(), maxPerInstallation: 10, now: run0)
+        var flagged = input(); flagged.timeSensitive = true
+        _ = try await repo.addSubscription(installationID: installA, id: urgent, flagged, maxPerInstallation: 10, now: run0)
+        var byID = Dictionary(uniqueKeysWithValues: try await repo.subscriptions(installationID: installA).map { ($0.id, $0.timeSensitive) })
+        #expect(byID[plain] == false && byID[urgent] == true)
+        #expect(try await repo.evaluationSubscriptions(gridVersion: PushGrid.version).first { $0.id == urgent }?.timeSensitive == true)
+        #expect(try await repo.updateSubscription(installationID: installA, id: urgent, input()))
+        #expect(try await repo.updateSubscription(installationID: installA, id: plain, flagged))
+        byID = Dictionary(uniqueKeysWithValues: try await repo.subscriptions(installationID: installA).map { ($0.id, $0.timeSensitive) })
+        #expect(byID[plain] == true && byID[urgent] == false)
+    }
+
+    @Test(arguments: RepoKind.allCases)
     func tokenDeletionAndRetention(kind: RepoKind) async throws {
         let repo = try await kind.make()
         try await register(repo, now: run0.addingTimeInterval(-61 * 86400))                       // inactive for 61 days
@@ -591,5 +610,214 @@ struct PushServiceTests {
         let (repo, _, _) = try await setup()
         let service = PushService(config: pushConfig { $0.push.enabled = false }, repo: repo, sender: FakeApnsSender(), owner: "a")
         #expect(try await service.tick() == PushTick())
+    }
+}
+
+
+// MARK: test notification, time sensitive, per-installation environment
+
+@Suite("Push test notification")
+struct PushTestNotificationTests {
+    private func api(sender: (any ApnsSender)?, _ edit: (inout Config) -> Void = { _ in }, clock: @escaping @Sendable () -> Date = { run0 })
+        -> (PushApi, MemoryRepo) {
+        let repo = MemoryRepo()
+        return (PushApi(repo: repo, config: pushConfig(edit), sender: sender, clock: clock), repo)
+    }
+    private func json(_ object: [String: Any]) -> [UInt8] { Array((try? JSONSerialization.data(withJSONObject: object)) ?? Data()) }
+    private func install(_ api: PushApi, env: String = "sandbox", locale: String = "de", id: String = installA, secret: String = secretA) async {
+        _ = await api.handle(method: "PUT", path: "/v1/push/installations/\(id)", secret: secret,
+                             body: json(["token": tokenA, "env": env, "locale": locale]))
+    }
+    private func test(_ api: PushApi, id: String = installA, secret: String? = secretA, method: String = "POST") async -> ApiResponse? {
+        await api.handle(method: method, path: "/v1/push/installations/\(id)/test", secret: secret, body: [])
+    }
+    private func text(_ r: ApiResponse?) -> String { String(decoding: r?.body ?? [], as: UTF8.self) }
+
+    @Test func sendsLabelledTestToOwnTokenOnly() async throws {
+        let sender = FakeApnsSender()
+        let (api, repo) = api(sender: sender)
+        await install(api)
+        _ = await api.handle(method: "PUT", path: "/v1/push/installations/\(installB)", secret: secretB,
+                             body: json(["token": tokenB, "env": "production", "locale": "en"]))
+        let response = try #require(await test(api))
+        #expect(response.status == 200 && text(response) == #"{"environment":"sandbox","sent":true}"#)
+        let sent = await sender.requests
+        #expect(sent.count == 1 && sent[0].tokenHex == tokenA && sent[0].env == .sandbox && sent[0].topic == "de.example.app")
+        let payload = String(decoding: sent[0].payload, as: UTF8.self)
+        #expect(payload.contains("ShowerNow Testmeldung") && payload.contains(#""type":"test""#))
+        #expect(!payload.contains("interruption-level") && !payload.contains("loc-key"))
+        #expect(sent[0].expiration == Int(run0.addingTimeInterval(PushApi.testExpirySeconds).timeIntervalSince1970))
+        // The test stores nothing: no subscription, no outbox entry.
+        #expect(try await repo.subscriptions(installationID: installA).isEmpty)
+        #expect(try await repo.dueOutbox(now: run0.addingTimeInterval(9999), limit: 10).isEmpty)
+        // Second installation: English text and its own token/environment.
+        _ = try #require(await test(api, id: installB, secret: secretB))
+        let second = await sender.requests[1]
+        #expect(second.tokenHex == tokenB && second.env == .production && String(decoding: second.payload, as: UTF8.self).contains("test notification"))
+    }
+
+    @Test func requiresAuthenticationAndPostAndPush() async {
+        let sender = FakeApnsSender()
+        let (api, _) = api(sender: sender)
+        await install(api)
+        #expect(await test(api, secret: nil)?.status == 401)
+        #expect(await test(api, secret: secretB)?.status == 401)
+        #expect(await test(api, id: installB, secret: secretA)?.status == 401)
+        #expect(await test(api, method: "GET")?.status == 405)
+        #expect(await api.handle(method: "POST", path: "/v1/push/installations/\(installA)/other", secret: secretA, body: []) == nil)
+        #expect(await sender.requests.isEmpty)
+        let (off, _) = self.api(sender: sender) { $0.push.enabled = false }
+        #expect(await test(off) == nil)  // push inactive: 404 like every push route
+    }
+
+    @Test func rateLimitIsThreePerHourPerInstallation() async {
+        let sender = FakeApnsSender()
+        let now = Locked(run0)
+        let (api, _) = api(sender: sender, clock: { now.withLock { $0 } })
+        await install(api)
+        _ = await api.handle(method: "PUT", path: "/v1/push/installations/\(installB)", secret: secretB,
+                             body: json(["token": tokenB, "env": "sandbox", "locale": "de"]))
+        for _ in 0..<3 { #expect(await test(api)?.status == 200) }
+        let limited = await test(api)
+        #expect(limited?.status == 429 && text(limited) == #"{"error":"test_rate_limited"}"#)
+        #expect(limited?.headers.contains { $0.0 == "Retry-After" } == true)
+        #expect(await test(api, id: installB, secret: secretB)?.status == 200)  // limit is per installation
+        #expect(await sender.requests.count == 4)
+        now.withLock { $0 = run0.addingTimeInterval(3601) }
+        #expect(await test(api)?.status == 200)
+    }
+
+    @Test func environmentNotAllowedAndNoSenderGiveClearErrors() async {
+        let sender = FakeApnsSender()
+        let (production, _) = api(sender: sender) { $0.push.environments = [.production] }
+        await install(production, env: "sandbox")
+        let r = await test(production)
+        #expect(r?.status == 409 && text(r) == #"{"error":"environment_not_allowed"}"#)
+        #expect(await sender.requests.isEmpty)
+        let (nokey, _) = api(sender: nil)
+        await install(nokey)
+        let r2 = await test(nokey)
+        #expect(r2?.status == 503 && text(r2) == #"{"error":"apns_unavailable"}"#)
+    }
+
+    @Test func apnsErrorsAreMappedWithoutLeakingSecrets() async throws {
+        let sender = FakeApnsSender(script: [.badToken("BadDeviceToken"), .retry("InvalidProviderToken"), .retry("503"),
+                                             .rejected("400 PayloadTooLarge"), .unregistered])
+        let now = Locked(run0)
+        let (api, repo) = api(sender: sender, { $0.push.keyPEM = "-----BEGIN PRIVATE KEY-----SECRET"; $0.push.keyID = "KEYID12345" },
+                              clock: { now.withLock { $0 } })
+        await install(api)
+        var bodies: [String] = []
+        for _ in 0..<5 {
+            bodies.append(text(await test(api)))
+            now.withLock { $0 = $0.addingTimeInterval(3601) }  // stay below the hourly test limit
+        }
+        #expect(bodies[0].contains("apns_bad_device_token") && bodies[0].contains("BadDeviceToken"))
+        #expect(bodies[1].contains("apns_key_rejected") && bodies[1].contains("InvalidProviderToken"))
+        #expect(bodies[2].contains("apns_unavailable"))
+        #expect(bodies[3].contains("apns_rejected"))
+        #expect(bodies[4].contains("token_unregistered"))
+        for body in bodies { #expect(!body.contains(tokenA) && !body.contains("SECRET") && !body.contains("KEYID12345")) }
+        // Only 410 removes the installation (same behaviour as the normal sender).
+        #expect(try await repo.installation(id: installA) == nil)
+    }
+
+    @Test func statusCodesOfFailedTests() async {
+        let sender = FakeApnsSender(script: [.badToken("BadDeviceToken"), .unregistered], defaultResult: .delivered)
+        let (api, _) = api(sender: sender)
+        await install(api)
+        #expect(await test(api)?.status == 502)
+        #expect(await test(api)?.status == 410)
+    }
+}
+
+@Suite("Push time sensitive")
+struct PushTimeSensitiveTests {
+    private func api() -> (PushApi, MemoryRepo) {
+        let repo = MemoryRepo()
+        return (PushApi(repo: repo, config: pushConfig(), clock: { run0 }), repo)
+    }
+    private func json(_ object: [String: Any]) -> [UInt8] { Array((try? JSONSerialization.data(withJSONObject: object)) ?? Data()) }
+    private func body(_ extra: [String: Any]) -> [UInt8] {
+        var o: [String: Any] = ["grid_version": 1, "cell_x": 10, "cell_y": 20, "threshold": 3, "lead_minutes": 20]
+        o.merge(extra) { $1 }
+        return json(o)
+    }
+
+    @Test func defaultsToFalseAcceptsBoolAndRejectsOtherTypes() async throws {
+        let (api, repo) = api()
+        let base = "/v1/push/installations/\(installA)"
+        _ = await api.handle(method: "PUT", path: base, secret: secretA, body: json(["token": tokenA, "env": "sandbox", "locale": "de"]))
+        let plain = try #require(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body([:])))
+        #expect(plain.status == 201)
+        #expect(try await repo.subscriptions(installationID: installA).first?.timeSensitive == false)
+        for bad in [["time_sensitive": "true"], ["time_sensitive": 1], ["time_sensitive": NSNull()] as [String: Any]] {
+            let r = await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(bad))
+            // JSON null is "absent" (false); strings and numbers are invalid.
+            #expect(r?.status == (bad["time_sensitive"] is NSNull ? 201 : 400), "\(bad)")
+        }
+        let created = try #require(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(["time_sensitive": true])))
+        let id = try #require((try JSONSerialization.jsonObject(with: Data(created.body)) as? [String: Any])?["id"] as? String)
+        let list = try #require(await api.handle(method: "GET", path: base + "/subscriptions", secret: secretA, body: []))
+        let items = try #require(try JSONSerialization.jsonObject(with: Data(list.body)) as? [[String: Any]])
+        #expect(items.first { $0["id"] as? String == id }?["time_sensitive"] as? Bool == true)
+        #expect(items.allSatisfy { $0["time_sensitive"] is Bool })
+        // PUT replaces the fields: omitting the flag resets it to false.
+        #expect(await api.handle(method: "PUT", path: base + "/subscriptions/\(id)", secret: secretA, body: body([:]))?.status == 204)
+        #expect(try await repo.subscriptions(installationID: installA).first { $0.id == id }?.timeSensitive == false)
+    }
+
+    @Test func payloadCarriesInterruptionLevelOnlyWhenSet() throws {
+        let plain = PushEvaluator.payload(minutes: 10, subscriptionID: "s")
+        let urgent = PushEvaluator.payload(minutes: 10, subscriptionID: "s", timeSensitive: true)
+        #expect(!plain.contains("interruption-level"))
+        let aps = try #require((try JSONSerialization.jsonObject(with: Data(urgent.utf8)) as? [String: Any])?["aps"] as? [String: Any])
+        #expect(aps["interruption-level"] as? String == "time-sensitive" && aps["thread-id"] as? String == "s")
+        #expect(urgent.replacingOccurrences(of: #","interruption-level":"time-sensitive""#, with: "") == plain)
+    }
+}
+
+@Suite("Push APNs environment per installation")
+struct PushEnvironmentTests {
+    @Test func bothEnvironmentsRouteEachInstallationToItsHost() async throws {
+        let config = pushConfig { $0.push.environments = [.sandbox, .production] }
+        let repo = MemoryRepo()
+        try await register(repo, env: .sandbox)
+        try await register(repo, id: installB, secret: secretB, token: tokenB, env: .production)
+        let flagged = newID()
+        for (install, sub) in [(installA, newID()), (installB, flagged)] {
+            var i = input(x: 40, y: 50); i.timeSensitive = install == installB
+            _ = try await repo.addSubscription(installationID: install, id: sub, i, maxPerInstallation: 10, now: run0)
+        }
+        // Deliver directly through the outbox: one item per installation.
+        let subs = try await repo.evaluationSubscriptions(gridVersion: 1)
+        let out = subs.map { NewOutboxItem(subID: $0.id, dedupeKey: "\($0.id):r", collapseID: $0.id,
+                                           payloadJSON: PushEvaluator.payload(minutes: 5, subscriptionID: $0.id, timeSensitive: $0.timeSensitive),
+                                           expiresAt: run0.addingTimeInterval(900)) }
+        _ = try await repo.commitEvaluation(runID: "r", updates: [], outbox: out, now: run0)
+        let sender = FakeApnsSender()
+        let service = PushService(config: config, repo: repo, sender: sender, owner: "a", clock: { run0 })
+        var tick = PushTick()
+        try await service.dispatch(&tick)
+        let sent = await sender.requests
+        #expect(tick.sent == 2)
+        #expect(Set(sent.map { "\($0.env.rawValue):\($0.tokenHex)" }) == ["sandbox:\(tokenA)", "production:\(tokenB)"])
+        #expect(ApnsClient.host(.sandbox) == "https://api.sandbox.push.apple.com" && ApnsClient.host(.production) == "https://api.push.apple.com")
+        let levels = sent.map { String(decoding: $0.payload, as: UTF8.self).contains("time-sensitive") }
+        #expect(levels.filter { $0 }.count == 1)
+    }
+
+    @Test func rejectedReasonsAreCountedForOperators() async throws {
+        let config = pushConfig()
+        let repo = MemoryRepo()
+        try await register(repo, env: .sandbox)
+        let sub = newID()
+        _ = try await repo.addSubscription(installationID: installA, id: sub, input(), maxPerInstallation: 10, now: run0)
+        _ = try await repo.commitEvaluation(runID: "r", updates: [], outbox: [
+            NewOutboxItem(subID: sub, dedupeKey: "k", collapseID: sub, payloadJSON: "{}", expiresAt: run0.addingTimeInterval(900))], now: run0)
+        let service = PushService(config: config, repo: repo, sender: FakeApnsSender(script: [.badToken("BadDeviceToken")]), owner: "a", clock: { run0 })
+        var tick = PushTick()
+        try await service.dispatch(&tick)
+        #expect(tick.dropped == 1 && tick.apnsReasons == ["BadDeviceToken": 1])
     }
 }

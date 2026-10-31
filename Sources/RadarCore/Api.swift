@@ -85,11 +85,11 @@ public final class Api: Sendable {
         }
     }
 
-    public init(repo: any Repo, config: Config, alive: @escaping @Sendable () -> Bool = { true },
+    public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
                 clock: @escaping @Sendable () -> Date = { Date() }) {
         self.repo = repo; self.config = config; self.alive = alive; self.clock = clock
         cache = SlotCache(maxBytes: config.cacheMaxBytes)
-        push = PushApi(repo: repo, config: config, clock: clock)
+        push = PushApi(repo: repo, config: config, sender: sender, clock: clock)
     }
 
     static func etagMatches(_ header: String?, _ etag: String) -> Bool {

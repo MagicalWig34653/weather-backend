@@ -12,10 +12,11 @@ extension MariaRepo {
             cellX: row.column("cell_x")?.int ?? 0, cellY: row.column("cell_y")?.int ?? 0,
             threshold: row.column("threshold")?.int ?? 0, leadMinutes: row.column("lead_min")?.int ?? 0,
             enabled: (row.column("enabled")?.int ?? 0) == 1, state: PushState(rawValue: row.column("state")?.int ?? 0) ?? .dry,
-            lastSentAt: row.column("last_sent_s")?.string.flatMap { TimeUtil.fromSQL($0) })
+            lastSentAt: row.column("last_sent_s")?.string.flatMap { TimeUtil.fromSQL($0) },
+            timeSensitive: (row.column("time_sensitive")?.int ?? 0) == 1)
     }
 
-    private static let subColumns = "id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, "
+    private static let subColumns = "id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, "
         + "DATE_FORMAT(last_sent_at, \(dateOut)) AS last_sent_s"
 
     public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult {
@@ -54,10 +55,10 @@ extension MariaRepo {
             let count = try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE install_id=?", [str(installationID)])
             guard (count.rows.first?.column("n")?.int ?? 0) < maxPerInstallation else { return .limitReached }
             _ = try await query(conn,
-                "INSERT INTO push_sub (id, install_id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, created_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,0,?)",
+                "INSERT INTO push_sub (id, install_id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, created_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,0,?,?)",
                 [str(id), str(installationID), MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY),
-                 MySQLData(int: input.threshold), MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), ts(now)])
+                 MySQLData(int: input.threshold), MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0), ts(now)])
             return .created
         }
     }
@@ -65,9 +66,9 @@ extension MariaRepo {
     public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool {
         try await connection { conn in
             _ = try await query(conn,
-                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, state=0 WHERE id=? AND install_id=?",
+                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, state=0 WHERE id=? AND install_id=?",
                 [MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY), MySQLData(int: input.threshold),
-                 MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), str(id), str(installationID)])
+                 MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0), str(id), str(installationID)])
             return !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=?", [str(id), str(installationID)])).rows.isEmpty
         }
     }
@@ -82,6 +83,15 @@ extension MariaRepo {
         try await connection { conn in
             try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE install_id=? ORDER BY created_at, id", [str(installationID)])
                 .rows.map(Self.subscription)
+        }
+    }
+
+    public func installation(id: String) async throws -> PushInstallation? {
+        try await connection { conn in
+            let rows = try await query(conn, "SELECT token, env, locale FROM push_install WHERE id=?", [str(id)]).rows
+            guard let row = rows.first, let token = row.column("token")?.string,
+                  let env = row.column("env")?.string.flatMap(PushEnvironment.init(rawValue:)) else { return nil }
+            return PushInstallation(token: token, env: env, locale: row.column("locale")?.string ?? "de")
         }
     }
 

@@ -8,6 +8,8 @@ public struct PushTick: Sendable, Equatable {
     public var dropped = 0
     public var retried = 0
     public var unregistered = 0
+    /// Apple reason strings (e.g. `BadDeviceToken`, `InvalidProviderToken`) of failed sends, counted; never tokens.
+    public var apnsReasons: [String: Int] = [:]
     public var purged = PushPurgeResult()
 }
 
@@ -87,7 +89,7 @@ public final class PushService: Sendable {
                         sentAt = now
                         outbox.append(NewOutboxItem(
                             subID: sub.id, dedupeKey: "\(sub.id):\(run.runID)", collapseID: sub.id,
-                            payloadJSON: PushEvaluator.payload(minutes: minutes, subscriptionID: sub.id),
+                            payloadJSON: PushEvaluator.payload(minutes: minutes, subscriptionID: sub.id, timeSensitive: sub.timeSensitive),
                             expiresAt: now.addingTimeInterval(PushEvaluator.maxRunAge)))
                     }
                     if step.state != sub.state || sentAt != sub.lastSentAt { updates.append(SubscriptionUpdate(id: sub.id, state: step.state, lastSentAt: sentAt)) }
@@ -129,9 +131,11 @@ public final class PushService: Sendable {
                     try await repo.finishOutbox(id: item.id, .sent, now: now); result.sent += 1; progressed = true
                 case .unregistered:
                     _ = try await repo.deleteInstallations(token: item.token, env: item.env); result.unregistered += 1; progressed = true
-                case .badToken, .rejected:
+                case .badToken(let reason), .rejected(let reason):
+                    result.apnsReasons[String(reason.prefix(64)), default: 0] += 1
                     try await repo.finishOutbox(id: item.id, .dropped, now: now); result.dropped += 1; progressed = true
-                case .retry:
+                case .retry(let reason):
+                    result.apnsReasons[String(reason.prefix(64)), default: 0] += 1
                     let attempts = item.attempts + 1
                     let delay = Self.retryBackoffSeconds[min(attempts - 1, Self.retryBackoffSeconds.count - 1)] * (1 + Double.random(in: 0..<0.3))
                     let next = now.addingTimeInterval(delay)

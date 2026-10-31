@@ -20,10 +20,10 @@ Der Migrationsjob und die Replikate verwenden denselben Benutzer. Er braucht `SE
 ```sql
 CREATE DATABASE showernow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'showernow'@'<Host-Muster>' IDENTIFIED BY '<Passwort>';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE ON showernow.* TO 'showernow'@'<Host-Muster>';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER ON showernow.* TO 'showernow'@'<Host-Muster>';
 ```
 
-Die Migration `001_radar.sql` legt `radar_run`, `radar_slot` und (vom Migrationsprogramm) `schema_migration` an; dafür genügt `CREATE`. Ob künftige Migrationen weitere Rechte brauchen, ist nicht geprüft. Die Migrationen sind als additiv vorgesehen.
+Die Migration `005_push_time_sensitive.sql` ergänzt `push_sub` per `ALTER TABLE` um eine Spalte; deshalb braucht der Migrationsbenutzer ab dieser Version zusätzlich `ALTER` (bestehende Installationen: `GRANT ALTER ON showernow.* TO …;`). Die Migration ist additiv (Standardwert `0`) und läuft vor dem Rollout; alte Replikate arbeiten mit der neuen Spalte weiter. Die Migration `001_radar.sql` legt `radar_run`, `radar_slot` und (vom Migrationsprogramm) `schema_migration` an; dafür genügt `CREATE`. Ob künftige Migrationen weitere Rechte brauchen, ist nicht geprüft. Die Migrationen sind als additiv vorgesehen.
 
 ## Schritt für Schritt
 
@@ -126,7 +126,7 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 | `WMS_URL` | DWD-GeoServer | Nur für Tests: anderer WMS-Endpunkt. |
 | `PUSH_ENABLED` | `false` | Optionaler Pushdienst (Registrierungs-API, Auswertung, APNs-Versand). Mit `true` sind die vier `APNS_*`-Werte Pflicht und `IMAGE_WIDTH` muss `1024` sein; sonst Startfehler. |
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | leer | Key-ID (10 Zeichen), Team-ID und `apns-topic` (Bundle-ID). Keine Geheimnisse, aber Betreiberwerte. |
-| `APNS_ENV` | `production` | `sandbox`, `production` oder `both`: erlaubte APNs-Umgebungen. Token einer nicht erlaubten Umgebung werden verworfen. |
+| `APNS_ENV` | `production` | `sandbox`, `production` oder `both`: erlaubte APNs-Umgebungen. Jede Installation meldet ihre Umgebung; der Sender nutzt den passenden Apple-Host. Meldungen einer nicht erlaubten Umgebung werden verworfen, die Testmeldung antwortet `409`. Beim Start steht die erlaubte Menge im Log. |
 | `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`). |
 
 Die Variablen `DEV_*` in `.env.example` gehören zur lokalen Entwicklung und werden in Produktion nicht gebraucht.
@@ -140,6 +140,17 @@ printf '%s' "$DB_PASSWORT" | docker secret create showernow_db_password -
 ```
 
 Ein Secret lässt sich nicht ändern. Zum Rotieren ein neues Secret mit anderem Namen anlegen, `DB_PASSWORD_SECRET` in der `.env` anpassen und neu ausrollen.
+
+#### APNs-Schlüssel und Umgebung (`APNS_ENV`)
+
+Der Dienst nutzt einen einzigen `.p8`-Schlüssel für alle erlaubten Umgebungen. Belegt (Apple-Dokumentation laut App-Repo-Recherche `push-benachrichtigungen.md`): Token und Umgebung müssen zusammenpassen, sonst `400 BadDeviceToken`; Apple kennt team-scoped Schlüssel, die auf Sandbox oder Produktion beschränkt sein können (höchstens zwei je Umgebung), und topic-specific Schlüssel (eine Umgebung); ältere Schlüssel für beide Umgebungen bleiben gültig, Apple empfiehlt umgebungsspezifische. Daraus folgt:
+
+- Nur `production` (TestFlight/App Store): ein Schlüssel, der für Produktion gilt. `APNS_ENV=production`.
+- Nur `sandbox` (Xcode-Debug-Builds): ein Schlüssel, der für Sandbox gilt. `APNS_ENV=sandbox`.
+- `APNS_ENV=both`: der eine Schlüssel muss für beide Umgebungen gelten, also ein Schlüssel „für beide Umgebungen“ (älteres Modell). Mit umgebungsspezifischen Schlüsseln wären zwei nötig; dafür kennt der Stack nur ein Secret, deshalb ist das derzeit nicht vorgesehen.
+- Nicht belegt: ob Apple einen auf eine Umgebung beschränkten Schlüssel am anderen Host mit `InvalidProviderToken` oder mit `BadDeviceToken` ablehnt, und dass TestFlight-Builds Produktionstokens liefern (Letzteres folgt nur aus dem Profil, ist nicht ausdrücklich belegt).
+
+Fehlbedienung zeigt sich zur Laufzeit, nicht beim Start (der Dienst prüft den Schlüssel nicht gegen Apple): Testmeldung `POST /v1/push/installations/<uuid>/test` liefert `apns_bad_device_token` oder `apns_key_rejected` mit Apples Reason; im regulären Versand zählt das Log die Apple-Reasons je Lauf (`apns reasons BadDeviceToken=…`), nie Token oder Schlüssel.
 
 #### Optional: Secret `showernow_apns_key` (nur Beschreibung, noch nicht im Stack verdrahtet)
 

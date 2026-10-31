@@ -27,6 +27,7 @@ final class RateLimiter: @unchecked Sendable {
 ///   POST   /v1/push/installations/{id}/subscriptions            body {grid_version, cell_x, cell_y, threshold, lead_minutes, enabled}
 ///   PUT    /v1/push/installations/{id}/subscriptions/{subId}    same body (re-arms the rule)
 ///   DELETE /v1/push/installations/{id}/subscriptions/{subId}
+///   POST   /v1/push/installations/{id}/test                     sends one clearly labelled test notification to the installation's token
 public final class PushApi: Sendable {
     public static let prefix = "/v1/push/"
     public static let perInstallationLimit = 60
@@ -36,15 +37,22 @@ public final class PushApi: Sendable {
     let repo: any Repo
     let config: Config
     let clock: @Sendable () -> Date
+    /// nil when the APNs key could not be loaded: the test route then answers `503 apns_unavailable`.
+    let sender: (any ApnsSender)?
     private let limiter = RateLimiter()
 
-    public init(repo: any Repo, config: Config, clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.repo = repo; self.config = config; self.clock = clock
+    /// Test notifications per installation and hour (in memory per replica, like the other limits).
+    public static let testLimit = 3
+    public static let testWindow: TimeInterval = 3600
+    static let testExpirySeconds: TimeInterval = 600
+
+    public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.repo = repo; self.config = config; self.sender = sender; self.clock = clock
     }
 
     struct InstallationBody: Decodable { var token: String; var env: String; var locale: String }
     struct SubscriptionBody: Decodable {
-        var grid_version: Int; var cell_x: Int; var cell_y: Int; var threshold: Int; var lead_minutes: Int; var enabled: Bool?
+        var grid_version: Int; var cell_x: Int; var cell_y: Int; var threshold: Int; var lead_minutes: Int; var enabled: Bool?; var time_sensitive: Bool?
     }
 
     private static func json(_ status: Int, _ object: Any? = nil) -> ApiResponse {
@@ -81,7 +89,8 @@ public final class PushApi: Sendable {
         guard body.grid_version == PushGrid.version, (0..<config.width).contains(body.cell_x), (0..<height).contains(body.cell_y),
               PushGrid.thresholdRange.contains(body.threshold), PushGrid.validLeadMinutes.contains(body.lead_minutes) else { return nil }
         return PushSubscriptionInput(gridVersion: body.grid_version, cellX: body.cell_x, cellY: body.cell_y,
-                                     threshold: body.threshold, leadMinutes: body.lead_minutes, enabled: body.enabled ?? true)
+                                     threshold: body.threshold, leadMinutes: body.lead_minutes, enabled: body.enabled ?? true,
+                                     timeSensitive: body.time_sensitive ?? false)
     }
 
     /// nil when the path is not a push route (or push is disabled): the caller answers 404.
@@ -89,7 +98,7 @@ public final class PushApi: Sendable {
         let path = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? rawPath
         guard config.push.enabled, path.hasPrefix(Self.prefix) else { return nil }
         let parts = path.dropFirst(Self.prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 2, parts[0] == "installations", parts.count <= 4, parts.count != 3 || parts[2] == "subscriptions" else { return nil }
+        guard parts.count >= 2, parts[0] == "installations", parts.count <= 4, parts.count != 3 || parts[2] == "subscriptions" || parts[2] == "test" else { return nil }
         guard body.count <= PushGrid.maxBodyBytes else { return Self.error(413, "too_large") }
         guard let installID = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
         let now = clock()
@@ -106,6 +115,10 @@ public final class PushApi: Sendable {
                 }
                 default: return Self.error(405, "method_not_allowed")
                 }
+            }
+            if parts.count == 3, parts[2] == "test" {
+                guard method == "POST" else { return Self.error(405, "method_not_allowed") }
+                return try await authenticated(installID, secret, now) { _ in try await self.sendTest(installID, now: now) }
             }
             if parts.count == 3 {
                 switch method {
@@ -144,7 +157,38 @@ public final class PushApi: Sendable {
 
     private static func describe(_ sub: PushSubscription) -> [String: Any] {
         ["id": sub.id, "grid_version": sub.gridVersion, "cell_x": sub.cellX, "cell_y": sub.cellY, "threshold": sub.threshold,
-         "lead_minutes": sub.leadMinutes, "enabled": sub.enabled]
+         "lead_minutes": sub.leadMinutes, "enabled": sub.enabled, "time_sensitive": sub.timeSensitive]
+    }
+
+    /// Test notification to the installation's own token. Stores nothing; errors name the cause without leaking token or key.
+    private func sendTest(_ installID: String, now: Date) async throws -> ApiResponse {
+        guard let sender else { return Self.error(503, "apns_unavailable") }
+        guard let target = try await repo.installation(id: installID) else { return Self.error(401, "unauthorized") }
+        guard config.push.environments.contains(target.env) else { return Self.error(409, "environment_not_allowed") }
+        guard limiter.allow("t:" + installID, limit: Self.testLimit, window: Self.testWindow, now: now) else {
+            var response = Self.error(429, "test_rate_limited")
+            response.headers.append(("Retry-After", String(Int(Self.testWindow))))
+            return response
+        }
+        let request = ApnsRequest(tokenHex: target.token, env: target.env, topic: config.push.topic,
+                                  payload: Array(PushEvaluator.testPayload(locale: target.locale).utf8),
+                                  collapseID: "test-" + installID, expiration: Int(now.addingTimeInterval(Self.testExpirySeconds).timeIntervalSince1970))
+        switch await sender.send(request) {
+        case .delivered:
+            return Self.json(200, ["sent": true, "environment": target.env.rawValue])
+        case .unregistered:
+            _ = try await repo.deleteInstallations(token: target.token, env: target.env)  // same as the normal sender: a dead token is removed
+            return Self.json(410, ["error": "token_unregistered"])
+        case .badToken(let reason):
+            // Token and APNs environment (or key/topic) do not match.
+            return Self.json(502, ["error": "apns_bad_device_token", "reason": reason, "environment": target.env.rawValue])
+        case .retry(let reason) where reason == "InvalidProviderToken" || reason == "MissingProviderToken":
+            return Self.json(502, ["error": "apns_key_rejected", "reason": reason, "environment": target.env.rawValue])
+        case .retry(let reason):
+            return Self.json(502, ["error": "apns_unavailable", "reason": reason])
+        case .rejected(let reason):
+            return Self.json(502, ["error": "apns_rejected", "reason": String(reason.prefix(64))])
+        }
     }
 
     private func decodeSubscription(_ body: [UInt8]) -> PushSubscriptionInput? {
