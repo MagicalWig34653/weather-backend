@@ -30,7 +30,7 @@ public struct PublishedRun: Sendable, Equatable {
 
 /// State storage. Contract (see tests): claim/renew/fail/publish are atomic and owner-checked;
 /// readers only see published runs. All times are UTC with second resolution.
-public protocol Repo: Sendable {
+public protocol Repo: PushRepo {
     func migrate() async throws
     func ping() async throws
     /// `backfill` marks an analysis-only run (one slot) created by the backfill; a takeover then drops stale forecast slots.
@@ -55,6 +55,34 @@ public protocol Repo: Sendable {
     /// Keeps the newest `keepPublished` full runs completely; older published runs keep only their analysis slot
     /// until `keepAnalysisSince` and are deleted entirely before it. Unpublished leftovers expire after `staleAfter`.
     func retain(keepPublished: Int, keepAnalysisSince: Date, staleAfter: TimeInterval) async throws -> Int
+}
+
+/// Push registration, evaluation state and outbox. Times are passed in by the caller (UTC, second resolution).
+/// Secrets are stored only as SHA-256 hex hashes; no coordinates, only raster cells.
+public protocol PushRepo: Sendable {
+    /// Creates the installation, or updates token/env/locale when `secretHash` matches (`forbidden` otherwise).
+    func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult
+    /// True when the installation exists and the hash matches; then also refreshes `last_seen_at`.
+    func authenticate(id: String, secretHash: String, now: Date) async throws -> Bool
+    /// Deletes the installation with all subscriptions and outbox entries.
+    func deleteInstallation(id: String) async throws
+    func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int, now: Date) async throws -> AddSubscriptionResult
+    /// Replaces the client fields and re-arms the automaton; false when the subscription does not belong to the installation.
+    func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool
+    func deleteSubscription(installationID: String, id: String) async throws -> Bool
+    func subscriptions(installationID: String) async throws -> [PushSubscription]
+    /// All enabled subscriptions of a raster version (for the evaluation after a radar run).
+    func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription]
+    func lastEvaluatedRun() async throws -> String?
+    /// Atomic: only if `runID` is newer than the last evaluated run it stores it, applies the state updates and inserts the
+    /// outbox entries (duplicate `dedupeKey` ignored). Returns false when the run was already evaluated.
+    func commitEvaluation(runID: String, updates: [SubscriptionUpdate], outbox: [NewOutboxItem], now: Date) async throws -> Bool
+    func dueOutbox(now: Date, limit: Int) async throws -> [OutboxItem]
+    func finishOutbox(id: Int, _ outcome: OutboxOutcome, now: Date) async throws
+    /// 410 Unregistered: removes the installations (and thereby subscriptions/outbox) with this token and environment.
+    func deleteInstallations(token: String, env: PushEnvironment) async throws -> Int
+    /// Retention: installations not seen since `inactiveBefore`, and outbox entries that are finished/expired before `outboxBefore`.
+    func purgePush(inactiveBefore: Date, outboxBefore: Date, now: Date) async throws -> PushPurgeResult
 }
 
 extension Repo {

@@ -63,6 +63,18 @@ public enum ImagePipeline {
         return RGBAImage(width: width, height: height, pixels: out)
     }
 
+    /// Decodes a stored WebP slot back to RGBA (used by the push evaluation; the slots are lossless).
+    public static func decodeWebP(_ data: [UInt8]) throws -> RGBAImage {
+        var width: Int32 = 0
+        var height: Int32 = 0
+        guard let pointer = data.withUnsafeBufferPointer({ WebPDecodeRGBA($0.baseAddress, $0.count, &width, &height) }) else {
+            throw ImageError.invalid("webp not decodable")
+        }
+        defer { WebPFree(pointer) }
+        return RGBAImage(width: Int(width), height: Int(height),
+                         pixels: Array(UnsafeBufferPointer(start: pointer, count: Int(width) * Int(height) * 4)))
+    }
+
     /// Lossless and exact: the DWD palette stays unchanged (259-260 distinct RGBA values, PNG8 would be lossy).
     public static func toWebP(_ image: RGBAImage) throws -> [UInt8] {
         var config = WebPConfig()

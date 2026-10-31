@@ -86,6 +86,51 @@ func runBackfillLoop(config: Config, repo: any Repo, activity: ActivityFlag, log
     await backfiller.release()
 }
 
+/// HTTP/2 transport to APNs (AsyncHTTPClient negotiates h2 via ALPN). Not yet exercised against the real service.
+struct AhcApnsTransport: ApnsTransport {
+    let client: HTTPClient
+    func perform(_ request: ApnsHTTPRequest) async throws -> ApnsHTTPResponse {
+        var http = HTTPClientRequest(url: request.url)
+        http.method = .POST
+        for (name, value) in request.headers { http.headers.add(name: name, value: value) }
+        http.body = .bytes(request.body)
+        let response = try await client.execute(http, timeout: .seconds(15))
+        var body = try await response.body.collect(upTo: 64 * 1024)
+        return ApnsHTTPResponse(status: Int(response.status.code), body: body.readBytes(length: body.readableBytes) ?? [])
+    }
+}
+
+/// Leader-only push loop: evaluation after each radar run, outbox delivery, retention. Idle when push is disabled.
+func runPushLoop(config: Config, repo: any Repo, logger: Logger) async {
+    guard config.push.enabled else { return }
+    let client = HTTPClient(eventLoopGroupProvider: .singleton)
+    let sender: any ApnsSender
+    do {
+        sender = try ApnsClient(keyPEM: config.push.keyPEM, keyID: config.push.keyID, teamID: config.push.teamID,
+                                topic: config.push.topic, transport: AhcApnsTransport(client: client))
+    } catch {
+        logger.error("push disabled: APNs key not readable")
+        try? await client.shutdown()
+        return
+    }
+    let service = PushService(config: config, repo: repo, sender: sender, owner: replicaID())
+    while !Task.isCancelled {
+        do {
+            let tick = try await service.tick()
+            if tick.evaluatedRun != nil || tick.sent + tick.dropped + tick.retried + tick.unregistered > 0 || tick.purged.installations > 0 {
+                logger.info("push: run \(tick.evaluatedRun ?? "-") queued \(tick.queued), sent \(tick.sent), retry \(tick.retried), dropped \(tick.dropped), removed \(tick.unregistered), purged \(tick.purged.installations)")
+            }
+        } catch is CancellationError {
+            break
+        } catch {
+            logger.warning("push tick failed (\(type(of: error)))")
+        }
+        try? await Task.sleep(nanoseconds: 15_000_000_000)
+    }
+    await service.release()
+    try? await client.shutdown()
+}
+
 func serve(config: Config) async throws {
     var env = Environment(name: "production", arguments: ["radar", "serve", "--hostname", "0.0.0.0", "--port", String(config.httpPort)])
     try LoggingSystem.bootstrap(from: &env)
@@ -96,16 +141,29 @@ func serve(config: Config) async throws {
     app.http.server.configuration.serverName = nil
 
     // No access logs (no IPs, no paths). Database errors never leak details to clients.
+    func respond(_ result: ApiResponse) -> Response {
+        var headers = HTTPHeaders()
+        for (name, value) in result.headers { headers.add(name: name, value: value) }
+        return Response(status: HTTPResponseStatus(statusCode: result.status), headers: headers, body: .init(buffer: ByteBuffer(bytes: result.body)))
+    }
     app.get("**") { req async -> Response in
         let path = req.url.path
+        if path.hasPrefix(PushApi.prefix) {
+            return respond(await api.handlePush(method: "GET", path: path, secret: req.headers.first(name: "X-Installation-Secret"), body: []))
+        }
         do {
-            let result = try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch))
-            var headers = HTTPHeaders()
-            for (name, value) in result.headers { headers.add(name: name, value: value) }
-            return Response(status: HTTPResponseStatus(statusCode: result.status), headers: headers,
-                            body: .init(buffer: ByteBuffer(bytes: result.body)))
+            return respond(try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch)))
         } catch {
             return Response(status: .serviceUnavailable, headers: ["Cache-Control": "no-store"])
+        }
+    }
+    // Push registration (small JSON bodies); answers 404 unless PUSH_ENABLED=true.
+    for method in [HTTPMethod.POST, .PUT, .DELETE] {
+        app.on(method, "**", body: .collect(maxSize: "4kb")) { req async -> Response in
+            var buffer = req.body.data ?? ByteBuffer()
+            return respond(await api.handlePush(method: method.rawValue, path: req.url.path,
+                                                secret: req.headers.first(name: "X-Installation-Secret"),
+                                                body: buffer.readBytes(length: buffer.readableBytes) ?? []))
         }
     }
 
@@ -114,17 +172,19 @@ func serve(config: Config) async throws {
     let activity = ActivityFlag()
     let loop = Task { await runIngestLoop(config: config, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
     let backfill = Task { await runBackfillLoop(config: config, repo: repo, activity: activity, logger: logger) }
+    let pushLoop = Task { await runPushLoop(config: config, repo: repo, logger: logger) }
     do {
         try await app.execute()
     } catch {
-        loop.cancel(); backfill.cancel()
-        await loop.value; await backfill.value
+        loop.cancel(); backfill.cancel(); pushLoop.cancel()
+        await loop.value; await backfill.value; await pushLoop.value
         try? await app.asyncShutdown()
         await repo.shutdown()
         throw error
     }
-    loop.cancel(); backfill.cancel()
+    loop.cancel(); backfill.cancel(); pushLoop.cancel()
     await backfill.value
+    await pushLoop.value
     await loop.value  // let a running ingest hand its run over before the DB pool goes away
     try await app.asyncShutdown()
     await repo.shutdown()

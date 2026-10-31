@@ -64,6 +64,7 @@ public final class Api: Sendable {
     let alive: @Sendable () -> Bool
     let clock: @Sendable () -> Date
     public let cache: SlotCache
+    let push: PushApi
     private let manifestState = ManifestState()
     private let historyState = ManifestState()
 
@@ -87,6 +88,7 @@ public final class Api: Sendable {
                 clock: @escaping @Sendable () -> Date = { Date() }) {
         self.repo = repo; self.config = config; self.alive = alive; self.clock = clock
         cache = SlotCache(maxBytes: config.cacheMaxBytes)
+        push = PushApi(repo: repo, config: config, clock: clock)
     }
 
     static func etagMatches(_ header: String?, _ etag: String) -> Bool {
@@ -112,6 +114,11 @@ public final class Api: Sendable {
     }
 
     private static let notFound = ApiResponse(status: 404, headers: [("Cache-Control", "no-store")], body: [])
+
+    /// Push registration routes (/v1/push/...); 404 when push is disabled or the path is unknown.
+    public func handlePush(method: String, path: String, secret: String?, body: [UInt8]) async -> ApiResponse {
+        await push.handle(method: method, path: path, secret: secret, body: body) ?? Self.notFound
+    }
 
     public func handle(path rawPath: String, ifNoneMatch: String?) async throws -> ApiResponse {
         let path = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? rawPath

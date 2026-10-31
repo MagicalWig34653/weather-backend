@@ -120,6 +120,10 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 | `PROXY_LOG_NOTE` | leer | Ein Satz des Betreibers zur Protokollierung des Reverse Proxys (erscheint auf `/datenschutz`). |
 | `APP_STORE_URL`, `TESTFLIGHT_URL` | leer | Optionale `https`-Links auf `/marketing`. |
 | `WMS_URL` | DWD-GeoServer | Nur für Tests: anderer WMS-Endpunkt. |
+| `PUSH_ENABLED` | `false` | Optionaler Pushdienst (Registrierungs-API, Auswertung, APNs-Versand). Mit `true` sind die vier `APNS_*`-Werte Pflicht und `IMAGE_WIDTH` muss `1024` sein; sonst Startfehler. |
+| `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | leer | Key-ID (10 Zeichen), Team-ID und `apns-topic` (Bundle-ID). Keine Geheimnisse, aber Betreiberwerte. |
+| `APNS_ENV` | `production` | `sandbox`, `production` oder `both`: erlaubte APNs-Umgebungen. Token einer nicht erlaubten Umgebung werden verworfen. |
+| `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`). |
 
 Die Variablen `DEV_*` in `.env.example` gehören zur lokalen Entwicklung und werden in Produktion nicht gebraucht.
 
@@ -132,6 +136,16 @@ printf '%s' "$DB_PASSWORT" | docker secret create showernow_db_password -
 ```
 
 Ein Secret lässt sich nicht ändern. Zum Rotieren ein neues Secret mit anderem Namen anlegen, `DB_PASSWORD_SECRET` in der `.env` anpassen und neu ausrollen.
+
+#### Optional: Secret `showernow_apns_key` (nur Beschreibung, noch nicht im Stack verdrahtet)
+
+Der Pushdienst braucht den APNs-Auth-Key (`.p8`) aus dem Apple-Developer-Konto. Er wird wie das DB-Passwort als Swarm-Secret angelegt, nie als Umgebungswert und nie im Repo:
+
+```sh
+docker secret create showernow_apns_key /pfad/zu/AuthKey_XXXXXXXXXX.p8
+```
+
+`deploy/swarm/stack.yaml` verweist bewusst noch nicht darauf (ein externes Secret muss existieren, sonst scheitert jeder Rollout). Zum Aktivieren sind nötig: Secret anlegen, im Stack `secrets: [db_password, apns_key]` mit `APNS_KEY_FILE: /run/secrets/apns_key` sowie `PUSH_ENABLED`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` durchreichen und ein Beispiel-Secretblock `apns_key: {external: true, name: ${APNS_KEY_SECRET:-showernow_apns_key}}` ergänzen. Rotation: neues Secret mit neuem Namen. Migration `003_push.sql` läuft über den normalen Migrationsjob und ist additiv (neue Tabellen `push_*`).
 
 ### 5. Migrationsjob und Deploy
 

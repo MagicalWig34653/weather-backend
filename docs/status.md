@@ -86,3 +86,11 @@ Geprüft: `swift test` lokal (macOS) mit Wegwerf-MariaDB 12.3: 46 Tests grün (F
 ## Datenschutzseite: Apple-Karte und Ortssuche (31. Oktober 2026)
 
 `/datenschutz` hat den neuen Abschnitt 6 „Kartenansicht und Ortssuche (Apple)“ (Quelle: Diagnosebericht des App-Repos, Teil 2); Test `privacyMentionsAppleMapsAndSearch`, `docs-site/content/seiten.md` und `decisions.md` angepasst. Offen: Betreiberfreigabe des Textes; Apples Datenverarbeitung nicht geprüft.
+
+## Pushdienst Backend ohne Apple-Konto (31. Oktober 2026)
+
+Umgesetzt (Details: [decisions.md](decisions.md), API: `docs-site/content/api.md`): Migration `003_push.sql`, `PushRepo` in `MariaRepo` und `MemoryRepo`, Registrierungs-API `/v1/push/…`, Pixel-zu-Klasse-Zuordnung, Zustandsautomat, Auswertung nach neuem Lauf, Outbox, `ApnsSender` mit `FakeApnsSender` und `ApnsClient` (JWT/HTTP2-Transport), Leader `push`, 410-Bereinigung, Retention. Standardmäßig deaktiviert (`PUSH_ENABLED`).
+
+Geprüft (31.10., macOS, Debug): `swift build` ok; `swift test` 83 Tests grün ohne DB (Fake) und 83 Tests grün zusätzlich gegen Wegwerf-MariaDB 12.3 (Docker, tmpfs). Neue Tests: `Tests/RadarCoreTests/PushTests.swift` (Automat, Farbzuordnung, Repo-Vertrag Memory+MariaDB, API, ApnsClient mit Fake-Transport inkl. JWT-Signatur, PushService mit FakeApnsSender).
+
+Nicht geprüft/offen: kein Aufruf des echten APNs (kein Key, kein Gerät); die Farbzuordnung ist nicht gegen echte Radarpixel verifiziert (nur gegen die Legendentabelle); Last und Leader-Wechsel nicht gemessen; `stack.yaml`/`setup.sh` nicht um Secret und `APNS_*` erweitert (absichtlich, sonst scheitert der Rollout ohne Secret); `/datenschutz` unverändert (Änderungsbedarf in decisions.md); Ruhezeiten, Obergrenze Installationen, Proxy-Rate-Limit offen. Nutzeraufgaben: APNs-Key und Push-Capability anlegen, Secret `showernow_apns_key` erzeugen, Stack um Secret/Variablen erweitern, Datenschutztext und App-Privacy freigeben, Test auf Gerät (Sandbox/TestFlight).

@@ -46,6 +46,10 @@ docker compose --profile app up --build                            # ganzer Dien
 
 Die MariaDB-Tests löschen die Tabellen `radar_*` und `schema_migration` in `RADAR_TEST_DB_NAME` (Standard `radar_test`); niemals gegen die Produktionsdatenbank verwenden. Kein Test greift auf den DWD zu. Unter macOS bauen die Tests ebenfalls; die CI nutzt `swift:6.2-noble`.
 
+### Optionaler Pushdienst
+
+Standardmäßig aus (`PUSH_ENABLED=false`). Registrierungs-API `/v1/push/…` (Opt-in je Ort, nur Rasterzelle, keine Koordinaten), Auswertung nach jedem Radarlauf (Regel „Regen beginnt in N Minuten“) und APNs-Versand nur durch den Leader `push`. Beschreibung: Dokumentationsseite API und Installation, Entscheidungen in `docs/decisions.md`. Der APNs-Versand ist nur gegen einen Fake geprüft.
+
 ### Deployment (Docker Swarm)
 
 Voraussetzung (nicht Teil dieses Repos): Swarm, MariaDB mit Datenbank und Benutzer, Reverse Proxy mit TLS und Domain. Der DB-Benutzer braucht SELECT/INSERT/UPDATE/DELETE sowie CREATE auf dem Schema (der Migrationsjob nutzt denselben Benutzer; die Replikate führen selbst keine Migrationen aus).

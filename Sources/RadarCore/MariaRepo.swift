@@ -32,7 +32,7 @@ public final class MariaRepo: Repo, @unchecked Sendable {
 
     // MARK: connection helpers
 
-    private func connection<T>(_ body: (MySQLConnection) async throws -> T) async throws -> T {
+    func connection<T>(_ body: (MySQLConnection) async throws -> T) async throws -> T {
         let conn = try await pool.requestConnection().get()
         do {
             _ = try await conn.simpleQuery("SET time_zone='+00:00'").get()
@@ -46,7 +46,7 @@ public final class MariaRepo: Repo, @unchecked Sendable {
     }
 
     /// Runs `body` in a transaction (commit on success, rollback on error).
-    private func transaction<T>(_ body: (MySQLConnection) async throws -> T) async throws -> T {
+    func transaction<T>(_ body: (MySQLConnection) async throws -> T) async throws -> T {
         try await connection { conn in
             _ = try await conn.simpleQuery("START TRANSACTION").get()
             do {
@@ -60,14 +60,14 @@ public final class MariaRepo: Repo, @unchecked Sendable {
         }
     }
 
-    private func query(_ conn: MySQLConnection, _ sql: String, _ binds: [MySQLData] = []) async throws
+    func query(_ conn: MySQLConnection, _ sql: String, _ binds: [MySQLData] = []) async throws
         -> (rows: [MySQLRow], affected: UInt64) {
         nonisolated(unsafe) var affected: UInt64 = 0
         let rows = try await conn.query(sql, binds, onMetadata: { affected = $0.affectedRows }).get()
         return (rows, affected)
     }
 
-    private static func time(_ row: MySQLRow, _ column: String) -> Date {
+    static func time(_ row: MySQLRow, _ column: String) -> Date {
         TimeUtil.fromSQL(row.column(column)?.string ?? "") ?? Date(timeIntervalSince1970: 0)
     }
 
@@ -332,7 +332,7 @@ public final class MariaRepo: Repo, @unchecked Sendable {
 extension MariaRepo {
     /// Test helper for disposable databases only.
     public func dropAllForTests() async throws {
-        for table in ["radar_slot", "radar_run", "radar_lock", "schema_migration"] {
+        for table in ["push_outbox", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
             try await rawExecute("DROP TABLE IF EXISTS \(table)")
         }
     }

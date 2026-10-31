@@ -11,6 +11,7 @@ public actor MemoryRepo: Repo {
         var publishedAt: Date?
         var backfilled = false
     }
+    var push = MemoryPushStore()
     private var leaders: [String: (owner: String, until: Date)] = [:]
     private let clock: @Sendable () -> Date
     private var runs: [String: Run] = [:]

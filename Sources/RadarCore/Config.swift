@@ -19,6 +19,19 @@ public enum RadarConstants {
     }
 }
 
+/// Optional server push (rain-start notifications). Disabled by default; the radar service does not need it.
+public struct PushSettings: Sendable {
+    public var enabled = false
+    /// Contents of the `.p8` key (from `APNS_KEY_FILE`, a Swarm secret); never logged.
+    public var keyPEM = ""
+    public var keyID = ""
+    public var teamID = ""
+    public var topic = ""
+    /// Environments the sender may use (`APNS_ENV`: sandbox, production or both).
+    public var environments: Set<PushEnvironment> = [.production]
+    public init() {}
+}
+
 public struct ConfigError: Error, CustomStringConvertible {
     public let description: String
 }
@@ -47,6 +60,7 @@ public struct Config: Sendable {
     public var userAgent = "ShowerNow-radar-ingest/1.0"
     public var migrationsDirectory = "migrations"
     public var site = SiteInfo()
+    public var push = PushSettings()
 
     public init() {}
 
@@ -98,6 +112,27 @@ public struct Config: Sendable {
         c.site.proxyLogNote = text("PROXY_LOG_NOTE")
         c.site.appStoreURL = text("APP_STORE_URL")
         c.site.testflightURL = text("TESTFLIGHT_URL")
+        c.push.enabled = (env["PUSH_ENABLED"] ?? "").lowercased() == "true"
+        if let raw = env["APNS_ENV"], !raw.isEmpty {
+            switch raw.lowercased() {
+            case "sandbox": c.push.environments = [.sandbox]
+            case "production": c.push.environments = [.production]
+            case "both": c.push.environments = [.sandbox, .production]
+            default: throw ConfigError(description: "APNS_ENV must be sandbox, production or both")
+            }
+        }
+        if c.push.enabled {
+            c.push.keyPEM = try secret(env, "APNS_KEY", "")
+            c.push.keyID = text("APNS_KEY_ID")
+            c.push.teamID = text("APNS_TEAM_ID")
+            c.push.topic = text("APNS_TOPIC")
+            guard !c.push.keyPEM.isEmpty, !c.push.keyID.isEmpty, !c.push.teamID.isEmpty, !c.push.topic.isEmpty else {
+                throw ConfigError(description: "PUSH_ENABLED=true needs APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID and APNS_TOPIC")
+            }
+            guard c.width == PushGrid.width else {
+                throw ConfigError(description: "PUSH_ENABLED=true needs IMAGE_WIDTH=\(PushGrid.width) (the push raster is the 1024 px ingest grid)")
+            }
+        }
         guard (256...2048).contains(c.width) else { throw ConfigError(description: "IMAGE_WIDTH must be between 256 and 2048") }
         guard c.retentionRuns >= 15 else {
             throw ConfigError(description: "RETENTION_RUNS must be at least 15 (12 history analyses, current run, slack)")
