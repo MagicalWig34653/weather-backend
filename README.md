@@ -6,7 +6,7 @@ Zentraler optionaler Pushdienst mit Swift/Vapor, MariaDB und Docker Swarm. Kein 
 
 ## Status
 
-Stufe 1 (Radar-Cache) ist in Swift implementiert und getestet (Stand siehe Arbeitsstand); sie ersetzt die frühere Python-Fassung. Der Pushdienst (Benachrichtigungen) ist noch nicht umgesetzt. Prüfstand: [Arbeitsstand](docs/status.md).
+Stufe 1 (Radar-Cache) ist in Swift implementiert und getestet (Stand siehe Arbeitsstand); sie ersetzt die frühere Python-Fassung. Der optionale Pushdienst (Regenbeginn je Ort, Regionen als Umkreis, Testmeldung), Zusatzebenen und `GET /v1/status` sind umgesetzt, der APNs-Versand nur gegen einen Fake geprüft. Prüfstand: [Arbeitsstand](docs/status.md).
 
 ## Radar-Cache (Stufe 1)
 
@@ -88,7 +88,7 @@ Quelle: Deutscher Wetterdienst. Die Bilder sind aus DWD-Rasterdaten (WMS `dwd:Ni
 - [Arbeitsanweisungen für Coding-Agenten](AGENTS.md)
 - [Claude-Code-Einstieg](CLAUDE.md)
 
-Die Apple-App wird zuerst entwickelt und intern über TestFlight erprobt. Der Pushdienst folgt danach. Schwesterrepository: [weather-apple](https://github.com/MagicalWig34653/weather-apple); aktueller App- und TestFlight-Stand im dortigen [Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md).
+Die Apple-App wird zuerst entwickelt und intern über TestFlight erprobt. Der Pushdienst ist umgesetzt, standardmäßig aus und noch nicht live gegen Apple geprüft. Schwesterrepository: [weather-apple](https://github.com/MagicalWig34653/weather-apple); aktueller App- und TestFlight-Stand im dortigen [Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md).
 
 ## Lizenz
 

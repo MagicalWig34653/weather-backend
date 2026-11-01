@@ -1,6 +1,32 @@
 # Fortsetzbarer Arbeitsstand
 
-Stand: 28. Oktober 2026. Aktuelle App-Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW`. Technische Repository-Namen bleiben unverändert. Maßgeblicher aktueller App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md); die folgenden frühen Checkpoints bleiben historisch eingeordnet.
+Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
+
+## Aktueller Stand (1. November 2026)
+
+Auf `main` (letzter Code-Commit `881edeb`): Radar-Cache (Swift/Vapor, produktiv unter https://showernow.linolaske.de), `history.json`, öffentliche Seiten `/datenschutz`, `/marketing`, `/support`; Pushdienst (optional, Standard aus: Registrierungs-API, Auswertung, APNs-Versand, Testmeldung, `time_sensitive`, Migrationen 003/005); **Push-Regionen Version 1 (Umkreis)** `34e6416` (Migration 006, `capabilities: ["regions"]`); Zusatzebenen `37e5f2e` (`pressure`, `lightning`, `clouds`, `cloudmask`, Migration 004) und Welle 2 `881edeb` (`pressure_eu`, `cloudmask_vis`, `cloudmask_vis_eu`, eigene Bildausdehnung je Ebene im Manifest); Overlay `deploy/swarm/stack.push.yaml` und Push-Fragen im `setup.sh` (`d523cc1`); `GET /v1/status` (Ebenen, `push`, `capabilities`, `revision`). Zuletzt gemeldet: `swift test` 131 Tests grün (Fake/Memory; MariaDB-Läufe bei 124 Tests mit Regionen grün).
+
+**Nicht geprüft:** echter APNs-Aufruf (nur Fake; Push-Registrierung in der App wurde vom Nutzer am Gerät bestätigt, Zustellung nicht), Farbzuordnung gegen echte Regenpixel, Last und Leader-Wechsel, MariaDB-Last durch Ebenen/Regionen, Rollout des Overlays im echten Swarm, EUMETView-Verfügbarkeit nachts (22:30 bis 01:30 UTC lieferte keine Bilder).
+
+**Diagnose-Ergebnis:** Die Zusatzebenen antworteten live mit 404, weil `LAYERS` in der Server-`.env` fehlte bzw. durch `setup.sh --reconfigure` verloren gegangen war (Ursache im Code behoben: `--reconfigure` übernimmt `LAYERS` und Tuning); erst nach Korrektur durch den Betreiber lieferten die Ebenen Daten. Hilfen: `GET /v1/status` und Betriebsseite „Fehlersuche Ebenen 404“.
+
+## Übergabe-Checkliste für den Betreiber
+
+- [ ] Server auf neuestes Image/Skripte: `deploy/swarm/update.sh --pull-scripts --force` (gleicher Tag braucht `--force`).
+- [ ] `.env`: `LAYERS=pressure,pressure_eu,lightning,clouds,cloudmask,cloudmask_vis,cloudmask_vis_eu` (je nach Wunsch); Speicherbedarf der Datenbank beobachten (Europa-Bilder größer).
+- [ ] DB-Benutzer mit `ALTER`-Recht für die additiven Migrationen 005 und 006 (004 braucht CREATE).
+- [ ] `curl <Basis-URL>/v1/status`: Ebenen `enabled`/`has_data`, `capabilities` enthält `regions`, `revision` passt.
+- [ ] Push (optional): APNs-Key, Secret `showernow_apns_key`, `PUSH_ENABLED=true`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV` (siehe Installationsseite und App-Repo `docs/apns-einrichtung.md`); danach Testmeldung aus der App.
+- [ ] **Vor Livegang von Push/Regionen:** Text `/datenschutz` ergänzen (siehe offene Punkte), App-Privacy Variante B in App Store Connect.
+- [ ] Zoraxy: IP-Zugriffslog abschalten oder kürzen, Rate-Limit am Proxy (E7/E8), `PROXY_LOG_NOTE` anpassen; Rechtsprüfung/Impressum (`OPERATOR_*`).
+
+## Offene Punkte (Backend)
+
+1. `/datenschutz` und Dokumentationsseite enthalten noch nichts zu Regenwarnungen/Push, Regionen, Testmeldung und zur EUMETSAT-Quelle (Attribution „Contains modified EUMETSAT Meteosat data 2026“ für Wolken-/Sonnenebenen); Text bewusst noch nicht geändert, Freigabe durch den Nutzer nötig (Änderungsbedarf in [decisions.md](decisions.md)).
+2. MariaDB-Last: Ebenen (insbesondere Europa, Bilder bis etwa 17 MB dekodiert in der App) und Push-Auswertung nicht unter Last gemessen.
+3. Regionen-Zellbudget (8000 je Installation) ist serverweit nicht transaktionssicher über Installationen (weicher Wert); Zusammenfassung mehrerer Abos eines Geräts (R2b) nicht umgesetzt.
+4. APNs: unbelegt, ob ein umgebungsbeschränkter Key am falschen Host `InvalidProviderToken` oder `BadDeviceToken` liefert; TestFlight = Produktionstoken nur aus dem Profil abgeleitet.
+5. Möglich später: Druck-Farbfläche über GRIB (libaec), Live Activities (App-Repo-Recherchen).
 
 ## Auftrag und Freigabe
 
