@@ -77,11 +77,13 @@ public enum ImagePipeline {
 
     /// Number of cells of a `grid` x `grid` raster that consist (almost) only of pure black pixels (alpha ignored).
     /// A missing server-side tile renders black; real satellite or mask images have no such cell.
-    public static func blackCells(_ image: RGBAImage, grid: Int = 16) -> Int {
+    /// `mayBeDark(gx, gy)` marks cells where black is legitimate (night); they are not counted.
+    public static func blackCells(_ image: RGBAImage, grid: Int = 16, mayBeDark: ((Int, Int) -> Bool)? = nil) -> Int {
         let cellW = max(1, image.width / grid), cellH = max(1, image.height / grid)
         var count = 0
         for gy in 0..<grid {
             for gx in 0..<grid {
+                if let mayBeDark, mayBeDark(gx, gy) { continue }
                 var black = 0, total = 0
                 var y = gy * cellH
                 while y < min((gy + 1) * cellH, image.height) {

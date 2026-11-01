@@ -64,7 +64,7 @@ Das Image heißt fest `ghcr.io/magicalwig34653/weather-backend-radar` (Tags: `ed
 
 ### Zusatzebenen (optional)
 
-`LAYERS=pressure,lightning,clouds,cloudmask` (Standard nur Radar) schaltet weitere Ebenen unter `/v1/layers/<ebene>/latest.json` und `/v1/layers/<ebene>/<run>/<slot>.webp` ein; eigenes Manifest, Slot-Katalog, Leader-Lease und Retention je Ebene (Migration `004`). Details: `docs-site/content/api.md`, Variablen: `.env.example`.
+`LAYERS=pressure,pressure_eu,lightning,clouds,cloudmask,cloudmask_vis,cloudmask_vis_eu` (Standard nur Radar; `*_eu` = Europa, 2048 px, eigene Bildausdehnung im Manifest) schaltet weitere Ebenen unter `/v1/layers/<ebene>/latest.json` und `/v1/layers/<ebene>/<run>/<slot>.webp` ein; eigenes Manifest, Slot-Katalog, Leader-Lease und Retention je Ebene (Migration `004`). Details: `docs-site/content/api.md`, Variablen: `.env.example`.
 
 ### Konfiguration
 

@@ -33,13 +33,13 @@ Der Radar-Dienst führt keine Zugriffsprotokolle und speichert keine IP-Adressen
 
 ## Diagnose: `GET /v1/status` und „Ebenen 404“
 
-`GET /v1/status` (intern/Betreiber, `Cache-Control: no-store`, keine Geheimnisse, keine Nutzerdaten) liefert JSON: `revision` (Commit des Images oder `null`), `push` (nur Boolean), `now` und je Ebene (`radar`, `pressure`, `lightning`, `clouds`, `cloudmask`) `enabled`, `has_data` und bei Daten `latest_run` und `published_at`. `/healthz` bleibt unverändert (`ok`/`stale`). Ein `404` auf `/v1/layers/<ebene>/latest.json` bedeutet entweder „Ebene nicht aktiviert“ (`enabled: false`) oder „noch keine Daten“ (`enabled: true`, `has_data: false`); ein Image ohne `/v1/status` antwortet dort `404` und ist zu alt.
+`GET /v1/status` (intern/Betreiber, `Cache-Control: no-store`, keine Geheimnisse, keine Nutzerdaten) liefert JSON: `revision` (Commit des Images oder `null`), `push` (nur Boolean), `now` und je Ebene (`radar`, `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`) `enabled`, `has_data` und bei Daten `latest_run` und `published_at`. `/healthz` bleibt unverändert (`ok`/`stale`). Ein `404` auf `/v1/layers/<ebene>/latest.json` bedeutet entweder „Ebene nicht aktiviert“ (`enabled: false`) oder „noch keine Daten“ (`enabled: true`, `has_data: false`); ein Image ohne `/v1/status` antwortet dort `404` und ist zu alt.
 
 ```sh
 curl -s http://127.0.0.1:38090/v1/status
 ```
 
-Die Umgebungsvariable `LAYERS` (kommagetrennt aus `pressure`, `lightning`, `clouds`, `cloudmask`; `radar` läuft immer) schaltet die Zusatzebenen ein; ohne sie ist nur das Radar aktiv und jede Ebenen-Route antwortet `404`. Zugehörige Stellschrauben: `PRESSURE_FORECAST_HOURS`, `PRESSURE_RETENTION_RUNS`, `LIGHTNING_HISTORY_HOURS`, `CLOUDS_HISTORY_HOURS`, `CLOUDMASK_HISTORY_HOURS`, `LAYER_PAUSE_SECONDS` (siehe `.env.example`).
+Die Umgebungsvariable `LAYERS` (kommagetrennt aus `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`; `radar` läuft immer) schaltet die Zusatzebenen ein; ohne sie ist nur das Radar aktiv und jede Ebenen-Route antwortet `404`. Zugehörige Stellschrauben: `PRESSURE_FORECAST_HOURS`, `PRESSURE_RETENTION_RUNS`, `PRESSURE_EU_FORECAST_HOURS`, `CLOUDMASK_VIS_HISTORY_HOURS`, `CLOUDMASK_VIS_EU_HISTORY_HOURS`, `LIGHTNING_HISTORY_HOURS`, `CLOUDS_HISTORY_HOURS`, `CLOUDMASK_HISTORY_HOURS`, `LAYER_PAUSE_SECONDS` (siehe `.env.example`).
 
 Symptom „Ebenen 404“, mögliche Ursachen in dieser Reihenfolge prüfen:
 

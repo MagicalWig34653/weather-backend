@@ -42,12 +42,15 @@ public enum Manifest {
     }
 
     static func imageJSON(config: Config) -> String {
-        let bbox = RadarConstants.bbox
+        imageJSON(bbox: RadarConstants.bbox, width: config.width, height: config.height)
+    }
+
+    static func imageJSON(bbox: [Double], width: Int, height: Int) -> String {
         let sw = RadarConstants.mercatorToWGS84(x: bbox[0], y: bbox[1])
         let ne = RadarConstants.mercatorToWGS84(x: bbox[2], y: bbox[3])
         func r4(_ v: Double) -> Double { (v * 10000).rounded(.toNearestOrEven) / 10000 }
         let wgs = [sw.lon, sw.lat, ne.lon, ne.lat].map { number(r4($0)) }.joined(separator: ",")
-        return "{\"format\":\"\(contentType)\",\"width\":\(config.width),\"height\":\(config.height),"
+        return "{\"format\":\"\(contentType)\",\"width\":\(width),\"height\":\(height),"
             + "\"projection\":\"EPSG:3857\",\"bbox\":[\(bbox.map(number).joined(separator: ","))],"
             + "\"bbox_wgs84\":[\(wgs)]}"
     }

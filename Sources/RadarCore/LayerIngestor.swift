@@ -39,23 +39,38 @@ public final class LayerIngestor: Sendable {
 
     public func release() async { try? await repo.releaseLeader(name: leaderName, owner: owner) }
 
+    /// Cells (of the 16 x 16 completeness grid) where the sun is below `darkBelowDegrees`: black is plausible there.
+    static let darkBelowDegrees = 10.0
+
+    func mayBeDark(slot: Date, grid: Int = 16) -> (Int, Int) -> Bool {
+        let b = spec.bbox
+        return { gx, gy in
+            let x = b[0] + (Double(gx) + 0.5) / Double(grid) * (b[2] - b[0])
+            let y = b[3] - (Double(gy) + 0.5) / Double(grid) * (b[3] - b[1])
+            let p = RadarConstants.mercatorToWGS84(x: x, y: y)
+            return SunElevation.degrees(lat: p.lat, lon: p.lon, at: slot) < Self.darkBelowDegrees
+        }
+    }
+
     /// Validates, checks completeness and converts to WebP; throws for XML/truncated/incomplete images.
-    func convert(_ bytes: [UInt8]) throws -> [UInt8] {
-        let image = try ImagePipeline.validatePNG(bytes, width: config.width, height: config.height, sizeRange: 200...8_000_000)
-        if spec.checkComplete {
-            let black = ImagePipeline.blackCells(image)
+    func convert(_ bytes: [UInt8], slot: Date) throws -> [UInt8] {
+        let image = try ImagePipeline.validatePNG(bytes, width: spec.width(config), height: spec.height(config), sizeRange: 200...8_000_000)
+        switch spec.completeness {
+        case .none: break
+        case .blackCells, .blackCellsInDaylight:
+            let black = ImagePipeline.blackCells(image, mayBeDark: spec.completeness == .blackCellsInDaylight ? mayBeDark(slot: slot) : nil)
             guard black == 0 else { throw ImageError.invalid("incomplete image (\(black) black cells)") }
         }
         return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality)
     }
 
-    private func fetchWebP(url: String, attempts: Int, backoffs: [Double], before: () async throws -> Void) async throws -> [UInt8] {
+    private func fetchWebP(url: String, slot: Date, attempts: Int, backoffs: [Double], before: () async throws -> Void) async throws -> [UInt8] {
         var last: Error?
         for attempt in 0..<attempts {
             try Task.checkCancellation()
             try await before()
             do {
-                return try convert(try await fetch(url))
+                return try convert(try await fetch(url), slot: slot)
             } catch is CancellationError {
                 throw CancellationError()
             } catch is LeaseLost {
@@ -118,11 +133,11 @@ public final class LayerIngestor: Sendable {
             guard budget > 0, inARow < 3 else { break }
             let runID = TimeUtil.toID(slot)
             guard try await repo.layerTryClaim(layer: layer, runID: runID, nominal: slot, owner: owner,
-                                               leaseSeconds: Self.runLeaseSeconds, maxAttempts: Self.maxSlotAttempts) else { continue }
+                                               leaseSeconds: Self.runLeaseSeconds, maxAttempts: spec.maxAttempts) else { continue }
             budget -= 1
             do {
                 let url = LayerSources.mapURL(spec: spec, config: config, run: slot, slot: slot)
-                let data = try await fetchWebP(url: url, attempts: 2, backoffs: [3]) {
+                let data = try await fetchWebP(url: url, slot: slot, attempts: 2, backoffs: [3]) {
                     try await self.keepLeadership()
                     guard try await self.repo.layerRenew(layer: self.layer, runID: runID, owner: self.owner, leaseSeconds: Self.runLeaseSeconds)
                     else { throw LeaseLost() }
@@ -170,12 +185,12 @@ public final class LayerIngestor: Sendable {
 
     func processForecast(run: Date, result: inout LayerTickResult) async throws -> ForecastOutcome {
         let runID = TimeUtil.toID(run)
-        let slots = (0...config.pressureForecastHours).map { run.addingTimeInterval(Double($0) * spec.stepSeconds) }
+        let slots = (0...config.forecastHours(for: spec)).map { run.addingTimeInterval(Double($0) * spec.stepSeconds) }
         func url(_ slot: Date) -> String { LayerSources.mapURL(spec: spec, config: config, run: run, slot: slot) }
         // Probe slot 0 before claiming: a reference time that the source does not offer yet answers with an XML error.
         let first: [UInt8]
         do {
-            first = try await fetchWebP(url: url(slots[0]), attempts: 2, backoffs: [3]) { try await self.keepLeadership() }
+            first = try await fetchWebP(url: url(slots[0]), slot: slots[0], attempts: 2, backoffs: [3]) { try await self.keepLeadership() }
         } catch is RunUnavailable { result.failed += 1; return .unavailable }
         guard try await repo.layerTryClaim(layer: layer, runID: runID, nominal: run, owner: owner,
                                            leaseSeconds: Self.runLeaseSeconds, maxAttempts: 2) else { return .busy }
@@ -184,7 +199,7 @@ public final class LayerIngestor: Sendable {
             result.stored += 1
             for (index, slot) in slots.enumerated().dropFirst() {
                 await sleep(config.layerPauseSeconds)
-                let data = try await fetchWebP(url: url(slot), attempts: 5, backoffs: [3, 6, 12, 20]) {
+                let data = try await fetchWebP(url: url(slot), slot: slot, attempts: 5, backoffs: [3, 6, 12, 20]) {
                     try await self.keepLeadership()
                     guard try await self.repo.layerRenew(layer: self.layer, runID: runID, owner: self.owner, leaseSeconds: Self.runLeaseSeconds)
                     else { throw LeaseLost() }
@@ -238,7 +253,7 @@ public enum LayerManifest {
             + "\"reference_time\":\(Manifest.jsonString(TimeUtil.toISO(latest.nominal))),"
             + "\"generated_at\":\(Manifest.jsonString(TimeUtil.toISO(latest.publishedAt))),"
             + "\"step_minutes\":\(spec.stepMinutes),\(tail)"
-            + "\"image\":\(Manifest.imageJSON(config: config)),\"slots\":[\(entries.joined(separator: ","))],"
+            + "\"image\":\(Manifest.imageJSON(bbox: spec.bbox, width: spec.width(config), height: spec.height(config))),\"slots\":[\(entries.joined(separator: ","))],"
             + "\"attribution\":\(Manifest.jsonString(spec.attribution(year: year))),"
             + "\"modification_notice\":\(Manifest.jsonString(spec.modificationNotice))"
         if let legend = spec.legend {

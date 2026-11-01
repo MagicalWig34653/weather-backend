@@ -7,7 +7,13 @@ public enum RadarConstants {
     public static let attribution = "Quelle: Deutscher Wetterdienst"
     public static let modificationNotice = "Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben"
 
-    public static func imageHeight(width: Int) -> Int {
+    /// Europe in EPSG:3857 (25 W-45 E, 30-72 N): Atlantic west of Ireland to the Volga, North Africa's coast to
+    /// northern Scandinavia (Canaries excluded). 2048 px wide gives 2048 x 2168 (about 2.4 km per pixel at 50 N).
+    public static let europeBBox: [Double] = [-2782987.0, 3503550.0, 5009377.0, 11753185.0]
+
+    public static func imageHeight(width: Int) -> Int { imageHeight(width: width, bbox: bbox) }
+
+    public static func imageHeight(width: Int, bbox: [Double]) -> Int {
         Int(((Double(width) * (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]))).rounded(.toNearestOrEven))
     }
 
@@ -70,6 +76,10 @@ public struct Config: Sendable {
     public var lightningHistoryHours = 3
     public var cloudsHistoryHours = 3
     public var cloudmaskHistoryHours = 3
+    public var cloudmaskVisHistoryHours = 3
+    public var cloudmaskVisEUHistoryHours = 3
+    /// Hours of ICON forecast per Europe pressure run (`PRESSURE_EU_FORECAST_HOURS`, 1-168); the image is 4.3x larger.
+    public var pressureEUForecastHours = 24
     /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
     public var layerPauseSeconds = 2.0
     public var push = PushSettings()
@@ -124,6 +134,9 @@ public struct Config: Sendable {
         c.lightningHistoryHours = try int("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours)
         c.cloudsHistoryHours = try int("CLOUDS_HISTORY_HOURS", c.cloudsHistoryHours)
         c.cloudmaskHistoryHours = try int("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours)
+        c.cloudmaskVisHistoryHours = try int("CLOUDMASK_VIS_HISTORY_HOURS", c.cloudmaskVisHistoryHours)
+        c.cloudmaskVisEUHistoryHours = try int("CLOUDMASK_VIS_EU_HISTORY_HOURS", c.cloudmaskVisEUHistoryHours)
+        c.pressureEUForecastHours = try int("PRESSURE_EU_FORECAST_HOURS", c.pressureEUForecastHours)
         c.layerPauseSeconds = try double("LAYER_PAUSE_SECONDS", c.layerPauseSeconds)
         c.layers = try LayerCatalog.parse(env["LAYERS"])
         c.migrationsDirectory = env["MIGRATIONS_DIR"] ?? c.migrationsDirectory
@@ -166,9 +179,12 @@ public struct Config: Sendable {
             throw ConfigError(description: "HISTORY_HOURS must be between 1 and 72 (the DWD WMS history reaches back about 90 hours)")
         }
         guard (1...168).contains(c.pressureForecastHours) else { throw ConfigError(description: "PRESSURE_FORECAST_HOURS must be between 1 and 168") }
+        guard (1...168).contains(c.pressureEUForecastHours) else { throw ConfigError(description: "PRESSURE_EU_FORECAST_HOURS must be between 1 and 168") }
         guard (2...8).contains(c.pressureRetentionRuns) else { throw ConfigError(description: "PRESSURE_RETENTION_RUNS must be between 2 and 8") }
         for (key, hours) in [("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours), ("CLOUDS_HISTORY_HOURS", c.cloudsHistoryHours),
-                             ("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours)] where !(1...24).contains(hours) {
+                             ("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours),
+                             ("CLOUDMASK_VIS_HISTORY_HOURS", c.cloudmaskVisHistoryHours),
+                             ("CLOUDMASK_VIS_EU_HISTORY_HOURS", c.cloudmaskVisEUHistoryHours)] where !(1...24).contains(hours) {
             throw ConfigError(description: "\(key) must be between 1 and 24")
         }
         guard (0...60).contains(c.layerPauseSeconds) else { throw ConfigError(description: "LAYER_PAUSE_SECONDS must be between 0 and 60") }

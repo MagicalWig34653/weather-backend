@@ -8,42 +8,67 @@ private func layerConfig(_ layers: [String], _ edit: (inout Config) -> Void = { 
     smallConfig { c in c.layers = layers; c.layerPauseSeconds = 0; edit(&c) }
 }
 
-private func capsXML(layer: String, last: String) -> [UInt8] {
-    Array("<Layer><Name>\(layer)</Name><Dimension name=\"time\" default=\"\(last)\" units=\"ISO8601\" nearestValue=\"1\">2020-09-01T00:00:00.000Z/\(last)/PT15M</Dimension></Layer>".utf8)
+private func capsXML(layers: [String], last: String) -> [UInt8] {
+    Array(layers.map { "<Layer><Name>\($0)</Name><Dimension name=\"time\" default=\"\(last)\" units=\"ISO8601\" nearestValue=\"1\">2020-09-01T00:00:00.000Z/\(last)/PT15M</Dimension></Layer>" }.joined().utf8)
 }
 
-/// Fake of all sources: answers by URL, records requests; no network.
+private func capsXML(layer: String, last: String) -> [UInt8] { capsXML(layers: [layer], last: last) }
+
+/// Fake of all sources: answers by URL (image size from WIDTH/HEIGHT), records requests; no network.
 final class FakeSources: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var urls: [String] = []
     var xmlFor: @Sendable (String) -> Bool = { _ in false }
     var capsLatest = "2026-10-31T10:30:00.000Z"
-    let good: [UInt8]
-    let black: [UInt8]
+    private var good: [String: [UInt8]] = [:]
+    private var black: [String: [UInt8]] = [:]
     var useBlack: @Sendable (String) -> Bool = { _ in false }
-    init(_ config: Config) {
-        good = pngBytes(makeImage(width: config.width, height: config.height, seed: 2))
-        black = pngBytes(RGBAImage(width: config.width, height: config.height,
-                                   pixels: (0..<(config.width * config.height * 4)).map { $0 % 4 == 3 ? 255 : 0 }))
-    }
+    init(_ config: Config) {}
     var count: Int { lock.withLock { urls.count } }
+
+    private func size(_ url: String) -> (Int, Int) {
+        func value(_ key: String) -> Int {
+            url.split(separator: "&").first { $0.hasPrefix(key + "=") }.flatMap { Int($0.dropFirst(key.count + 1)) } ?? 0
+        }
+        return (value("WIDTH"), value("HEIGHT"))
+    }
+
     var fetch: Fetch {
         { [self] url in
             lock.withLock { urls.append(url) }
-            if url.contains("GetCapabilities") { return capsXML(layer: url.contains("mtg_fd") ? "rgb_geocolour" : "clm", last: capsLatest) }
+            if url.contains("GetCapabilities") {
+                return url.contains("mtg_fd") ? capsXML(layers: ["rgb_geocolour", "vis06_hrfi"], last: capsLatest) : capsXML(layer: "clm", last: capsLatest)
+            }
             if xmlFor(url) { return xmlError }
-            return useBlack(url) ? black : good
+            let (w, h) = size(url)
+            let key = "\(w)x\(h)"
+            return lock.withLock {
+                if useBlack(url) {
+                    if black[key] == nil {
+                        black[key] = pngBytes(RGBAImage(width: w, height: h, pixels: (0..<(w * h * 4)).map { $0 % 4 == 3 ? 255 : 0 }))
+                    }
+                    return black[key]!
+                }
+                if good[key] == nil { good[key] = pngBytes(makeImage(width: w, height: h, seed: 2)) }
+                return good[key]!
+            }
         }
     }
 }
 
+/// The Europe layers are 2048 px wide in production; tests run them small.
+private func testSpec(_ id: String) -> LayerSpec {
+    let spec = LayerCatalog.specs[id]!
+    return spec.fixedWidth == nil ? spec : spec.resized(width: 256)
+}
+
 private func ingestor(_ spec: String, _ repo: any Repo, _ cfg: Config, _ src: FakeSources, owner: String = "a") -> LayerIngestor {
-    LayerIngestor(spec: LayerCatalog.specs[spec]!, config: cfg, repo: repo, fetch: src.fetch, owner: owner,
+    LayerIngestor(spec: testSpec(spec), config: cfg, repo: repo, fetch: src.fetch, owner: owner,
                   sleep: { _ in }, clock: { fixedNow })
 }
 
 private func manifest(_ repo: any Repo, _ cfg: Config, _ id: String) async throws -> [String: Any] {
-    let body = try #require(try await LayerManifest.build(repo: repo, config: cfg, spec: LayerCatalog.specs[id]!))
+    let body = try #require(try await LayerManifest.build(repo: repo, config: cfg, spec: testSpec(id)))
     return try #require(try JSONSerialization.jsonObject(with: Data(body)) as? [String: Any])
 }
 
@@ -55,6 +80,61 @@ struct LayerUnitTests {
         #expect(try Config.fromEnvironment(["LAYERS": "radar, clouds lightning,pressure"]).layers == ["pressure", "lightning", "clouds"])
         #expect(throws: ConfigError.self) { try Config.fromEnvironment(["LAYERS": "radar,wind"]) }
         #expect(throws: ConfigError.self) { try Config.fromEnvironment(["PRESSURE_FORECAST_HOURS": "0"]) }
+    }
+
+    @Test func newLayerIdsAndSettings() throws {
+        #expect(try Config.fromEnvironment(["LAYERS": "cloudmask_vis_eu, pressure_eu cloudmask_vis,pressure"]).layers
+                == ["pressure", "pressure_eu", "cloudmask_vis", "cloudmask_vis_eu"])
+        #expect(LayerCatalog.order.count == LayerCatalog.specs.count)
+        #expect(try Config.fromEnvironment([:]).pressureEUForecastHours == 24)
+        #expect(try Config.fromEnvironment(["PRESSURE_EU_FORECAST_HOURS": "48", "CLOUDMASK_VIS_EU_HISTORY_HOURS": "6"]).pressureEUForecastHours == 48)
+        #expect(throws: ConfigError.self) { try Config.fromEnvironment(["PRESSURE_EU_FORECAST_HOURS": "0"]) }
+        #expect(throws: ConfigError.self) { try Config.fromEnvironment(["CLOUDMASK_VIS_HISTORY_HOURS": "25"]) }
+        // column limits of layer_run/layer_slot (VARCHAR(16)) and radar_lock (VARCHAR(32), "layer:" prefix)
+        for id in LayerCatalog.order { #expect(id.count <= 16 && "layer:\(id)".count <= 32) }
+        // the app accepts images up to 4096 px per side
+        let cfg = Config()
+        for spec in LayerCatalog.specs.values {
+            #expect(spec.width(cfg) <= LayerSpec.maxPixelsPerSide && spec.height(cfg) <= LayerSpec.maxPixelsPerSide)
+        }
+        let eu = LayerCatalog.specs["pressure_eu"]!
+        #expect(eu.width(cfg) == 2048 && eu.height(cfg) == 2168 && eu.bbox == RadarConstants.europeBBox)
+        let de = LayerCatalog.specs["cloudmask_vis"]!
+        #expect(de.width(cfg) == 1024 && de.height(cfg) == 1311 && de.bbox == RadarConstants.bbox)
+        // existing layers keep the radar grid and follow IMAGE_WIDTH
+        #expect(LayerCatalog.specs["pressure"]!.width(smallConfig()) == 256)
+        // Europe extent: lon -25..45, lat 30..72
+        let sw = RadarConstants.mercatorToWGS84(x: RadarConstants.europeBBox[0], y: RadarConstants.europeBBox[1])
+        let ne = RadarConstants.mercatorToWGS84(x: RadarConstants.europeBBox[2], y: RadarConstants.europeBBox[3])
+        #expect(abs(sw.lon + 25) < 0.001 && abs(sw.lat - 30) < 0.001 && abs(ne.lon - 45) < 0.001 && abs(ne.lat - 72) < 0.001)
+    }
+
+    @Test func newLayerRequestURLs() {
+        let cfg = Config()
+        let slot = TimeUtil.fromID("20261031T1200Z")!, run = TimeUtil.fromID("20261031T0600Z")!
+        let p = LayerSources.mapURL(spec: LayerCatalog.specs["pressure_eu"]!, config: cfg, run: run, slot: slot)
+        #expect(p.contains("WIDTH=2048&HEIGHT=2168") && p.contains("BBOX=-2782987%2C3503550%2C5009377%2C11753185"))
+        #expect(p.contains("LAYERS=dwd%3AIcon_reg025_fd_sl_PMSL") && p.contains("DIM_REFERENCE_TIME=2026-10-31T06"))
+        let v = LayerSources.mapURL(spec: LayerCatalog.specs["cloudmask_vis"]!, config: cfg, run: slot, slot: slot)
+        #expect(v.hasPrefix("https://view.eumetsat.int/geoserver/wms?") && v.contains("LAYERS=mtg_fd%3Avis06_hrfi"))
+        #expect(v.contains("WIDTH=1024&HEIGHT=1311") && v.contains("BBOX=612257%2C5942074%2C1736584%2C7381298"))
+        let e = LayerSources.mapURL(spec: LayerCatalog.specs["cloudmask_vis_eu"]!, config: cfg, run: slot, slot: slot)
+        #expect(e.contains("WIDTH=2048&HEIGHT=2168") && e.contains("TIME=2026-10-31T12%3A00%3A00Z"))
+        #expect(LayerSources.capabilitiesURL(spec: LayerCatalog.specs["cloudmask_vis"]!, config: cfg)
+                == "https://view.eumetsat.int/geoserver/mtg_fd/wms?service=WMS&version=1.3.0&request=GetCapabilities")
+        // the radar request of a default layer is unchanged
+        let c = LayerSources.mapURL(spec: LayerCatalog.specs["clouds"]!, config: cfg, run: slot, slot: slot)
+        #expect(c.contains("WIDTH=1024&HEIGHT=1311"))
+    }
+
+    @Test func sunElevationAndDarkCells() {
+        // Berlin around local solar noon on 1 Nov: 90 - 52.5 - 14.3 (declination) = about 23 degrees
+        let noon = SunElevation.degrees(lat: 52.5, lon: 13.4, at: TimeUtil.fromID("20261101T1105Z")!)
+        #expect(abs(noon - 23.2) < 1.0)
+        #expect(SunElevation.degrees(lat: 52.5, lon: 13.4, at: TimeUtil.fromID("20261101T2300Z")!) < -30)
+        // equator, 21 Mar-ish noon at lon 0 stays near the zenith; antipodal side is dark
+        #expect(SunElevation.degrees(lat: 0, lon: 0, at: TimeUtil.fromID("20260320T1200Z")!) > 85)
+        #expect(SunElevation.degrees(lat: 0, lon: 180, at: TimeUtil.fromID("20260320T1200Z")!) < -85)
     }
 
     @Test func requestURLs() {
@@ -89,7 +169,19 @@ struct LayerUnitTests {
         #expect(ImagePipeline.blackCells(img) >= 30)
     }
 
+    @Test func darkCellsAreSkipped() {
+        let cfg = smallConfig()
+        let black = RGBAImage(width: cfg.width, height: cfg.height,
+                              pixels: (0..<(cfg.width * cfg.height * 4)).map { $0 % 4 == 3 ? 255 : 0 })
+        #expect(ImagePipeline.blackCells(black) == 256)
+        #expect(ImagePipeline.blackCells(black, mayBeDark: { _, _ in true }) == 0)
+        #expect(ImagePipeline.blackCells(black, mayBeDark: { gx, _ in gx < 8 }) == 128)
+    }
+
     @Test func attributionWording() {
+        #expect(LayerCatalog.specs["cloudmask_vis"]!.attribution(year: 2026) == "Contains modified EUMETSAT Meteosat data 2026")
+        #expect(LayerCatalog.specs["cloudmask_vis_eu"]!.attribution(year: 2027) == "Contains modified EUMETSAT Meteosat data 2027")
+        #expect(LayerCatalog.specs["pressure_eu"]!.attribution(year: 2026) == "Quelle: Deutscher Wetterdienst")
         #expect(LayerCatalog.specs["clouds"]!.attribution(year: 2026) == "Contains modified EUMETSAT Meteosat data 2026")
         #expect(LayerCatalog.specs["cloudmask"]!.attribution(year: 2027) == "Contains modified EUMETSAT Meteosat data 2027")
         #expect(LayerCatalog.specs["pressure"]!.attribution(year: 2026) == "Quelle: Deutscher Wetterdienst")
@@ -214,7 +306,8 @@ struct LayerServiceTests {
         #expect(doc["push"] as? Bool == false)
         let layers = try #require(doc["layers"] as? [[String: Any]])
         func entry(_ id: String) -> [String: Any]? { layers.first { $0["id"] as? String == id } }
-        #expect(layers.count == 5)
+        #expect(layers.count == 8)
+        #expect(entry("pressure_eu")?["enabled"] as? Bool == false && entry("cloudmask_vis_eu")?["enabled"] as? Bool == false)
         #expect(entry("radar")?["enabled"] as? Bool == true && entry("radar")?["has_data"] as? Bool == false)
         #expect(entry("lightning")?["enabled"] as? Bool == true && entry("lightning")?["has_data"] as? Bool == true)
         #expect(entry("lightning")?["latest_run"] is String)
@@ -256,6 +349,86 @@ struct LayerServiceTests {
         let off = Api(repo: repo, config: layerConfig([]))
         #expect(try await off.handle(path: "/v1/layers/lightning/latest.json", ifNoneMatch: nil).status == 404)
         #expect(try await off.handle(path: "/v1/layers/lightning/\(path)", ifNoneMatch: nil).status == 404)
+    }
+
+    @Test(arguments: RepoKind.allCases)
+    func pressureEuropeHasOwnExtentAndSlotLimit(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let cfg = layerConfig(["pressure_eu", "pressure"]) { $0.pressureEUForecastHours = 2; $0.pressureForecastHours = 3 }
+        let src = FakeSources(cfg)
+        let eu = try await ingestor("pressure_eu", repo, cfg, src).tick()
+        #expect(eu.published == "20261031T0600Z" && eu.stored == 3)  // own forecast limit: 2 h + analysis
+        _ = try await ingestor("pressure", repo, cfg, src).tick()
+        let m = try await manifest(repo, cfg, "pressure_eu")
+        let img = try #require(m["image"] as? [String: Any])
+        #expect(img["width"] as? Int == 256 && img["height"] as? Int == 271 && img["projection"] as? String == "EPSG:3857")
+        #expect((img["bbox"] as? [Double]) == RadarConstants.europeBBox)
+        let wgs = try #require(img["bbox_wgs84"] as? [Double])
+        #expect(wgs == [-25.0, 30.0, 45.0, 72.0])
+        #expect(m["layer"] as? String == "pressure_eu" && (m["slots"] as? [Any])?.count == 3 && m["forecast_horizon_minutes"] as? Int == 120)
+        #expect((m["legend"] as? [String: Any])?["width"] as? Int == 219)
+        // the German pressure layer is unchanged: radar grid, own limit
+        let de = try await manifest(repo, cfg, "pressure")
+        #expect((de["image"] as? [String: Any])?["height"] as? Int == RadarConstants.imageHeight(width: 256))
+        #expect((de["image"] as? [String: Any])?["bbox"] as? [Double] == RadarConstants.bbox && (de["slots"] as? [Any])?.count == 4)
+        // requests of the Europe layer carry the Europe extent
+        #expect(src.urls.filter { $0.contains("BBOX=-2782987") }.count == 3)
+        let blob = try #require(try await repo.layerGetSlot(layer: "pressure_eu", runID: "20261031T0600Z", slotID: "20261031T0600Z"))
+        #expect(try ImagePipeline.decodeWebP(blob.data).height == 271)
+    }
+
+    @Test(arguments: RepoKind.allCases)
+    func visibleChannelKeepsNightImagesButRejectsBlackTilesInDaylight(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let cfg = layerConfig(["cloudmask_vis"]) { $0.cloudmaskVisHistoryHours = 1 }
+        // Day over Germany (10:30 UTC): an all-black image is a missing tile and is not published.
+        let day = FakeSources(cfg)
+        day.capsLatest = "2026-10-31T10:30:00Z"
+        day.useBlack = { $0.contains("TIME=2026-10-31T10%3A30%3A00Z") }
+        let r = try await ingestor("cloudmask_vis", repo, cfg, day).tick()
+        #expect(r.failed >= 1 && r.stored >= 1)
+        #expect(try await !repo.layerIsPublished(layer: "cloudmask_vis", runID: "20261031T1030Z"))
+        // Night (23:00 UTC): sun is below the horizon everywhere; the dark image is the real one and is published.
+        let nightRepo = try await kind.make()
+        let night = FakeSources(cfg)
+        night.capsLatest = "2026-10-31T23:00:00Z"
+        night.useBlack = { _ in true }
+        let n = try await ingestor("cloudmask_vis", nightRepo, cfg, night).tick()
+        #expect(n.failed == 0 && n.stored == 7)  // 1 h history at 10 min plus the newest slot
+        #expect(try await nightRepo.layerIsPublished(layer: "cloudmask_vis", runID: "20261031T2300Z"))
+        let m = try await manifest(nightRepo, cfg, "cloudmask_vis")
+        #expect(m["step_minutes"] as? Int == 10 && m["kind"] as? String == "observation" && m["legend"] == nil)
+        #expect((m["attribution"] as? String)?.hasPrefix("Contains modified EUMETSAT Meteosat data 20") == true)
+        #expect((m["image"] as? [String: Any])?["bbox"] as? [Double] == RadarConstants.bbox)
+        // lossless: the stored slot decodes to the source pixels
+        let slot = try #require((m["slots"] as? [[String: String]])?.last)
+        let ids = try #require(slot["path"]).dropLast(5).split(separator: "/").map(String.init)
+        let blob = try #require(try await nightRepo.layerGetSlot(layer: "cloudmask_vis", runID: ids[0], slotID: ids[1]))
+        #expect(try ImagePipeline.decodeWebP(blob.data).pixels.allSatisfy { $0 == 0 || $0 == 255 })
+    }
+
+    @Test(arguments: RepoKind.allCases)
+    func visibleChannelEuropeAcrossTheTerminator(kind: RepoKind) async throws {
+        // 06:20 UTC on 1 Nov: Europe is half dark (west) and half lit (east); black only in the dark part is fine,
+        // a fully black image is not (the east is in daylight).
+        let repo = try await kind.make()
+        let cfg = layerConfig(["cloudmask_vis_eu"]) { $0.cloudmaskVisEUHistoryHours = 1 }
+        let src = FakeSources(cfg)
+        src.capsLatest = "2026-11-01T06:20:00Z"
+        src.useBlack = { _ in true }
+        let r = try await ingestor("cloudmask_vis_eu", repo, cfg, src).tick()
+        #expect(r.stored == 0 && r.failed >= 1)
+        // Europe's lit part at noon: normal image is published with the Europe extent and 10 min step
+        let repo2 = try await kind.make()
+        let ok = FakeSources(cfg)
+        ok.capsLatest = "2026-11-01T12:00:00Z"
+        let r2 = try await ingestor("cloudmask_vis_eu", repo2, cfg, ok).tick()
+        #expect(r2.failed == 0 && r2.stored == 7)
+        let m = try await manifest(repo2, cfg, "cloudmask_vis_eu")
+        #expect((m["image"] as? [String: Any])?["bbox"] as? [Double] == RadarConstants.europeBBox)
+        #expect(m["layer"] as? String == "cloudmask_vis_eu" && m["step_minutes"] as? Int == 10)
+        #expect(ok.urls.contains { $0.contains("GetCapabilities") && $0.contains("mtg_fd") })
+        #expect(ok.urls.filter { $0.contains("GetMap") }.allSatisfy { $0.contains("vis06_hrfi") && $0.contains("WIDTH=256&HEIGHT=271") })
     }
 }
 }
