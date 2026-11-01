@@ -72,10 +72,14 @@ public enum PushEvaluator {
     }
 
     /// `interruption-level` is only present for time-sensitive subscriptions (default: the system's `active`).
-    public static func payload(minutes: Int, subscriptionID: String, timeSensitive: Bool = false) -> String {
-        var aps: [String: Any] = ["alert": ["loc-key": "RAIN_STARTS_IN", "loc-args": [String(minutes)]], "sound": "default", "thread-id": subscriptionID]
+    /// `region`: text variant "rain reaches your region" (`RAIN_REGION_STARTS_IN`); still no place name or coordinates.
+    public static func payload(minutes: Int, subscriptionID: String, timeSensitive: Bool = false, region: Bool = false) -> String {
+        var aps: [String: Any] = ["alert": ["loc-key": region ? "RAIN_REGION_STARTS_IN" : "RAIN_STARTS_IN", "loc-args": [String(minutes)]],
+                                  "sound": "default", "thread-id": subscriptionID]
         if timeSensitive { aps["interruption-level"] = "time-sensitive" }
-        return encode(["aps": aps, "type": "rain-start", "minutes": minutes])
+        var object: [String: Any] = ["aps": aps, "type": "rain-start", "minutes": minutes]
+        if region { object["region"] = true }
+        return encode(object)
     }
 
     /// Test notification: plain, clearly labelled text (no place, no coordinates, no subscription data).

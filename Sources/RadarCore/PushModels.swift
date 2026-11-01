@@ -44,8 +44,14 @@ public struct PushSubscription: Sendable, Equatable {
     public var lastSentAt: Date?
     /// Optional per-subscription flag: the rain-start notification carries `interruption-level: time-sensitive`.
     public var timeSensitive: Bool
+    /// `.circle`: region around the (coarse) centre cell `cellX/cellY` with `radiusCells` and trigger share `minSharePercent`.
+    public var kind: PushKind
+    public var radiusCells: Int?
+    public var minSharePercent: Int?
     public init(id: String, gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int,
-                enabled: Bool, state: PushState = .dry, lastSentAt: Date? = nil, timeSensitive: Bool = false) {
+                enabled: Bool, state: PushState = .dry, lastSentAt: Date? = nil, timeSensitive: Bool = false,
+                kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil) {
+        self.kind = kind; self.radiusCells = radiusCells; self.minSharePercent = minSharePercent
         self.id = id; self.gridVersion = gridVersion; self.cellX = cellX; self.cellY = cellY; self.threshold = threshold
         self.leadMinutes = leadMinutes; self.enabled = enabled; self.state = state; self.lastSentAt = lastSentAt
         self.timeSensitive = timeSensitive
@@ -61,7 +67,12 @@ public struct PushSubscriptionInput: Sendable, Equatable {
     public var leadMinutes: Int
     public var enabled: Bool
     public var timeSensitive: Bool
-    public init(gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int, enabled: Bool, timeSensitive: Bool = false) {
+    public var kind: PushKind
+    public var radiusCells: Int?
+    public var minSharePercent: Int?
+    public init(gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int, enabled: Bool, timeSensitive: Bool = false,
+                kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil) {
+        self.kind = kind; self.radiusCells = radiusCells; self.minSharePercent = minSharePercent
         self.gridVersion = gridVersion; self.cellX = cellX; self.cellY = cellY; self.threshold = threshold
         self.leadMinutes = leadMinutes; self.enabled = enabled; self.timeSensitive = timeSensitive
     }
@@ -76,7 +87,7 @@ public struct PushInstallation: Sendable, Equatable {
 }
 
 public enum UpsertResult: Sendable, Equatable { case created, updated, forbidden }
-public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation }
+public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation, regionLimit, regionCapacity }
 
 public struct SubscriptionUpdate: Sendable, Equatable {
     public var id: String

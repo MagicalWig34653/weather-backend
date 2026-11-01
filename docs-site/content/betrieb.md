@@ -46,7 +46,7 @@ Symptom „Ebenen 404“, mögliche Ursachen in dieser Reihenfolge prüfen:
 1. **`LAYERS` fehlt in der `.env`** auf dem Server oder die `.env` wurde nicht übernommen: `grep ^LAYERS .env`. `update.sh` und `swarm-deploy.sh` lesen nur diese Datei; `.env.example` wirkt nicht. Ältere `setup.sh --reconfigure`-Läufe schrieben die `.env` ohne `LAYERS` neu; neuere Skripte übernehmen die Zeile (`update.sh --pull-scripts` holt sie).
 2. **Gleicher Image-Tag:** `update.sh` tut bei unverändertem Tag nichts. Geänderte `.env` oder `stack.yaml` brauchen `update.sh --force` (neue Skripte: `--pull-scripts --force`).
 3. **Image zu alt:** das laufende Image kennt `LAYERS` noch nicht (Ebenen seit Commit 37e5f2e) oder `/v1/status` fehlt. `docker service ps radar_radar` zeigt das Tag; `update.sh` auf das neueste `sha-`-Tag.
-4. **Migration oder Datenbankrechte:** Migration `004` (Ebenen) und `005` (`ALTER` auf `push_sub`) laufen im Migrationsjob; fehlen `CREATE`/`ALTER`, scheitert er und der Rollout bleibt aus (`docker service logs radar_migrate`).
+4. **Migration oder Datenbankrechte:** Migration `004` (Ebenen), `005` und `006` (`ALTER` auf `push_sub`) laufen im Migrationsjob; fehlen `CREATE`/`ALTER`, scheitert er und der Rollout bleibt aus (`docker service logs radar_migrate`).
 5. **Aktiviert, aber noch keine Daten:** `enabled: true`, `has_data: false`. Die erste Veröffentlichung folgt nach einigen Minuten; sonst Ingest-Log auf Fehlerklassen prüfen (Quelle DWD/EUMETSAT nicht erreichbar, schwarze Kacheln werden nie veröffentlicht).
 
 ## Historie nachholen (Backfill)

@@ -24,7 +24,7 @@ final class RateLimiter: @unchecked Sendable {
 ///   PUT    /v1/push/installations/{id}                          body {token, env, locale}   (creates or updates)
 ///   DELETE /v1/push/installations/{id}                          deletes everything of the installation
 ///   GET    /v1/push/installations/{id}/subscriptions
-///   POST   /v1/push/installations/{id}/subscriptions            body {grid_version, cell_x, cell_y, threshold, lead_minutes, enabled}
+///   POST   /v1/push/installations/{id}/subscriptions            body {grid_version, cell_x, cell_y, threshold, lead_minutes, enabled, time_sensitive, kind?, radius_cells?, min_share_percent?}
 ///   PUT    /v1/push/installations/{id}/subscriptions/{subId}    same body (re-arms the rule)
 ///   DELETE /v1/push/installations/{id}/subscriptions/{subId}
 ///   POST   /v1/push/installations/{id}/test                     sends one clearly labelled test notification to the installation's token
@@ -53,6 +53,8 @@ public final class PushApi: Sendable {
     struct InstallationBody: Decodable { var token: String; var env: String; var locale: String }
     struct SubscriptionBody: Decodable {
         var grid_version: Int; var cell_x: Int; var cell_y: Int; var threshold: Int; var lead_minutes: Int; var enabled: Bool?; var time_sensitive: Bool?
+        /// Optional region fields; without them the subscription is a single cell as before.
+        var kind: String?; var radius_cells: Int?; var min_share_percent: Int?
     }
 
     private static func json(_ status: Int, _ object: Any? = nil) -> ApiResponse {
@@ -88,9 +90,24 @@ public final class PushApi: Sendable {
         let height = config.height
         guard body.grid_version == PushGrid.version, (0..<config.width).contains(body.cell_x), (0..<height).contains(body.cell_y),
               PushGrid.thresholdRange.contains(body.threshold), PushGrid.validLeadMinutes.contains(body.lead_minutes) else { return nil }
-        return PushSubscriptionInput(gridVersion: body.grid_version, cellX: body.cell_x, cellY: body.cell_y,
+        var kind = PushKind.point
+        var cellX = body.cell_x, cellY = body.cell_y
+        var radius: Int?, share: Int?
+        switch body.kind ?? "point" {
+        case "point":
+            guard body.radius_cells == nil, body.min_share_percent == nil else { return nil }
+        case "circle":
+            guard let r = body.radius_cells, PushRegion.radiusRange.contains(r),
+                  PushRegion.allowedShares.contains(body.min_share_percent ?? PushRegion.defaultShare) else { return nil }
+            kind = .circle; radius = r; share = body.min_share_percent ?? PushRegion.defaultShare
+            // The server stores only a coarse centre (3 x 3 cells, about 2 km), whatever the client sent.
+            (cellX, cellY) = PushRegion.snapCenter(x: cellX, y: cellY, width: config.width, height: height)
+        default:
+            return nil
+        }
+        return PushSubscriptionInput(gridVersion: body.grid_version, cellX: cellX, cellY: cellY,
                                      threshold: body.threshold, leadMinutes: body.lead_minutes, enabled: body.enabled ?? true,
-                                     timeSensitive: body.time_sensitive ?? false)
+                                     timeSensitive: body.time_sensitive ?? false, kind: kind, radiusCells: radius, minSharePercent: share)
     }
 
     /// nil when the path is not a push route (or push is disabled): the caller answers 404.
@@ -134,6 +151,8 @@ public final class PushApi: Sendable {
                     case .created: return Self.json(201, ["id": id])
                     case .limitReached: return Self.error(409, "subscription_limit")
                     case .unknownInstallation: return Self.error(401, "unauthorized")
+                    case .regionLimit: return Self.error(409, "region_limit")
+                    case .regionCapacity: return Self.error(409, "region_capacity")
                     }
                 }
                 default: return Self.error(405, "method_not_allowed")
@@ -143,7 +162,11 @@ public final class PushApi: Sendable {
             switch method {
             case "PUT": return try await authenticated(installID, secret, now) { _ in
                 guard let input = self.decodeSubscription(body) else { return Self.error(400, "invalid_subscription") }
-                return try await self.repo.updateSubscription(installationID: installID, id: subID, input) ? Self.json(204) : Self.error(404, "not_found")
+                do {
+                    return try await self.repo.updateSubscription(installationID: installID, id: subID, input) ? Self.json(204) : Self.error(404, "not_found")
+                } catch let limit as PushRegionLimitError {
+                    return Self.error(409, limit == .capacity ? "region_capacity" : "region_limit")
+                }
             }
             case "DELETE": return try await authenticated(installID, secret, now) { _ in
                 try await self.repo.deleteSubscription(installationID: installID, id: subID) ? Self.json(204) : Self.error(404, "not_found")
@@ -156,8 +179,14 @@ public final class PushApi: Sendable {
     }
 
     private static func describe(_ sub: PushSubscription) -> [String: Any] {
-        ["id": sub.id, "grid_version": sub.gridVersion, "cell_x": sub.cellX, "cell_y": sub.cellY, "threshold": sub.threshold,
-         "lead_minutes": sub.leadMinutes, "enabled": sub.enabled, "time_sensitive": sub.timeSensitive]
+        var entry: [String: Any] = ["id": sub.id, "grid_version": sub.gridVersion, "cell_x": sub.cellX, "cell_y": sub.cellY, "threshold": sub.threshold,
+                                    "lead_minutes": sub.leadMinutes, "enabled": sub.enabled, "time_sensitive": sub.timeSensitive,
+                                    "kind": sub.kind == .circle ? "circle" : "point"]
+        if sub.kind == .circle {
+            entry["radius_cells"] = sub.radiusCells
+            entry["min_share_percent"] = sub.minSharePercent
+        }
+        return entry
     }
 
     /// Test notification to the installation's own token. Stores nothing; errors name the cause without leaking token or key.

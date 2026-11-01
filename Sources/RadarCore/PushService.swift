@@ -72,13 +72,24 @@ public final class PushService: Sendable {
         if !subs.isEmpty, slots.count == TimeUtil.forecastSlots {
             var classes = [[Int]](repeating: [], count: subs.count)
             var complete = true
+            let hasRegions = subs.contains { $0.kind == .circle }
             for slot in slots.sorted(by: { $0.slotIndex < $1.slotIndex }) {
                 guard let blob = try await repo.getSlot(runID: run.runID, slotID: slot.slotID),
                       let image = try? ImagePipeline.decodeWebP(blob.data), image.width == config.width, image.height == config.height else {
                     complete = false
                     break
                 }
-                for (index, sub) in subs.enumerated() { classes[index].append(PushIntensity.classify(image, x: sub.cellX, y: sub.cellY)) }
+                // One class map per slot (only when regions exist); a region becomes a pseudo class: threshold if wet, else 0.
+                let classMap = hasRegions ? PushIntensity.classMap(image) : []
+                for (index, sub) in subs.enumerated() {
+                    if sub.kind == .circle, let radius = sub.radiusCells {
+                        classes[index].append(PushRegion.pseudoClass(
+                            classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
+                            threshold: sub.threshold, sharePercent: sub.minSharePercent ?? PushRegion.defaultShare))
+                    } else {
+                        classes[index].append(PushIntensity.classify(image, x: sub.cellX, y: sub.cellY))
+                    }
+                }
             }
             if complete {
                 for (index, sub) in subs.enumerated() {
@@ -89,7 +100,7 @@ public final class PushService: Sendable {
                         sentAt = now
                         outbox.append(NewOutboxItem(
                             subID: sub.id, dedupeKey: "\(sub.id):\(run.runID)", collapseID: sub.id,
-                            payloadJSON: PushEvaluator.payload(minutes: minutes, subscriptionID: sub.id, timeSensitive: sub.timeSensitive),
+                            payloadJSON: PushEvaluator.payload(minutes: minutes, subscriptionID: sub.id, timeSensitive: sub.timeSensitive, region: sub.kind == .circle),
                             expiresAt: now.addingTimeInterval(PushEvaluator.maxRunAge)))
                     }
                     if step.state != sub.state || sentAt != sub.lastSentAt { updates.append(SubscriptionUpdate(id: sub.id, state: step.state, lastSentAt: sentAt)) }

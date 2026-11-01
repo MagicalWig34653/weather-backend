@@ -65,20 +65,46 @@ extension MemoryRepo {
 
     public func deleteInstallation(id: String) async throws { push.removeInstall(id) }
 
-    public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int, now: Date) async throws -> AddSubscriptionResult {
+    /// Radii of the regions of an installation (excluding `excluding`) and cells of all other regions on the server.
+    private func regionUsage(installationID: String, excluding id: String) -> (own: [Int], serverCells: Int) {
+        var own: [Int] = [], server = 0
+        for (subID, sub) in push.subs where subID != id && sub.value.kind == .circle {
+            let radius = sub.value.radiusCells ?? 0
+            server += PushRegion.cellCount(radius: radius)
+            if sub.installID == installationID { own.append(radius) }
+        }
+        return (own, server)
+    }
+
+    public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int,
+                                regionLimits: RegionLimits, now: Date) async throws -> AddSubscriptionResult {
         guard push.installs[installationID] != nil else { return .unknownInstallation }
         guard push.subs.values.filter({ $0.installID == installationID }).count < maxPerInstallation else { return .limitReached }
+        if input.kind == .circle {
+            let usage = regionUsage(installationID: installationID, excluding: id)
+            switch regionLimits.violation(otherRadii: usage.own, serverCells: usage.serverCells, newRadius: input.radiusCells ?? 0) {
+            case .perInstallation?: return .regionLimit
+            case .capacity?: return .regionCapacity
+            case nil: break
+            }
+        }
         push.subs[id] = .init(installID: installationID, value: PushSubscription(
             id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY, threshold: input.threshold,
-            leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive), createdAt: now)
+            leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive,
+            kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent), createdAt: now)
         return .created
     }
 
-    public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool {
+    public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool {
         guard var sub = push.subs[id], sub.installID == installationID else { return false }
+        if input.kind == .circle {
+            let usage = regionUsage(installationID: installationID, excluding: id)
+            if let violation = regionLimits.violation(otherRadii: usage.own, serverCells: usage.serverCells, newRadius: input.radiusCells ?? 0) { throw violation }
+        }
         sub.value = PushSubscription(id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY,
                                      threshold: input.threshold, leadMinutes: input.leadMinutes, enabled: input.enabled,
-                                     state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive)
+                                     state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive,
+                                     kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent)
         push.subs[id] = sub
         return true
     }

@@ -85,9 +85,12 @@ public protocol PushRepo: Sendable {
     func authenticate(id: String, secretHash: String, now: Date) async throws -> Bool
     /// Deletes the installation with all subscriptions and outbox entries.
     func deleteInstallation(id: String) async throws
-    func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int, now: Date) async throws -> AddSubscriptionResult
+    /// Region subscriptions are additionally checked against `regionLimits` (`regionLimit` per installation, `regionCapacity` server-wide).
+    func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int,
+                         regionLimits: RegionLimits, now: Date) async throws -> AddSubscriptionResult
     /// Replaces the client fields and re-arms the automaton; false when the subscription does not belong to the installation.
-    func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool
+    /// Throws `PushRegionLimitError` when a region would exceed `regionLimits`.
+    func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool
     func deleteSubscription(installationID: String, id: String) async throws -> Bool
     func subscriptions(installationID: String) async throws -> [PushSubscription]
     /// Delivery target of an authenticated installation (nil when unknown).
@@ -104,6 +107,15 @@ public protocol PushRepo: Sendable {
     func deleteInstallations(token: String, env: PushEnvironment) async throws -> Int
     /// Retention: installations not seen since `inactiveBefore`, and outbox entries that are finished/expired before `outboxBefore`.
     func purgePush(inactiveBefore: Date, outboxBefore: Date, now: Date) async throws -> PushPurgeResult
+}
+
+extension PushRepo {
+    public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int, now: Date) async throws -> AddSubscriptionResult {
+        try await addSubscription(installationID: installationID, id: id, input, maxPerInstallation: maxPerInstallation, regionLimits: .standard, now: now)
+    }
+    public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool {
+        try await updateSubscription(installationID: installationID, id: id, input, regionLimits: .standard)
+    }
 }
 
 extension Repo {

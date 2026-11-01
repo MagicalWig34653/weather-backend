@@ -821,3 +821,339 @@ struct PushEnvironmentTests {
         #expect(tick.dropped == 1 && tick.apnsReasons == ["BadDeviceToken": 1])
     }
 }
+
+// MARK: regions (circle around a coarse centre cell)
+
+private func circle(x: Int = 40, y: Int = 50, radius: Int = 5, share: Int = 10, threshold: Int = 3) -> PushSubscriptionInput {
+    PushSubscriptionInput(gridVersion: PushGrid.version, cellX: x, cellY: y, threshold: threshold, leadMinutes: 20, enabled: true,
+                          kind: .circle, radiusCells: radius, minSharePercent: share)
+}
+
+@Suite("Push region geometry")
+struct PushRegionGeometryTests {
+    @Test func cellCountsGrowWithTheRadius() {
+        #expect(PushRegion.cellCount(radius: 3) == 29)
+        #expect(PushRegion.cellCount(radius: 7) == 149)
+        // Within 1 % of pi * r^2 for the large presets.
+        for r in [14, 36, 40] {
+            let exact = Double.pi * Double(r * r)
+            #expect(abs(Double(PushRegion.cellCount(radius: r)) - exact) / exact < 0.01, "r=\(r)")
+        }
+    }
+
+    @Test func centreIsSnappedToTheMiddleOfItsThreeByThreeBlock() {
+        #expect(PushRegion.snapCenter(x: 0, y: 0, width: 256, height: 327) == (1, 1))
+        #expect(PushRegion.snapCenter(x: 2, y: 5, width: 256, height: 327) == (1, 4))
+        #expect(PushRegion.snapCenter(x: 3, y: 3, width: 256, height: 327) == (4, 4))
+        #expect(PushRegion.snapCenter(x: 255, y: 326, width: 256, height: 327).x <= 255)
+        #expect(PushRegion.snapCenter(x: 255, y: 326, width: 256, height: 327).y <= 326)
+        // A cell and its block neighbours land on the same centre: the stored centre is only about 2 km exact.
+        #expect(PushRegion.snapCenter(x: 39, y: 50, width: 256, height: 327) == PushRegion.snapCenter(x: 41, y: 49, width: 256, height: 327))
+    }
+
+    @Test func triggerNeedsShareAndThreeCellsExceptInTinyRegions() {
+        #expect(PushRegion.requiredWet(cells: 29, sharePercent: 25) == 1)
+        #expect(PushRegion.requiredWet(cells: 81, sharePercent: 1) == 3)
+        #expect(PushRegion.requiredWet(cells: 81, sharePercent: 10) == 9)
+        #expect(PushRegion.requiredWet(cells: 81, sharePercent: 25) == 21)
+        #expect(PushRegion.requiredWet(cells: 4_000, sharePercent: 1) == 40)
+    }
+
+    @Test func pseudoClassCountsOnlyCellsAtOrAboveTheThreshold() {
+        let w = 64, h = 64
+        var map = [UInt8](repeating: 0, count: w * h)
+        func fill(_ n: Int, _ cls: UInt8) { for i in 0..<n { map[30 * w + 20 + i] = cls } }
+        func value(_ share: Int = 10) -> Int {
+            PushRegion.pseudoClass(classMap: map, width: w, height: h, cx: 24, cy: 30, radius: 5, threshold: 4, sharePercent: share)
+        }
+        fill(8, 4); #expect(value() == 0)               // 8 of 81 cells (need 9)
+        fill(9, 4); #expect(value() == 4)               // 9 of 81
+        map = [UInt8](repeating: 0, count: w * h); fill(9, 3); #expect(value() == 0)  // below the threshold class
+        map = [UInt8](repeating: 0, count: w * h); fill(3, 7); #expect(value(1) == 4)  // 1 %: 3 cells are enough, class above threshold counts
+        map = [UInt8](repeating: 0, count: w * h); fill(2, 7); #expect(value(1) == 0)  // single/double pixels never trigger
+        // Clipped at the corner: only the cells inside the raster count, no crash.
+        let corner = [UInt8](repeating: 9, count: w * h)
+        #expect(PushRegion.pseudoClass(classMap: corner, width: w, height: h, cx: 0, cy: 0, radius: 40, threshold: 4, sharePercent: 25) == 4)
+    }
+
+    @Test func limitsAreCheckedFromRadiiOnly() {
+        let limits = RegionLimits.standard
+        #expect(limits.violation(otherRadii: [], serverCells: 0, newRadius: 40) == nil)
+        #expect(limits.violation(otherRadii: [40], serverCells: 0, newRadius: 40) == .perInstallation)  // 2 x 5026 > 8000
+        #expect(limits.violation(otherRadii: [5, 5, 5], serverCells: 0, newRadius: 5) == .perInstallation)  // fourth region
+        #expect(limits.violation(otherRadii: [], serverCells: 1_999_900, newRadius: 7) == .capacity)
+    }
+}
+
+extension DatabaseSuites {
+@Suite("Push region repo contract", .serialized)
+struct PushRegionRepoTests {
+    @Test(arguments: RepoKind.allCases)
+    func regionFieldsRoundTripAndPointsStayPoints(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        try await register(repo)
+        let point = newID(), region = newID()
+        #expect(try await repo.addSubscription(installationID: installA, id: point, input(), maxPerInstallation: 10, now: run0) == .created)
+        #expect(try await repo.addSubscription(installationID: installA, id: region, circle(radius: 14, share: 25), maxPerInstallation: 10, now: run0) == .created)
+        let subs = try await repo.subscriptions(installationID: installA)
+        let p = try #require(subs.first { $0.id == point }), r = try #require(subs.first { $0.id == region })
+        #expect(p.kind == .point && p.radiusCells == nil && p.minSharePercent == nil)
+        #expect(r.kind == .circle && r.radiusCells == 14 && r.minSharePercent == 25 && r.cellX == 40 && r.cellY == 50)
+        #expect(try await repo.evaluationSubscriptions(gridVersion: PushGrid.version).count == 2)
+        // A region can be turned into a point and back; the update re-arms it.
+        #expect(try await repo.updateSubscription(installationID: installA, id: region, input()))
+        #expect(try await repo.subscriptions(installationID: installA).first { $0.id == region }?.kind == .point)
+        #expect(try await repo.updateSubscription(installationID: installA, id: region, circle(radius: 7, share: 1)))
+        #expect(try await repo.subscriptions(installationID: installA).first { $0.id == region }?.radiusCells == 7)
+    }
+
+    @Test(arguments: RepoKind.allCases)
+    func regionLimitsPerInstallationAndServerwide(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        try await register(repo); try await register(repo, id: installB, secret: secretB, token: tokenB)
+        let limits = RegionLimits(maxRegionsPerInstallation: 3, maxCellsPerInstallation: 8_000, maxCellsServerwide: 400)
+        let ids = (0..<4).map { _ in newID() }
+        // 149 cells each (radius 7): A holds two (298), the third would exceed the server budget of 400.
+        for id in ids[0..<2] { #expect(try await repo.addSubscription(installationID: installA, id: id, circle(radius: 7), maxPerInstallation: 10, regionLimits: limits, now: run0) == .created) }
+        #expect(try await repo.addSubscription(installationID: installB, id: ids[2], circle(radius: 7), maxPerInstallation: 10, regionLimits: limits, now: run0) == .regionCapacity)
+        #expect(try await repo.addSubscription(installationID: installB, id: ids[2], input(), maxPerInstallation: 10, regionLimits: limits, now: run0) == .created)  // points are not counted
+        #expect(try await repo.subscriptions(installationID: installB).count == 1)
+        // Per installation: A holds two radius-7 regions (298 cells); a radius-40 region (5026) still fits, a fourth region does not.
+        let roomy = RegionLimits(maxRegionsPerInstallation: 3, maxCellsPerInstallation: 8_000, maxCellsServerwide: 2_000_000)
+        #expect(try await repo.addSubscription(installationID: installA, id: ids[3], circle(radius: 40), maxPerInstallation: 10, regionLimits: roomy, now: run0) == .created)
+        #expect(try await repo.addSubscription(installationID: installA, id: newID(), circle(radius: 7), maxPerInstallation: 10, regionLimits: roomy, now: run0) == .regionLimit)
+        // Updating counts the other regions only: growing one past the cell budget throws, a small change does not.
+        await #expect(throws: PushRegionLimitError.perInstallation) {
+            _ = try await repo.updateSubscription(installationID: installA, id: ids[0], circle(radius: 40), regionLimits: roomy)
+        }
+        await #expect(throws: PushRegionLimitError.capacity) {
+            _ = try await repo.updateSubscription(installationID: installA, id: ids[0], circle(radius: 14), regionLimits: limits)
+        }
+        #expect(try await repo.updateSubscription(installationID: installA, id: ids[0], circle(radius: 10, share: 25), regionLimits: roomy))
+        // Deleting frees the budget.
+        #expect(try await repo.deleteSubscription(installationID: installA, id: ids[3]))
+        #expect(try await repo.addSubscription(installationID: installA, id: newID(), circle(radius: 7), maxPerInstallation: 10, regionLimits: roomy, now: run0) == .created)
+    }
+}
+}
+
+@Suite("Push region API")
+struct PushRegionApiTests {
+    private func api(_ edit: (inout Config) -> Void = { _ in }) -> (PushApi, MemoryRepo) {
+        let repo = MemoryRepo()
+        return (PushApi(repo: repo, config: pushConfig(edit), clock: { run0 }), repo)
+    }
+    private func json(_ object: [String: Any]) -> [UInt8] { Array((try? JSONSerialization.data(withJSONObject: object)) ?? Data()) }
+    private func body(_ extra: [String: Any] = [:]) -> [UInt8] {
+        var o: [String: Any] = ["grid_version": 1, "cell_x": 40, "cell_y": 50, "threshold": 3, "lead_minutes": 20]
+        o.merge(extra) { $1 }
+        return json(o)
+    }
+    private let base = "/v1/push/installations/\(installA)"
+    private func prepared() async -> (PushApi, MemoryRepo) {
+        let (api, repo) = api()
+        _ = await api.handle(method: "PUT", path: base, secret: secretA, body: json(["token": tokenA, "env": "sandbox", "locale": "de"]))
+        return (api, repo)
+    }
+
+    @Test func circleIsStoredWithSnappedCentreAndDefaultShare() async throws {
+        let (api, repo) = await prepared()
+        let r = try #require(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA,
+                                              body: body(["kind": "circle", "radius_cells": 14, "cell_x": 41, "cell_y": 52])))
+        #expect(r.status == 201)
+        let sub = try #require(try await repo.subscriptions(installationID: installA).first)
+        #expect(sub.kind == .circle && sub.radiusCells == 14 && sub.minSharePercent == 10)
+        #expect(sub.cellX == 40 && sub.cellY == 52)  // 41 -> block 39...41 -> centre 40; 52 -> block 51...53 -> centre 52
+        let list = try #require(await api.handle(method: "GET", path: base + "/subscriptions", secret: secretA, body: []))
+        let entry = try #require((try JSONSerialization.jsonObject(with: Data(list.body)) as? [[String: Any]])?.first)
+        #expect(entry["kind"] as? String == "circle" && entry["radius_cells"] as? Int == 14 && entry["min_share_percent"] as? Int == 10)
+    }
+
+    @Test func subscriptionsWithoutNewFieldsStayPoints() async throws {
+        let (api, repo) = await prepared()
+        #expect(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body())?.status == 201)
+        let sub = try #require(try await repo.subscriptions(installationID: installA).first)
+        #expect(sub.kind == .point && sub.cellX == 40 && sub.cellY == 50 && sub.radiusCells == nil)
+        let list = try #require(await api.handle(method: "GET", path: base + "/subscriptions", secret: secretA, body: []))
+        let entry = try #require((try JSONSerialization.jsonObject(with: Data(list.body)) as? [[String: Any]])?.first)
+        #expect(entry["kind"] as? String == "point" && entry["radius_cells"] == nil && entry["min_share_percent"] == nil)
+    }
+
+    @Test func regionInputIsValidatedServerSide() async {
+        let (api, _) = await prepared()
+        let bad: [[String: Any]] = [
+            ["kind": "circle"], ["kind": "circle", "radius_cells": 2], ["kind": "circle", "radius_cells": 41],
+            ["kind": "circle", "radius_cells": 7, "min_share_percent": 5], ["kind": "circle", "radius_cells": "7"],
+            ["kind": "polygon"], ["kind": "circle", "radius_cells": 7, "cell_x": -1],
+            ["radius_cells": 7], ["kind": "point", "min_share_percent": 10], ["kind": 1],
+            ["kind": "circle", "radius_cells": 7, "min_share_percent": 3],
+        ]
+        for extra in bad {
+            #expect(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(extra))?.status == 400, "\(extra)")
+        }
+        for (r, s) in [(3, 1), (7, 10), (14, 25)] {
+            let ok = await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(["kind": "circle", "radius_cells": r, "min_share_percent": s]))
+            #expect(ok?.status == 201 || r == 14, "r=\(r)")  // the fourth region of this installation would hit the limit
+        }
+    }
+
+    @Test func limitsAnswer409WithDistinctCodes() async throws {
+        let (api, _) = await prepared()
+        func add(_ r: Int) async -> ApiResponse? {
+            await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(["kind": "circle", "radius_cells": r]))
+        }
+        #expect(await add(40)?.status == 201)               // 5026 cells
+        let second = try #require(await add(40))            // 10052 > 8000
+        #expect(second.status == 409 && String(decoding: second.body, as: UTF8.self).contains("region_limit"))
+        let tenA = await add(10), tenB = await add(10)
+        #expect(tenA?.status == 201 && tenB?.status == 201)
+        #expect(await add(3)?.status == 409)                // fourth region
+        // Points are unaffected by the region limit.
+        #expect(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body())?.status == 201)
+    }
+
+    @Test func updateEnforcesTheSameLimits() async throws {
+        let (api, _) = await prepared()
+        let a = try #require(await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(["kind": "circle", "radius_cells": 40])))
+        _ = await api.handle(method: "POST", path: base + "/subscriptions", secret: secretA, body: body(["kind": "circle", "radius_cells": 20]))
+        let id = try #require((try JSONSerialization.jsonObject(with: Data(a.body)) as? [String: Any])?["id"] as? String)
+        // 40 + 40 would not fit next to the other region (1256 cells): 5026 + 1256 is fine, 2 x 5026 is not.
+        #expect(await api.handle(method: "PUT", path: base + "/subscriptions/\(id)", secret: secretA, body: body(["kind": "circle", "radius_cells": 30]))?.status == 204)
+        #expect(await api.handle(method: "PUT", path: base + "/subscriptions/\(id)", secret: secretA, body: body(["kind": "circle", "radius_cells": 40]))?.status == 204)
+    }
+
+    @Test func statusAnnouncesRegionCapabilityOnlyWithPush() async throws {
+        for enabled in [true, false] {
+            let config = pushConfig { $0.push.enabled = enabled }
+            let res = try await Api(repo: MemoryRepo(), config: config).handle(path: "/v1/status", ifNoneMatch: nil)
+            let doc = try #require(try JSONSerialization.jsonObject(with: Data(res.body)) as? [String: Any])
+            #expect(doc["capabilities"] as? [String] == (enabled ? ["regions"] : []))
+        }
+    }
+}
+
+@Suite("Push region evaluation")
+struct PushRegionServiceTests {
+    static let center = (x: 40, y: 50)
+
+    /// Publishes a run whose slots from `onset` on contain `wet` coloured cells (class 3) in a row inside the 5-cell circle.
+    private func publish(_ repo: any Repo, _ config: Config, nominal: Date, onset: Int?, wet: Int) async throws {
+        let id = TimeUtil.toID(nominal)
+        #expect(try await repo.tryClaim(runID: id, nominal: nominal, owner: "t", leaseSeconds: 60, maxAttempts: 2))
+        let color = PushIntensity.palette[2]
+        for (index, slot) in TimeUtil.slots(of: nominal).enumerated() {
+            var image = makeImage(width: config.width, height: config.height, seed: 200 + index)
+            if let onset, index >= onset {
+                var pixels = image.pixels
+                for i in 0..<wet {
+                    let o = (Self.center.y * config.width + Self.center.x - 4 + i) * 4
+                    pixels[o] = UInt8(color.r); pixels[o + 1] = UInt8(color.g); pixels[o + 2] = UInt8(color.b); pixels[o + 3] = 255
+                }
+                image = RGBAImage(width: image.width, height: image.height, pixels: pixels)
+            }
+            try await repo.putSlot(SlotRef(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot),
+                                   contentType: "image/webp", data: try ImagePipeline.toWebP(image))
+        }
+        #expect(try await repo.publish(runID: id, owner: "t", expectedSlots: TimeUtil.forecastSlots))
+    }
+
+    private func run(share: Int, wet: Int, locale: String = "de") async throws -> (sent: [ApnsRequest], state: PushState?) {
+        let config = pushConfig()
+        let repo = MemoryRepo()
+        try await register(repo)
+        _ = try await repo.addSubscription(installationID: installA, id: newID(), circle(x: Self.center.x, y: Self.center.y, radius: 5, share: share), maxPerInstallation: 10, now: run0)
+        let sender = FakeApnsSender()
+        let now = Locked(run0.addingTimeInterval(240))
+        let service = PushService(config: config, repo: repo, sender: sender, owner: "a", clock: { now.withLock { $0 } })
+        try await publish(repo, config, nominal: run0, onset: 3, wet: wet)
+        _ = try await service.tick()
+        let run1 = run0.addingTimeInterval(300)
+        now.withLock { $0 = run1.addingTimeInterval(240) }
+        try await publish(repo, config, nominal: run1, onset: 2, wet: wet)
+        _ = try await service.tick()
+        return (await sender.requests, try await repo.subscriptions(installationID: installA).first?.state)
+    }
+
+    @Test func regionNotifiesWhenTheWetShareIsReachedAfterTwoRuns() async throws {
+        let result = try await run(share: 10, wet: 9)  // 9 of 81 cells = 11 %
+        #expect(result.sent.count == 1)
+        let payload = String(decoding: result.sent[0].payload, as: UTF8.self)
+        #expect(payload.contains("RAIN_REGION_STARTS_IN") && payload.contains(#""loc-args":["10"]"#) && payload.contains(#""region":true"#))
+        #expect(result.state == .notified)
+    }
+
+    @Test func tooFewWetCellsNeverNotify() async throws {
+        let result = try await run(share: 10, wet: 8)  // 8 of 81 cells < 10 %
+        #expect(result.sent.isEmpty && result.state == .dry)
+        let tiny = try await run(share: 1, wet: 2)     // below the three-cell minimum
+        #expect(tiny.sent.isEmpty)
+        let lowShare = try await run(share: 1, wet: 3)
+        #expect(lowShare.sent.count == 1)
+    }
+
+    @Test func regionPayloadHasNoPlaceOrCoordinates() throws {
+        let text = PushEvaluator.payload(minutes: 15, subscriptionID: installA, timeSensitive: true, region: true)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        #expect(Set(object.keys) == ["aps", "type", "minutes", "region"])
+        #expect(!text.contains("lat") && !text.contains("lon") && !text.contains("cell"))
+        #expect(PushEvaluator.payload(minutes: 15, subscriptionID: installA).contains("RAIN_STARTS_IN"))  // unchanged for places
+    }
+}
+
+// MARK: benchmark of the region evaluation (opt-in: RADAR_BENCH=1; prints timings, asserts only a generous bound)
+
+@Suite("Push region benchmark")
+struct PushRegionBenchmark {
+    /// Full-size synthetic radar image: smooth rain blobs in legend colours on a transparent background, `wetShare` of the pixels covered.
+    private func image(seed: Int, wetShare: Double) -> RGBAImage {
+        let w = PushGrid.width, h = RadarConstants.imageHeight(width: w)
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        var state = UInt64(seed) &* 6364136223846793005 &+ 1442695040888963407
+        func rnd() -> Double { state = state &* 6364136223846793005 &+ 1442695040888963407; return Double(state >> 33) / Double(1 << 31) }
+        var covered = 0
+        let target = Int(Double(w * h) * wetShare)
+        while covered < target {
+            let cx = Int(rnd() * Double(w)), cy = Int(rnd() * Double(h)), r = 10 + Int(rnd() * 60)
+            let level = Int(rnd() * 15)
+            for y in max(0, cy - r)..<min(h, cy + r) {
+                for x in max(0, cx - r)..<min(w, cx + r) where (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r {
+                    let c = PushIntensity.palette[max(0, level - (abs(x - cx) + abs(y - cy)) / 25)]
+                    let o = (y * w + x) * 4
+                    if pixels[o + 3] == 0 { covered += 1 }
+                    pixels[o] = UInt8(c.r); pixels[o + 1] = UInt8(c.g); pixels[o + 2] = UInt8(c.b); pixels[o + 3] = 255
+                }
+            }
+        }
+        return RGBAImage(width: w, height: h, pixels: pixels)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["RADAR_BENCH"] != nil))
+    func evaluationCostForTheLimits() throws {
+        let w = PushGrid.width, h = RadarConstants.imageHeight(width: w)
+        let clock = ContinuousClock()
+        func seconds(_ d: Duration) -> Double { Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18 }
+        let img = image(seed: 1, wetShare: 0.15)
+        let webp = try ImagePipeline.toWebP(img)
+        var decodeTime = 0.0, mapTime = 0.0
+        var map: [UInt8] = []
+        decodeTime = seconds(try clock.measure { _ = try ImagePipeline.decodeWebP(webp) })
+        mapTime = seconds(clock.measure { map = PushIntensity.classMap(img) })
+        var out = "bench: webp \(webp.count / 1024) KB, decode \(Int(decodeTime * 1000)) ms, classMap \(Int(mapTime * 1000)) ms per slot\n"
+        // Scenarios at the server-wide budget (2 Mio. cells), thresholds 1 (many wet) and 12 (nearly dry = worst case: no early exit).
+        for (name, radius, count) in [("r40 x400", 40, 400), ("r14 x3260", 14, 3260), ("r7 x13400", 7, 13_400)] {
+            var rng = SystemRandomNumberGenerator()
+            let centres = (0..<count).map { _ in (Int.random(in: 0..<w, using: &rng), Int.random(in: 0..<h, using: &rng)) }
+            for threshold in [1, 12] {
+                var wet = 0
+                let t = seconds(clock.measure {
+                    for c in centres where PushRegion.pseudoClass(classMap: map, width: w, height: h, cx: c.0, cy: c.1, radius: radius,
+                                                                   threshold: threshold, sharePercent: 10) > 0 { wet += 1 }
+                })
+                out += "bench: \(name) threshold \(threshold): \(Int(t * 1000)) ms per slot, x25 = \(Int(t * 25 * 1000)) ms, wet regions \(wet)\n"
+                #expect(t * 25 < 30)
+            }
+        }
+        out += "bench: fixed part per run = 25 x (decode + classMap) = \(Int(25 * (decodeTime + mapTime) * 1000)) ms\n"
+        print(out)
+    }
+}

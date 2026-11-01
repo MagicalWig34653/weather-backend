@@ -13,10 +13,12 @@ extension MariaRepo {
             threshold: row.column("threshold")?.int ?? 0, leadMinutes: row.column("lead_min")?.int ?? 0,
             enabled: (row.column("enabled")?.int ?? 0) == 1, state: PushState(rawValue: row.column("state")?.int ?? 0) ?? .dry,
             lastSentAt: row.column("last_sent_s")?.string.flatMap { TimeUtil.fromSQL($0) },
-            timeSensitive: (row.column("time_sensitive")?.int ?? 0) == 1)
+            timeSensitive: (row.column("time_sensitive")?.int ?? 0) == 1,
+            kind: PushKind(rawValue: row.column("kind")?.int ?? 0) ?? .point,
+            radiusCells: row.column("radius_cells")?.int, minSharePercent: row.column("min_share")?.int)
     }
 
-    private static let subColumns = "id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, "
+    private static let subColumns = "id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, kind, radius_cells, min_share, "
         + "DATE_FORMAT(last_sent_at, \(dateOut)) AS last_sent_s"
 
     public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult {
@@ -46,7 +48,21 @@ extension MariaRepo {
         try await connection { conn in _ = try await query(conn, "DELETE FROM push_install WHERE id=?", [str(id)]) }
     }
 
-    public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int, now: Date) async throws -> AddSubscriptionResult {
+    private func optional(_ value: Int?) -> MySQLData { value.map { MySQLData(int: $0) } ?? .null }
+
+    /// Inside the installation's row lock: radii of its other regions and cells of all other regions on the server.
+    /// The server-wide sum is a soft budget (installations lock only themselves), so concurrent registrations may overshoot slightly.
+    private func regionViolation(_ conn: MySQLConnection, installationID: String, excluding id: String, radius: Int, limits: RegionLimits) async throws -> PushRegionLimitError? {
+        let own = try await query(conn, "SELECT radius_cells FROM push_sub WHERE install_id=? AND kind=1 AND id<>?", [str(installationID), str(id)])
+            .rows.compactMap { $0.column("radius_cells")?.int }
+        let all = try await query(conn, "SELECT radius_cells, COUNT(*) AS n FROM push_sub WHERE kind=1 AND id<>? GROUP BY radius_cells", [str(id)])
+        var server = 0
+        for row in all.rows { server += PushRegion.cellCount(radius: row.column("radius_cells")?.int ?? 0) * (row.column("n")?.int ?? 0) }
+        return limits.violation(otherRadii: own, serverCells: server, newRadius: radius)
+    }
+
+    public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int,
+                                regionLimits: RegionLimits, now: Date) async throws -> AddSubscriptionResult {
         try await transaction { conn in
             // The installation row lock serializes concurrent additions, so the limit cannot be exceeded.
             guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty else {
@@ -54,22 +70,39 @@ extension MariaRepo {
             }
             let count = try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE install_id=?", [str(installationID)])
             guard (count.rows.first?.column("n")?.int ?? 0) < maxPerInstallation else { return .limitReached }
+            if input.kind == .circle {
+                switch try await regionViolation(conn, installationID: installationID, excluding: id, radius: input.radiusCells ?? 0, limits: regionLimits) {
+                case .perInstallation?: return .regionLimit
+                case .capacity?: return .regionCapacity
+                case nil: break
+                }
+            }
             _ = try await query(conn,
-                "INSERT INTO push_sub (id, install_id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, created_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,0,?,?)",
+                "INSERT INTO push_sub (id, install_id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, kind, radius_cells, min_share, created_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
                 [str(id), str(installationID), MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY),
-                 MySQLData(int: input.threshold), MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0), ts(now)])
+                 MySQLData(int: input.threshold), MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0),
+                 MySQLData(int: input.timeSensitive ? 1 : 0), MySQLData(int: input.kind.rawValue), optional(input.radiusCells),
+                 optional(input.minSharePercent), ts(now)])
             return .created
         }
     }
 
-    public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput) async throws -> Bool {
-        try await connection { conn in
+    public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool {
+        try await transaction { conn in
+            guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty,
+                  !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=?", [str(id), str(installationID)])).rows.isEmpty
+            else { return false }
+            if input.kind == .circle,
+               let violation = try await regionViolation(conn, installationID: installationID, excluding: id, radius: input.radiusCells ?? 0, limits: regionLimits) {
+                throw violation
+            }
             _ = try await query(conn,
-                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, state=0 WHERE id=? AND install_id=?",
+                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, kind=?, radius_cells=?, min_share=?, state=0 WHERE id=? AND install_id=?",
                 [MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY), MySQLData(int: input.threshold),
-                 MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0), str(id), str(installationID)])
-            return !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=?", [str(id), str(installationID)])).rows.isEmpty
+                 MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0),
+                 MySQLData(int: input.kind.rawValue), optional(input.radiusCells), optional(input.minSharePercent), str(id), str(installationID)])
+            return true
         }
     }
 

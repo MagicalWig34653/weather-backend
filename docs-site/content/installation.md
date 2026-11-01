@@ -25,6 +25,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER ON showernow.* TO 'showernow
 
 Die Migration `005_push_time_sensitive.sql` ergänzt `push_sub` per `ALTER TABLE` um eine Spalte; deshalb braucht der Migrationsbenutzer ab dieser Version zusätzlich `ALTER` (bestehende Installationen: `GRANT ALTER ON showernow.* TO …;`). Die Migration ist additiv (Standardwert `0`) und läuft vor dem Rollout; alte Replikate arbeiten mit der neuen Spalte weiter. Die Migration `001_radar.sql` legt `radar_run`, `radar_slot` und (vom Migrationsprogramm) `schema_migration` an; dafür genügt `CREATE`. Ob künftige Migrationen weitere Rechte brauchen, ist nicht geprüft. Die Migrationen sind als additiv vorgesehen.
 
+Auch die Migration `006_push_region.sql` (Spalten `kind`, `radius_cells`, `min_share` für Umkreis-Abos) ist ein additives `ALTER TABLE push_sub ... ADD COLUMN IF NOT EXISTS`; sie braucht dasselbe Recht `ALTER`, es sind keine weiteren Rechte nötig. Bestehende Abos behalten ihr Verhalten (Ort). Nach dem Update zeigt `curl <Basis-URL>/v1/status` bei `PUSH_ENABLED=true` das Feld `"capabilities":["regions"]`.
+
 ## Schritt für Schritt
 
 ### 1. Deploy-Branch klonen

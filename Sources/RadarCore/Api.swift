@@ -153,7 +153,7 @@ public final class Api: Sendable {
             layers.append(entry)
         }
         let doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
-                                  "now": iso(clock()), "layers": layers]
+                                  "capabilities": config.push.enabled ? ["regions"] : [], "now": iso(clock()), "layers": layers]
         let body = try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys])
         return ApiResponse(status: 200, headers: [("Content-Type", "application/json"), ("Cache-Control", "no-store"),
                                                   ("X-Content-Type-Options", "nosniff")], body: Array(body))
