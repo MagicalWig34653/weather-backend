@@ -35,6 +35,9 @@ public struct PushSettings: Sendable {
     public var topic = ""
     /// Environments the sender may use (`APNS_ENV`: sandbox, production or both).
     public var environments: Set<PushEnvironment> = [.production]
+    /// Server-wide caps (`PUSH_MAX_INSTALLATIONS`, `PUSH_MAX_SUBSCRIPTIONS`, `PUSH_MAX_REGION_CELLS`); new installations get `503 server_full` beyond them.
+    public var maxInstallations = 100_000
+    public var regionLimits = RegionLimits()
     public init() {}
 }
 
@@ -159,6 +162,14 @@ public struct Config: Sendable {
             default: throw ConfigError(description: "APNS_ENV must be sandbox, production or both")
             }
         }
+        func positive(_ key: String, _ fallback: Int) throws -> Int {
+            let value = try int(key, fallback)
+            guard value >= 1 else { throw ConfigError(description: "\(key) must be at least 1") }
+            return value
+        }
+        c.push.maxInstallations = try positive("PUSH_MAX_INSTALLATIONS", c.push.maxInstallations)
+        c.push.regionLimits.maxSubscriptionsServerwide = try positive("PUSH_MAX_SUBSCRIPTIONS", c.push.regionLimits.maxSubscriptionsServerwide)
+        c.push.regionLimits.maxCellsServerwide = try positive("PUSH_MAX_REGION_CELLS", c.push.regionLimits.maxCellsServerwide)
         if c.push.enabled {
             c.push.keyPEM = try secret(env, "APNS_KEY", "")
             c.push.keyID = text("APNS_KEY_ID")

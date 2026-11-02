@@ -8,6 +8,8 @@ public enum PushGrid {
     public static let thresholdRange = 1...15
     public static let maxSubscriptionsPerInstallation = 10
     public static let maxBodyBytes = 2048
+    /// `last_seen_at` is refreshed at most this often (retention is 60 days).
+    public static let lastSeenRefreshSeconds: TimeInterval = 3600
 
     /// Cell of a Web-Mercator point (used by tests and docs; the app computes the cell locally, the server never sees a coordinate).
     public static func cell(mercatorX x: Double, mercatorY y: Double, width: Int) -> (x: Int, y: Int)? {
@@ -86,8 +88,8 @@ public struct PushInstallation: Sendable, Equatable {
     public init(token: String, env: PushEnvironment, locale: String) { self.token = token; self.env = env; self.locale = locale }
 }
 
-public enum UpsertResult: Sendable, Equatable { case created, updated, forbidden }
-public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation, regionLimit, regionCapacity }
+public enum UpsertResult: Sendable, Equatable { case created, updated, forbidden, serverFull }
+public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation, regionLimit, regionCapacity, serverFull }
 
 public struct SubscriptionUpdate: Sendable, Equatable {
     public var id: String

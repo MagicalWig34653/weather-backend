@@ -31,9 +31,13 @@ public final class PushService: Sendable {
     let owner: String
     let clock: @Sendable () -> Date
     private let purgeState = PushGuarded(Date.distantPast)
+    /// Subscriptions loaded per evaluation page (bounded memory).
+    let evaluationPageSize: Int
 
-    public init(config: Config, repo: any Repo, sender: any ApnsSender, owner: String, clock: @escaping @Sendable () -> Date = { Date() }) {
+    public init(config: Config, repo: any Repo, sender: any ApnsSender, owner: String, evaluationPageSize: Int = 2000,
+                clock: @escaping @Sendable () -> Date = { Date() }) {
         self.config = config; self.repo = repo; self.sender = sender; self.owner = owner; self.clock = clock
+        self.evaluationPageSize = max(1, evaluationPageSize)
     }
 
     public func release() async { try? await repo.releaseLeader(name: Self.leaderName, owner: owner) }
@@ -67,32 +71,37 @@ public final class PushService: Sendable {
         var updates: [SubscriptionUpdate] = []
         var outbox: [NewOutboxItem] = []
         let fresh = now.timeIntervalSince(run.nominal) <= PushEvaluator.maxRunAge
-        let subs = fresh ? try await repo.evaluationSubscriptions(gridVersion: PushGrid.version) : []
-        let slots = subs.isEmpty ? [] : try await repo.publishedSlots(runID: run.runID)
-        if !subs.isEmpty, slots.count == TimeUtil.forecastSlots {
-            var classes = [[Int]](repeating: [], count: subs.count)
+        var firstPage = fresh ? try await repo.evaluationSubscriptions(gridVersion: PushGrid.version, after: nil, limit: evaluationPageSize) : []
+        let slots = firstPage.isEmpty ? [] : try await repo.publishedSlots(runID: run.runID)
+        if !firstPage.isEmpty, slots.count == TimeUtil.forecastSlots {
+            let ordered = slots.sorted(by: { $0.slotIndex < $1.slotIndex })
             var complete = true
-            let hasRegions = subs.contains { $0.kind == .circle }
-            for slot in slots.sorted(by: { $0.slotIndex < $1.slotIndex }) {
-                guard let blob = try await repo.getSlot(runID: run.runID, slotID: slot.slotID),
-                      let image = try? ImagePipeline.decodeWebP(blob.data), image.width == config.width, image.height == config.height else {
-                    complete = false
-                    break
-                }
-                // One class map per slot (only when regions exist); a region becomes a pseudo class: threshold if wet, else 0.
-                let classMap = hasRegions ? PushIntensity.classMap(image) : []
-                for (index, sub) in subs.enumerated() {
-                    if sub.kind == .circle, let radius = sub.radiusCells {
-                        classes[index].append(PushRegion.pseudoClass(
-                            classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
-                            threshold: sub.threshold, sharePercent: sub.minSharePercent ?? PushRegion.defaultShare))
-                    } else {
-                        classes[index].append(PushIntensity.classify(image, x: sub.cellX, y: sub.cellY))
+            // Subscriptions are processed page by page (memory stays bounded); the slot images are decoded once per page.
+            var page = firstPage
+            firstPage = []
+            while !page.isEmpty, complete {
+                var classes = [[Int]](repeating: [], count: page.count)
+                let hasRegions = page.contains { $0.kind == .circle }
+                for slot in ordered {
+                    guard let blob = try await repo.getSlot(runID: run.runID, slotID: slot.slotID),
+                          let image = try? ImagePipeline.decodeWebP(blob.data), image.width == config.width, image.height == config.height else {
+                        complete = false
+                        break
+                    }
+                    // One class map per slot (only when regions exist); a region becomes a pseudo class: threshold if wet, else 0.
+                    let classMap = hasRegions ? PushIntensity.classMap(image) : []
+                    for (index, sub) in page.enumerated() {
+                        if sub.kind == .circle, let radius = sub.radiusCells {
+                            classes[index].append(PushRegion.pseudoClass(
+                                classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
+                                threshold: sub.threshold, sharePercent: sub.minSharePercent ?? PushRegion.defaultShare))
+                        } else {
+                            classes[index].append(PushIntensity.classify(image, x: sub.cellX, y: sub.cellY))
+                        }
                     }
                 }
-            }
-            if complete {
-                for (index, sub) in subs.enumerated() {
+                guard complete else { break }
+                for (index, sub) in page.enumerated() {
                     let step = PushEvaluator.step(state: sub.state, threshold: sub.threshold, leadMinutes: sub.leadMinutes,
                                                   lastSentAt: sub.lastSentAt, classes: classes[index], now: now)
                     var sentAt = sub.lastSentAt
@@ -105,7 +114,10 @@ public final class PushService: Sendable {
                     }
                     if step.state != sub.state || sentAt != sub.lastSentAt { updates.append(SubscriptionUpdate(id: sub.id, state: step.state, lastSentAt: sentAt)) }
                 }
+                guard page.count >= evaluationPageSize, let last = page.last?.id else { break }
+                page = try await repo.evaluationSubscriptions(gridVersion: PushGrid.version, after: last, limit: evaluationPageSize)
             }
+            if !complete { updates = []; outbox = [] }
         }
         // Stale or incomplete runs are marked as seen without any state change, so they are never replayed later.
         if try await repo.commitEvaluation(runID: run.runID, updates: updates, outbox: outbox, now: now) {

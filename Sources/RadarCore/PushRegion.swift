@@ -7,10 +7,15 @@ public enum PushKind: Int, Sendable { case point = 0, circle = 1 }
 public struct RegionLimits: Sendable, Equatable {
     public var maxRegionsPerInstallation = 3
     public var maxCellsPerInstallation = 8_000
-    public var maxCellsServerwide = 2_000_000
-    public init(maxRegionsPerInstallation: Int = 3, maxCellsPerInstallation: Int = 8_000, maxCellsServerwide: Int = 2_000_000) {
+    /// Evaluation cost guard, not a per-user quota: 2 Mio. cells take about 40 ms per run (release, `PushRegionBenchmark`),
+    /// so 50 Mio. stay around 1 s. Raised from 2 Mio. so that fake installations cannot fill it for real users (review H2).
+    public var maxCellsServerwide = 50_000_000
+    /// Hard cap of all subscriptions (points and regions) on the server.
+    public var maxSubscriptionsServerwide = 400_000
+    public init(maxRegionsPerInstallation: Int = 3, maxCellsPerInstallation: Int = 8_000, maxCellsServerwide: Int = 50_000_000,
+                maxSubscriptionsServerwide: Int = 400_000) {
         self.maxRegionsPerInstallation = maxRegionsPerInstallation; self.maxCellsPerInstallation = maxCellsPerInstallation
-        self.maxCellsServerwide = maxCellsServerwide
+        self.maxCellsServerwide = maxCellsServerwide; self.maxSubscriptionsServerwide = maxSubscriptionsServerwide
     }
     public static let standard = RegionLimits()
 

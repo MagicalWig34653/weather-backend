@@ -80,8 +80,10 @@ public protocol LayerRepo: Sendable {
 /// Secrets are stored only as SHA-256 hex hashes; no coordinates, only raster cells.
 public protocol PushRepo: Sendable {
     /// Creates the installation, or updates token/env/locale when `secretHash` matches (`forbidden` otherwise).
-    func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult
-    /// True when the installation exists and the hash matches; then also refreshes `last_seen_at`.
+    /// A new installation beyond `maxInstallations` is refused with `serverFull`; existing ones can always update.
+    func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date,
+                            maxInstallations: Int) async throws -> UpsertResult
+    /// True when the installation exists and the hash matches; then refreshes `last_seen_at` (at most hourly, one query otherwise).
     func authenticate(id: String, secretHash: String, now: Date) async throws -> Bool
     /// Deletes the installation with all subscriptions and outbox entries.
     func deleteInstallation(id: String) async throws
@@ -95,8 +97,8 @@ public protocol PushRepo: Sendable {
     func subscriptions(installationID: String) async throws -> [PushSubscription]
     /// Delivery target of an authenticated installation (nil when unknown).
     func installation(id: String) async throws -> PushInstallation?
-    /// All enabled subscriptions of a raster version (for the evaluation after a radar run).
-    func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription]
+    /// One page (ascending id, ids greater than `after`) of the enabled subscriptions of a raster version, for the evaluation after a radar run.
+    func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription]
     func lastEvaluatedRun() async throws -> String?
     /// Atomic: only if `runID` is newer than the last evaluated run it stores it, applies the state updates and inserts the
     /// outbox entries (duplicate `dedupeKey` ignored). Returns false when the run was already evaluated.
@@ -110,6 +112,18 @@ public protocol PushRepo: Sendable {
 }
 
 extension PushRepo {
+    public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult {
+        try await upsertInstallation(id: id, secretHash: secretHash, token: token, env: env, locale: locale, now: now, maxInstallations: Int.max)
+    }
+    /// All enabled subscriptions (pages of 1000); for tests and tools, the service pages itself.
+    public func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription] {
+        var all: [PushSubscription] = []
+        while true {
+            let page = try await evaluationSubscriptions(gridVersion: gridVersion, after: all.last?.id, limit: 1000)
+            if page.isEmpty { return all }
+            all += page
+        }
+    }
     public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int, now: Date) async throws -> AddSubscriptionResult {
         try await addSubscription(installationID: installationID, id: id, input, maxPerInstallation: maxPerInstallation, regionLimits: .standard, now: now)
     }

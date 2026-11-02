@@ -14,8 +14,23 @@ public actor SlotCache {
     private var flights: [String: Task<SlotBlob?, Error>] = [:]
     private let maxBytes: Int
     public private(set) var dbReads = 0
+    /// Negative cache: keys that were not found, with their expiry (short TTL, bounded), so that ids that do not exist cost no query per request.
+    private var missing: [String: Date] = [:]
+    private let missingTTL: TimeInterval
+    private let missingMax: Int
+    private let clock: @Sendable () -> Date
+    var missingCount: Int { missing.count }
 
-    public init(maxBytes: Int) { self.maxBytes = maxBytes }
+    public init(maxBytes: Int, missingTTL: TimeInterval = 10, missingMax: Int = 2000, clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.maxBytes = maxBytes; self.missingTTL = missingTTL; self.missingMax = max(1, missingMax); self.clock = clock
+    }
+
+    private func rememberMissing(_ key: String) {
+        let now = clock()
+        if missing.count >= missingMax { missing = missing.filter { $0.value > now } }
+        if missing.count >= missingMax { missing.removeAll() }
+        missing[key] = now.addingTimeInterval(missingTTL)
+    }
 
     func lookup(_ key: String) -> SlotBlob? {
         guard let entry = items[key] else { return nil }
@@ -40,13 +55,17 @@ public actor SlotCache {
     /// On a miss exactly one task reads the DB per key; concurrent requests await the same task.
     public func load(_ key: String, _ loader: @escaping @Sendable () async throws -> SlotBlob?) async throws -> SlotBlob? {
         if let hit = lookup(key) { return hit }
+        if let until = missing[key] {
+            if until > clock() { return nil }
+            missing[key] = nil
+        }
         if let flight = flights[key] { return try await flight.value }
         dbReads += 1
         let task = Task { try await loader() }
         flights[key] = task
         defer { flights[key] = nil }
         let blob = try await task.value
-        if let blob { put(key, blob) }
+        if let blob { put(key, blob) } else { rememberMissing(key) }
         return blob
     }
 }
@@ -66,6 +85,7 @@ public final class Api: Sendable {
     public let cache: SlotCache
     let push: PushApi
     private let manifestState = ManifestState()
+    private let statusState = ManifestState()
     private let historyState = ManifestState()
     private let layerStates: [String: ManifestState] = Dictionary(uniqueKeysWithValues: LayerCatalog.order.map { ($0, ManifestState()) })
 
@@ -88,7 +108,7 @@ public final class Api: Sendable {
     public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
                 clock: @escaping @Sendable () -> Date = { Date() }) {
         self.repo = repo; self.config = config; self.alive = alive; self.clock = clock
-        cache = SlotCache(maxBytes: config.cacheMaxBytes)
+        cache = SlotCache(maxBytes: config.cacheMaxBytes, clock: clock)
         push = PushApi(repo: repo, config: config, sender: sender, clock: clock)
     }
 
@@ -137,6 +157,13 @@ public final class Api: Sendable {
     /// Data-sparing diagnosis for operators: which layers are enabled, whether each has published data, push on/off.
     /// No secrets, no per-user data; helps to tell "layer not enabled" from "no data yet" (both answer 404 on the layer routes).
     func status() async throws -> ApiResponse {
+        // Memoized like the manifests (single-flight, 5 s): the public endpoint costs a handful of queries per window, not per request.
+        let body = try await statusState.get(now: clock(), ttl: Self.manifestTTL, build: { try await self.buildStatus() }) ?? []
+        return ApiResponse(status: 200, headers: [("Content-Type", "application/json"), ("Cache-Control", "no-store"),
+                                                  ("X-Content-Type-Options", "nosniff")], body: body)
+    }
+
+    private func buildStatus() async throws -> [UInt8] {
         func iso(_ d: Date) -> String { TimeUtil.toISO(d) }
         var layers: [[String: Any]] = []
         for id in ["radar"] + LayerCatalog.order {
@@ -154,9 +181,7 @@ public final class Api: Sendable {
         }
         let doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
                                   "capabilities": config.push.enabled ? ["regions"] : [], "now": iso(clock()), "layers": layers]
-        let body = try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys])
-        return ApiResponse(status: 200, headers: [("Content-Type", "application/json"), ("Cache-Control", "no-store"),
-                                                  ("X-Content-Type-Options", "nosniff")], body: Array(body))
+        return Array(try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys]))
     }
 
     public func handle(path rawPath: String, ifNoneMatch: String?) async throws -> ApiResponse {

@@ -11,6 +11,8 @@ public final class MariaRepo: Repo, @unchecked Sendable {
     private let pool: EventLoopGroupConnectionPool<MySQLConnectionSource>
     private let migrationsDirectory: String
     private let group: MultiThreadedEventLoopGroup
+    /// Memo of the server-wide region cell sum (see `serverRegionCells`).
+    let regionCellsMemo = PushGuarded<(at: Date, cells: Int)?>(nil)
 
     public init(config: Config) {
         group = MultiThreadedEventLoopGroup(numberOfThreads: 2)

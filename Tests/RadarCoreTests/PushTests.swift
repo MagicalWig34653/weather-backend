@@ -333,7 +333,9 @@ struct PushApiTests {
         let (api, _, _) = api()
         let base = "/v1/push/installations/\(installA)"
         var statuses: [Int] = []
-        for _ in 0..<(PushApi.perInstallationLimit + 5) {
+        // Registered first (one request), so that the requests are authenticated and failed-auth blocking does not interfere.
+        _ = await api.handle(method: "PUT", path: base, secret: secretA, body: installBody)
+        for _ in 0..<(PushApi.perInstallationLimit - 1 + 5) {
             statuses.append(await api.handle(method: "GET", path: base + "/subscriptions", secret: secretA, body: [])?.status ?? 0)
         }
         #expect(statuses.filter { $0 == 429 }.count == 5)
@@ -877,7 +879,7 @@ struct PushRegionGeometryTests {
     }
 
     @Test func limitsAreCheckedFromRadiiOnly() {
-        let limits = RegionLimits.standard
+        let limits = RegionLimits(maxCellsServerwide: 2_000_000)
         #expect(limits.violation(otherRadii: [], serverCells: 0, newRadius: 40) == nil)
         #expect(limits.violation(otherRadii: [40], serverCells: 0, newRadius: 40) == .perInstallation)  // 2 x 5026 > 8000
         #expect(limits.violation(otherRadii: [5, 5, 5], serverCells: 0, newRadius: 5) == .perInstallation)  // fourth region

@@ -1,21 +1,53 @@
 import Foundation
 
-/// Fixed-window limiter per key with a bounded key table (no IP addresses involved).
+/// Fixed-window limiter per key with a bounded key table (no IP addresses involved). When the table is full, expired
+/// entries are dropped first and then the oldest windows are evicted: a flood of random keys never rejects other keys.
+/// Keys starting with `global:` live in a small separate table that is never evicted.
 final class RateLimiter: @unchecked Sendable {
     private let lock = NSLock()
     private var windows: [String: (start: Date, count: Int)] = [:]
-    private let maxKeys = 20_000
+    private var pinned: [String: (start: Date, count: Int)] = [:]
+    private let maxKeys: Int
+
+    init(maxKeys: Int = 20_000) { self.maxKeys = max(10, maxKeys) }
+
+    var keyCount: Int { lock.withLock { windows.count } }
 
     /// True when the call is allowed.
     func allow(_ key: String, limit: Int, window: TimeInterval, now: Date) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        if windows.count >= maxKeys { windows = windows.filter { now.timeIntervalSince($0.value.start) < window } }
-        guard windows.count < maxKeys || windows[key] != nil else { return false }
-        var entry = windows[key] ?? (now, 0)
+        return bump(key, window: window, now: now) <= limit
+    }
+
+    /// Counts an event without a limit decision (failed attempts).
+    func record(_ key: String, window: TimeInterval, now: Date) {
+        lock.lock(); defer { lock.unlock() }
+        _ = bump(key, window: window, now: now)
+    }
+
+    /// Events of the current window (0 when none).
+    func count(_ key: String, window: TimeInterval, now: Date) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = key.hasPrefix("global:") ? pinned[key] : windows[key], now.timeIntervalSince(entry.start) < window else { return 0 }
+        return entry.count
+    }
+
+    private func bump(_ key: String, window: TimeInterval, now: Date) -> Int {
+        let isPinned = key.hasPrefix("global:")
+        if !isPinned, windows[key] == nil, windows.count >= maxKeys { evict(window: window, now: now) }
+        var entry = (isPinned ? pinned[key] : windows[key]) ?? (now, 0)
         if now.timeIntervalSince(entry.start) >= window { entry = (now, 0) }
         entry.count += 1
-        windows[key] = entry
-        return entry.count <= limit
+        if isPinned { pinned[key] = entry } else { windows[key] = entry }
+        return entry.count
+    }
+
+    private func evict(window: TimeInterval, now: Date) {
+        windows = windows.filter { now.timeIntervalSince($0.value.start) < window }
+        guard windows.count >= maxKeys else { return }
+        // Still full of live windows: drop the oldest tenth in one go (amortized), instead of refusing the new key.
+        let drop = windows.sorted { $0.value.start < $1.value.start }.prefix(max(1, maxKeys / 10))
+        for (key, _) in drop { windows[key] = nil }
     }
 }
 
@@ -32,6 +64,10 @@ public final class PushApi: Sendable {
     public static let prefix = "/v1/push/"
     public static let perInstallationLimit = 60
     public static let globalRegistrationLimit = 600
+    /// All push requests per window and replica, counted before any lookup (flood protection; real traffic is far below).
+    public static let globalRequestLimit = 3000
+    /// Failed authentications per installation id and window; further attempts get `429` without a database query.
+    public static let failedAuthLimit = 10
     public static let window: TimeInterval = 60
 
     let repo: any Repo
@@ -40,14 +76,16 @@ public final class PushApi: Sendable {
     /// nil when the APNs key could not be loaded: the test route then answers `503 apns_unavailable`.
     let sender: (any ApnsSender)?
     private let limiter = RateLimiter()
+    private let globalRequestLimit: Int
 
     /// Test notifications per installation and hour (in memory per replica, like the other limits).
     public static let testLimit = 3
     public static let testWindow: TimeInterval = 3600
     static let testExpirySeconds: TimeInterval = 600
 
-    public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.repo = repo; self.config = config; self.sender = sender; self.clock = clock
+    public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, globalRequestLimit: Int = PushApi.globalRequestLimit,
+                clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.repo = repo; self.config = config; self.sender = sender; self.clock = clock; self.globalRequestLimit = globalRequestLimit
     }
 
     struct InstallationBody: Decodable { var token: String; var env: String; var locale: String }
@@ -117,8 +155,9 @@ public final class PushApi: Sendable {
         let parts = path.dropFirst(Self.prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 2, parts[0] == "installations", parts.count <= 4, parts.count != 3 || parts[2] == "subscriptions" || parts[2] == "test" else { return nil }
         guard body.count <= PushGrid.maxBodyBytes else { return Self.error(413, "too_large") }
-        guard let installID = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
         let now = clock()
+        guard limiter.allow("global:any", limit: globalRequestLimit, window: Self.window, now: now) else { return Self.error(429, "rate_limited") }
+        guard let installID = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
         guard limiter.allow("i:" + installID, limit: Self.perInstallationLimit, window: Self.window, now: now) else {
             return Self.error(429, "rate_limited")
         }
@@ -147,12 +186,14 @@ public final class PushApi: Sendable {
                     guard let input = self.decodeSubscription(body) else { return Self.error(400, "invalid_subscription") }
                     let id = UUID().uuidString.lowercased()
                     switch try await self.repo.addSubscription(installationID: installID, id: id, input,
-                                                               maxPerInstallation: PushGrid.maxSubscriptionsPerInstallation, now: now) {
+                                                               maxPerInstallation: PushGrid.maxSubscriptionsPerInstallation,
+                                                               regionLimits: self.config.push.regionLimits, now: now) {
                     case .created: return Self.json(201, ["id": id])
                     case .limitReached: return Self.error(409, "subscription_limit")
                     case .unknownInstallation: return Self.error(401, "unauthorized")
                     case .regionLimit: return Self.error(409, "region_limit")
                     case .regionCapacity: return Self.error(409, "region_capacity")
+                    case .serverFull: return Self.error(503, "server_full")
                     }
                 }
                 default: return Self.error(405, "method_not_allowed")
@@ -163,7 +204,7 @@ public final class PushApi: Sendable {
             case "PUT": return try await authenticated(installID, secret, now) { _ in
                 guard let input = self.decodeSubscription(body) else { return Self.error(400, "invalid_subscription") }
                 do {
-                    return try await self.repo.updateSubscription(installationID: installID, id: subID, input) ? Self.json(204) : Self.error(404, "not_found")
+                    return try await self.repo.updateSubscription(installationID: installID, id: subID, input, regionLimits: self.config.push.regionLimits) ? Self.json(204) : Self.error(404, "not_found")
                 } catch let limit as PushRegionLimitError {
                     return Self.error(409, limit == .capacity ? "region_capacity" : "region_limit")
                 }
@@ -226,11 +267,17 @@ public final class PushApi: Sendable {
     }
 
     private func authenticated(_ installID: String, _ secret: String?, _ now: Date, _ body: (String) async throws -> ApiResponse) async throws -> ApiResponse {
-        guard let secret = Self.validSecret(secret),
-              try await repo.authenticate(id: installID, secretHash: Hashing.sha256Hex(Array(secret.utf8)), now: now) else {
+        guard let secret = Self.validSecret(secret) else { return Self.error(401, "unauthorized") }
+        if blockedByFailures(installID, now) { return Self.error(429, "rate_limited") }
+        guard try await repo.authenticate(id: installID, secretHash: Hashing.sha256Hex(Array(secret.utf8)), now: now) else {
+            limiter.record("f:" + installID, window: Self.window, now: now)
             return Self.error(401, "unauthorized")
         }
         return try await body(installID)
+    }
+
+    private func blockedByFailures(_ installID: String, _ now: Date) -> Bool {
+        limiter.count("f:" + installID, window: Self.window, now: now) >= Self.failedAuthLimit
     }
 
     private func putInstallation(_ installID: String, secret: String?, body: [UInt8], now: Date) async throws -> ApiResponse {
@@ -238,14 +285,19 @@ public final class PushApi: Sendable {
             return Self.error(429, "rate_limited")
         }
         guard let secret = Self.validSecret(secret) else { return Self.error(401, "unauthorized") }
+        if blockedByFailures(installID, now) { return Self.error(429, "rate_limited") }
         guard let decoded = try? JSONDecoder().decode(InstallationBody.self, from: Data(body)),
               let token = Self.validToken(decoded.token), let env = PushEnvironment(rawValue: decoded.env),
               ["de", "en"].contains(decoded.locale) else { return Self.error(400, "invalid_installation") }
         switch try await repo.upsertInstallation(id: installID, secretHash: Hashing.sha256Hex(Array(secret.utf8)), token: token,
-                                                 env: env, locale: decoded.locale, now: now) {
+                                                 env: env, locale: decoded.locale, now: now,
+                                                 maxInstallations: config.push.maxInstallations) {
         case .created: return Self.json(201)
         case .updated: return Self.json(204)
-        case .forbidden: return Self.error(401, "unauthorized")
+        case .forbidden:
+            limiter.record("f:" + installID, window: Self.window, now: now)
+            return Self.error(401, "unauthorized")
+        case .serverFull: return Self.error(503, "server_full")
         }
     }
 }

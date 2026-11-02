@@ -45,7 +45,9 @@ struct MemoryPushStore {
 }
 
 extension MemoryRepo {
-    public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult {
+    public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date,
+                                   maxInstallations: Int) async throws -> UpsertResult {
+        if push.installs[id] == nil, push.installs.count >= maxInstallations { return .serverFull }
         if var existing = push.installs[id] {
             guard existing.secretHash == secretHash else { return .forbidden }
             existing.token = token; existing.env = env; existing.locale = locale; existing.lastSeenAt = now
@@ -58,8 +60,10 @@ extension MemoryRepo {
 
     public func authenticate(id: String, secretHash: String, now: Date) async throws -> Bool {
         guard var install = push.installs[id], install.secretHash == secretHash else { return false }
-        install.lastSeenAt = now
-        push.installs[id] = install
+        if now.timeIntervalSince(install.lastSeenAt) >= PushGrid.lastSeenRefreshSeconds {
+            install.lastSeenAt = now
+            push.installs[id] = install
+        }
         return true
     }
 
@@ -80,6 +84,7 @@ extension MemoryRepo {
                                 regionLimits: RegionLimits, now: Date) async throws -> AddSubscriptionResult {
         guard push.installs[installationID] != nil else { return .unknownInstallation }
         guard push.subs.values.filter({ $0.installID == installationID }).count < maxPerInstallation else { return .limitReached }
+        guard push.subs.count < regionLimits.maxSubscriptionsServerwide else { return .serverFull }
         if input.kind == .circle {
             let usage = regionUsage(installationID: installationID, excluding: id)
             switch regionLimits.violation(otherRadii: usage.own, serverCells: usage.serverCells, newRadius: input.radiusCells ?? 0) {
@@ -124,8 +129,9 @@ extension MemoryRepo {
         push.installs[id].map { PushInstallation(token: $0.token, env: $0.env, locale: $0.locale) }
     }
 
-    public func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription] {
-        push.subs.values.map(\.value).filter { $0.enabled && $0.gridVersion == gridVersion }.sorted { $0.id < $1.id }
+    public func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription] {
+        Array(push.subs.values.map(\.value).filter { $0.enabled && $0.gridVersion == gridVersion && (after == nil || $0.id > after!) }
+            .sorted { $0.id < $1.id }.prefix(max(1, limit)))
     }
 
     public func lastEvaluatedRun() async throws -> String? { push.lastRun }

@@ -21,8 +21,15 @@ extension MariaRepo {
     private static let subColumns = "id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, kind, radius_cells, min_share, "
         + "DATE_FORMAT(last_sent_at, \(dateOut)) AS last_sent_s"
 
-    public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date) async throws -> UpsertResult {
+    public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date,
+                                   maxInstallations: Int) async throws -> UpsertResult {
         try await transaction { conn in
+            // The cap applies to new installations only (soft under concurrency, like the region budget).
+            if maxInstallations < Int.max,
+               (try await query(conn, "SELECT 1 AS ok FROM push_install WHERE id=?", [str(id)])).rows.isEmpty,
+               (try await query(conn, "SELECT COUNT(*) AS n FROM push_install")).rows.first?.column("n")?.int ?? 0 >= maxInstallations {
+                return .serverFull
+            }
             let inserted = try await query(conn,
                 "INSERT IGNORE INTO push_install (id, secret_hash, token, env, locale, created_at, last_seen_at, token_updated_at) "
                 + "VALUES (?,?,?,?,?,?,?,?)",
@@ -38,13 +45,21 @@ extension MariaRepo {
     }
 
     public func authenticate(id: String, secretHash: String, now: Date) async throws -> Bool {
+        // One query in the common case; `last_seen_at` (retention is 60 days) is written at most once per hour and installation.
         try await connection { conn in
-            _ = try await query(conn, "UPDATE push_install SET last_seen_at=? WHERE id=? AND secret_hash=?", [ts(now), str(id), str(secretHash)])
-            return !(try await query(conn, "SELECT 1 AS ok FROM push_install WHERE id=? AND secret_hash=?", [str(id), str(secretHash)])).rows.isEmpty
+            let stale = ts(now.addingTimeInterval(-PushGrid.lastSeenRefreshSeconds))
+            let rows = try await query(conn, "SELECT (last_seen_at < ?) AS stale FROM push_install WHERE id=? AND secret_hash=?",
+                                       [stale, str(id), str(secretHash)]).rows
+            guard let row = rows.first else { return false }
+            if (row.column("stale")?.int ?? 0) == 1 {
+                _ = try await query(conn, "UPDATE push_install SET last_seen_at=? WHERE id=? AND secret_hash=?", [ts(now), str(id), str(secretHash)])
+            }
+            return true
         }
     }
 
     public func deleteInstallation(id: String) async throws {
+        regionCellsMemo.withLock { $0 = nil }
         try await connection { conn in _ = try await query(conn, "DELETE FROM push_install WHERE id=?", [str(id)]) }
     }
 
@@ -55,10 +70,25 @@ extension MariaRepo {
     private func regionViolation(_ conn: MySQLConnection, installationID: String, excluding id: String, radius: Int, limits: RegionLimits) async throws -> PushRegionLimitError? {
         let own = try await query(conn, "SELECT radius_cells FROM push_sub WHERE install_id=? AND kind=1 AND id<>?", [str(installationID), str(id)])
             .rows.compactMap { $0.column("radius_cells")?.int }
-        let all = try await query(conn, "SELECT radius_cells, COUNT(*) AS n FROM push_sub WHERE kind=1 AND id<>? GROUP BY radius_cells", [str(id)])
-        var server = 0
-        for row in all.rows { server += PushRegion.cellCount(radius: row.column("radius_cells")?.int ?? 0) * (row.column("n")?.int ?? 0) }
-        return limits.violation(otherRadii: own, serverCells: server, newRadius: radius)
+        // The server-wide sum is memoized for 30 s (no GROUP BY per request); it is a soft budget anyway.
+        let total = try await serverRegionCells(conn)
+        var existing = 0
+        if let current = try await query(conn, "SELECT radius_cells FROM push_sub WHERE id=? AND kind=1", [str(id)]).rows.first?.column("radius_cells")?.int {
+            existing = PushRegion.cellCount(radius: current)
+        }
+        return limits.violation(otherRadii: own, serverCells: max(0, total - existing), newRadius: radius)
+    }
+
+    private static let cellsMemoSeconds: TimeInterval = 30
+
+    private func serverRegionCells(_ conn: MySQLConnection) async throws -> Int {
+        let now = Date()
+        if let memo = regionCellsMemo.withLock({ $0 }), now.timeIntervalSince(memo.at) < Self.cellsMemoSeconds { return memo.cells }
+        let all = try await query(conn, "SELECT radius_cells, COUNT(*) AS n FROM push_sub WHERE kind=1 GROUP BY radius_cells")
+        var cells = 0
+        for row in all.rows { cells += PushRegion.cellCount(radius: row.column("radius_cells")?.int ?? 0) * (row.column("n")?.int ?? 0) }
+        regionCellsMemo.withLock { $0 = (now, cells) }
+        return cells
     }
 
     public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int,
@@ -70,6 +100,9 @@ extension MariaRepo {
             }
             let count = try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE install_id=?", [str(installationID)])
             guard (count.rows.first?.column("n")?.int ?? 0) < maxPerInstallation else { return .limitReached }
+            if (try await query(conn, "SELECT COUNT(*) AS n FROM push_sub")).rows.first?.column("n")?.int ?? 0 >= regionLimits.maxSubscriptionsServerwide {
+                return .serverFull
+            }
             if input.kind == .circle {
                 switch try await regionViolation(conn, installationID: installationID, excluding: id, radius: input.radiusCells ?? 0, limits: regionLimits) {
                 case .perInstallation?: return .regionLimit
@@ -84,6 +117,9 @@ extension MariaRepo {
                  MySQLData(int: input.threshold), MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0),
                  MySQLData(int: input.timeSensitive ? 1 : 0), MySQLData(int: input.kind.rawValue), optional(input.radiusCells),
                  optional(input.minSharePercent), ts(now)])
+            if input.kind == .circle, let radius = input.radiusCells {
+                regionCellsMemo.withLock { if let memo = $0 { $0 = (memo.at, memo.cells + PushRegion.cellCount(radius: radius)) } }
+            }
             return .created
         }
     }
@@ -102,12 +138,14 @@ extension MariaRepo {
                 [MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY), MySQLData(int: input.threshold),
                  MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0),
                  MySQLData(int: input.kind.rawValue), optional(input.radiusCells), optional(input.minSharePercent), str(id), str(installationID)])
+            regionCellsMemo.withLock { $0 = nil }
             return true
         }
     }
 
     public func deleteSubscription(installationID: String, id: String) async throws -> Bool {
-        try await connection { conn in
+        regionCellsMemo.withLock { $0 = nil }
+        return try await connection { conn in
             try await query(conn, "DELETE FROM push_sub WHERE id=? AND install_id=?", [str(id), str(installationID)]).affected >= 1
         }
     }
@@ -128,10 +166,10 @@ extension MariaRepo {
         }
     }
 
-    public func evaluationSubscriptions(gridVersion: Int) async throws -> [PushSubscription] {
+    public func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription] {
         try await connection { conn in
-            try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE enabled=1 AND grid_version=? ORDER BY id",
-                            [MySQLData(int: gridVersion)]).rows.map(Self.subscription)
+            try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE enabled=1 AND grid_version=? AND id>? ORDER BY id LIMIT \(max(1, limit))",
+                            [MySQLData(int: gridVersion), str(after ?? "")]).rows.map(Self.subscription)
         }
     }
 
@@ -192,13 +230,15 @@ extension MariaRepo {
     }
 
     public func deleteInstallations(token: String, env: PushEnvironment) async throws -> Int {
-        try await connection { conn in
+        regionCellsMemo.withLock { $0 = nil }
+        return try await connection { conn in
             Int(try await query(conn, "DELETE FROM push_install WHERE token=? AND env=?", [str(token), str(env.rawValue)]).affected)
         }
     }
 
     public func purgePush(inactiveBefore: Date, outboxBefore: Date, now: Date) async throws -> PushPurgeResult {
-        try await connection { conn in
+        regionCellsMemo.withLock { $0 = nil }
+        return try await connection { conn in
             let installs = try await query(conn, "DELETE FROM push_install WHERE last_seen_at < ?", [ts(inactiveBefore)]).affected
             let outbox = try await query(conn,
                 "DELETE FROM push_outbox WHERE (status<>'pending' AND finished_at < ?) OR (status='pending' AND expires_at < ?)",
