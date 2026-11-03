@@ -45,14 +45,18 @@ public struct PushSubscription: Sendable, Equatable {
     public var state: PushState
     public var lastSentAt: Date?
     /// Optional per-subscription flag: the rain-start notification carries `interruption-level: time-sensitive`.
+    public var liveActivity: Bool
     public var timeSensitive: Bool
     /// `.circle`: region around the (coarse) centre cell `cellX/cellY` with `radiusCells` and trigger share `minSharePercent`.
     public var kind: PushKind
     public var radiusCells: Int?
     public var minSharePercent: Int?
+    /// Live Activity hysteresis: the previous complete run showed a known wet slot 0 (persisted as bit 4 of `state`).
+    public var wetSeen: Bool = false
     public init(id: String, gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int,
                 enabled: Bool, state: PushState = .dry, lastSentAt: Date? = nil, timeSensitive: Bool = false,
-                kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil) {
+                kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil, liveActivity: Bool = false) {
+        self.liveActivity = liveActivity
         self.kind = kind; self.radiusCells = radiusCells; self.minSharePercent = minSharePercent
         self.id = id; self.gridVersion = gridVersion; self.cellX = cellX; self.cellY = cellY; self.threshold = threshold
         self.leadMinutes = leadMinutes; self.enabled = enabled; self.state = state; self.lastSentAt = lastSentAt
@@ -68,12 +72,14 @@ public struct PushSubscriptionInput: Sendable, Equatable {
     public var threshold: Int
     public var leadMinutes: Int
     public var enabled: Bool
+    public var liveActivity: Bool
     public var timeSensitive: Bool
     public var kind: PushKind
     public var radiusCells: Int?
     public var minSharePercent: Int?
     public init(gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int, enabled: Bool, timeSensitive: Bool = false,
-                kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil) {
+                kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil, liveActivity: Bool = false) {
+        self.liveActivity = liveActivity
         self.kind = kind; self.radiusCells = radiusCells; self.minSharePercent = minSharePercent
         self.gridVersion = gridVersion; self.cellX = cellX; self.cellY = cellY; self.threshold = threshold
         self.leadMinutes = leadMinutes; self.enabled = enabled; self.timeSensitive = timeSensitive
@@ -85,17 +91,23 @@ public struct PushInstallation: Sendable, Equatable {
     public var token: String
     public var env: PushEnvironment
     public var locale: String
-    public init(token: String, env: PushEnvironment, locale: String) { self.token = token; self.env = env; self.locale = locale }
+    public var liveActivityStartToken: String?
+    public init(token: String, env: PushEnvironment, locale: String, liveActivityStartToken: String? = nil) {
+        self.token = token; self.env = env; self.locale = locale; self.liveActivityStartToken = liveActivityStartToken
+    }
 }
 
 public enum UpsertResult: Sendable, Equatable { case created, updated, forbidden, serverFull }
-public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation, regionLimit, regionCapacity, serverFull }
+public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation, regionLimit, regionCapacity, serverFull, activityCapacity }
 
 public struct SubscriptionUpdate: Sendable, Equatable {
     public var id: String
     public var state: PushState
     public var lastSentAt: Date?
-    public init(id: String, state: PushState, lastSentAt: Date?) { self.id = id; self.state = state; self.lastSentAt = lastSentAt }
+    public var wetSeen: Bool
+    public init(id: String, state: PushState, lastSentAt: Date?, wetSeen: Bool = false) {
+        self.id = id; self.state = state; self.lastSentAt = lastSentAt; self.wetSeen = wetSeen
+    }
 }
 
 public struct NewOutboxItem: Sendable, Equatable {
@@ -136,3 +148,26 @@ public struct PushPurgeResult: Sendable, Equatable {
     public var outbox = 0
     public init(installations: Int = 0, outbox: Int = 0) { self.installations = installations; self.outbox = outbox }
 }
+
+/// One current activity per subscription; nil token reserves a push-to-start while the app reports its token.
+public struct PushActivity: Sendable, Equatable {
+    public var subscriptionID: String
+    public var activityToken: String?
+    public var startedAt: Date
+    public var endsAt: Date
+    public init(subscriptionID: String, activityToken: String?, startedAt: Date, endsAt: Date) {
+        self.subscriptionID = subscriptionID; self.activityToken = activityToken; self.startedAt = startedAt; self.endsAt = endsAt
+    }
+}
+
+public struct PushActivityTarget: Sendable, Equatable {
+    public var installationID: String
+    public var installation: PushInstallation
+    public var subscription: PushSubscription
+    public var activity: PushActivity?
+    public init(installationID: String, installation: PushInstallation, subscription: PushSubscription, activity: PushActivity?) {
+        self.installationID = installationID; self.installation = installation; self.subscription = subscription; self.activity = activity
+    }
+}
+
+public enum PushActivityRegistrationResult: Sendable, Equatable { case updated, notFound, notEligible, activityLimit }

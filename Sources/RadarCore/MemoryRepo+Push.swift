@@ -7,6 +7,7 @@ struct MemoryPushStore {
         var token: String
         var env: PushEnvironment
         var locale: String
+        var liveActivityStartToken: String?
         var createdAt: Date
         var lastSeenAt: Date
     }
@@ -30,6 +31,7 @@ struct MemoryPushStore {
     var installs: [String: Install] = [:]
     var subs: [String: Sub] = [:]
     var outbox: [Int: Outbox] = [:]
+    var activities: [String: PushActivity] = [:]
     var nextOutboxID = 1
     var lastRun: String?
 
@@ -40,6 +42,7 @@ struct MemoryPushStore {
 
     mutating func removeSub(_ id: String) {
         subs[id] = nil
+        activities[id] = nil
         for (outID, item) in outbox where item.subID == id { outbox[outID] = nil }
     }
 }
@@ -85,23 +88,27 @@ extension MemoryRepo {
         guard push.installs[installationID] != nil else { return .unknownInstallation }
         guard push.subs.values.filter({ $0.installID == installationID }).count < maxPerInstallation else { return .limitReached }
         guard push.subs.count < regionLimits.maxSubscriptionsServerwide else { return .serverFull }
+        if input.liveActivity, push.subs.values.filter({ $0.value.liveActivity }).count >= regionLimits.maxLiveActivitySubscriptions { return .activityCapacity }
         if input.kind == .circle {
             let usage = regionUsage(installationID: installationID, excluding: id)
             switch regionLimits.violation(otherRadii: usage.own, serverCells: usage.serverCells, newRadius: input.radiusCells ?? 0) {
             case .perInstallation?: return .regionLimit
             case .capacity?: return .regionCapacity
+            case .activityCapacity?: return .activityCapacity
             case nil: break
             }
         }
         push.subs[id] = .init(installID: installationID, value: PushSubscription(
             id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY, threshold: input.threshold,
             leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive,
-            kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent), createdAt: now)
+            kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity), createdAt: now)
         return .created
     }
 
     public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool {
         guard var sub = push.subs[id], sub.installID == installationID else { return false }
+        if input.liveActivity, !sub.value.liveActivity,
+           push.subs.values.filter({ $0.value.liveActivity }).count >= regionLimits.maxLiveActivitySubscriptions { throw PushRegionLimitError.activityCapacity }
         if input.kind == .circle {
             let usage = regionUsage(installationID: installationID, excluding: id)
             if let violation = regionLimits.violation(otherRadii: usage.own, serverCells: usage.serverCells, newRadius: input.radiusCells ?? 0) { throw violation }
@@ -109,7 +116,7 @@ extension MemoryRepo {
         sub.value = PushSubscription(id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY,
                                      threshold: input.threshold, leadMinutes: input.leadMinutes, enabled: input.enabled,
                                      state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive,
-                                     kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent)
+                                     kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity)
         push.subs[id] = sub
         return true
     }
@@ -126,11 +133,12 @@ extension MemoryRepo {
     }
 
     public func installation(id: String) async throws -> PushInstallation? {
-        push.installs[id].map { PushInstallation(token: $0.token, env: $0.env, locale: $0.locale) }
+        push.installs[id].map { PushInstallation(token: $0.token, env: $0.env, locale: $0.locale, liveActivityStartToken: $0.liveActivityStartToken) }
     }
 
     public func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription] {
-        Array(push.subs.values.map(\.value).filter { $0.enabled && $0.gridVersion == gridVersion && (after == nil || $0.id > after!) }
+        note("evaluationSubscriptions")
+        return Array(push.subs.values.map(\.value).filter { $0.enabled && $0.gridVersion == gridVersion && (after == nil || $0.id > after!) }
             .sorted { $0.id < $1.id }.prefix(max(1, limit)))
     }
 
@@ -142,6 +150,7 @@ extension MemoryRepo {
         for update in updates {
             guard var sub = push.subs[update.id] else { continue }
             sub.value.state = update.state
+            sub.value.wetSeen = update.wetSeen
             sub.value.lastSentAt = update.lastSentAt
             push.subs[update.id] = sub
         }
@@ -188,5 +197,89 @@ extension MemoryRepo {
             result.outbox += 1
         }
         return result
+    }
+}
+
+extension MemoryRepo {
+    public func setLiveActivityStartToken(installationID: String, token: String?) async throws {
+        push.installs[installationID]?.liveActivityStartToken = token
+    }
+
+    public func clearLiveActivityStartToken(installationID: String, matchingToken: String) async throws {
+        if push.installs[installationID]?.liveActivityStartToken == matchingToken {
+            push.installs[installationID]?.liveActivityStartToken = nil
+        }
+    }
+
+    public func activityTarget(subscriptionID: String) async throws -> PushActivityTarget? {
+        note("activityTarget")
+        guard let sub = push.subs[subscriptionID], let install = try await installation(id: sub.installID) else { return nil }
+        return PushActivityTarget(installationID: sub.installID, installation: install, subscription: sub.value,
+                                  activity: push.activities[subscriptionID])
+    }
+
+    public func subscriptionOwner(subscriptionID: String) async throws -> String? {
+        note("subscriptionOwner")
+        return push.subs[subscriptionID]?.installID
+    }
+
+    public func activityTargets(subscriptionIDs: [String]) async throws -> [PushActivityTarget] {
+        note("activityTargets")
+        return targets(subscriptionIDs)
+    }
+
+    private func targets(_ subscriptionIDs: [String]) -> [PushActivityTarget] {
+        subscriptionIDs.compactMap { id in
+            guard let sub = push.subs[id], let install = push.installs[sub.installID] else { return nil }
+            return PushActivityTarget(
+                installationID: sub.installID,
+                installation: PushInstallation(token: install.token, env: install.env, locale: install.locale, liveActivityStartToken: install.liveActivityStartToken),
+                subscription: sub.value, activity: push.activities[id])
+        }
+    }
+
+    public func endableActivities(now: Date, reservationTimeout: TimeInterval, after: String?, limit: Int) async throws -> [PushActivityTarget] {
+        note("endableActivities")
+        let ids = push.activities.values.filter { activity in
+            guard after == nil || activity.subscriptionID > after!, let sub = push.subs[activity.subscriptionID] else { return false }
+            return activity.endsAt <= now || !sub.value.enabled || !sub.value.liveActivity || sub.value.kind != .point
+                || (activity.activityToken == nil && activity.startedAt <= now.addingTimeInterval(-reservationTimeout))
+        }.map(\.subscriptionID).sorted().prefix(max(1, limit))
+        return targets(Array(ids)).sorted { $0.subscription.id < $1.subscription.id }
+    }
+
+    public func deleteReservation(subscriptionID: String) async throws -> Bool {
+        guard let activity = push.activities[subscriptionID], activity.activityToken == nil else { return false }
+        push.activities[subscriptionID] = nil
+        return true
+    }
+
+    public func reserveActivity(subscriptionID: String, now: Date) async throws -> Bool {
+        guard let sub = push.subs[subscriptionID], sub.value.enabled, sub.value.liveActivity, sub.value.kind == .point,
+              !push.activities.keys.contains(where: { push.subs[$0]?.installID == sub.installID }) else { return false }
+        push.activities[subscriptionID] = PushActivity(subscriptionID: subscriptionID, activityToken: nil, startedAt: now,
+                                                       endsAt: now.addingTimeInterval(8 * 3600))
+        return true
+    }
+
+    public func setActivityToken(subscriptionID: String, token: String, now: Date) async throws -> PushActivityRegistrationResult {
+        guard let sub = push.subs[subscriptionID] else { return .notFound }
+        guard sub.value.enabled, sub.value.liveActivity, sub.value.kind == .point else { return .notEligible }
+        if var activity = push.activities[subscriptionID] {
+            guard activity.endsAt > now else { return .notEligible }
+            activity.activityToken = token
+            push.activities[subscriptionID] = activity
+            return .updated
+        }
+        guard !push.activities.keys.contains(where: { push.subs[$0]?.installID == sub.installID }) else { return .activityLimit }
+        push.activities[subscriptionID] = PushActivity(subscriptionID: subscriptionID, activityToken: token, startedAt: now,
+                                                       endsAt: now.addingTimeInterval(8 * 3600))
+        return .updated
+    }
+
+    public func deleteActivity(subscriptionID: String, matchingToken: String?) async throws -> Bool {
+        guard let activity = push.activities[subscriptionID], matchingToken == nil || activity.activityToken == matchingToken else { return false }
+        push.activities[subscriptionID] = nil
+        return true
     }
 }

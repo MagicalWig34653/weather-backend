@@ -1,6 +1,8 @@
 import Crypto
 import Foundation
 
+public enum PushActivityEvent: String, Sendable, Codable { case start, update, end }
+
 public struct ApnsRequest: Sendable, Equatable {
     public var tokenHex: String
     public var env: PushEnvironment
@@ -9,9 +11,13 @@ public struct ApnsRequest: Sendable, Equatable {
     public var collapseID: String
     /// UNIX seconds; the notification is useless after this moment.
     public var expiration: Int
-    public init(tokenHex: String, env: PushEnvironment, topic: String, payload: [UInt8], collapseID: String, expiration: Int) {
+    /// Separate ActivityKit delivery path. Ordinary notifications retain alert / priority 10.
+    public var activityEvent: PushActivityEvent?
+    public init(tokenHex: String, env: PushEnvironment, topic: String, payload: [UInt8], collapseID: String, expiration: Int,
+                activityEvent: PushActivityEvent? = nil) {
         self.tokenHex = tokenHex; self.env = env; self.topic = topic; self.payload = payload
         self.collapseID = collapseID; self.expiration = expiration
+        self.activityEvent = activityEvent
     }
 }
 
@@ -122,9 +128,12 @@ public final class ApnsClient: ApnsSender, @unchecked Sendable {
     }
 
     func httpRequest(_ request: ApnsRequest, jwt: String) -> ApnsHTTPRequest {
-        ApnsHTTPRequest(
+        let activity = request.activityEvent != nil
+        return ApnsHTTPRequest(
             url: "\(Self.host(request.env))/3/device/\(request.tokenHex)",
-            headers: [("authorization", "bearer \(jwt)"), ("apns-topic", topic), ("apns-push-type", "alert"), ("apns-priority", "10"),
+            headers: [("authorization", "bearer \(jwt)"), ("apns-topic", activity ? topic + ".push-type.liveactivity" : topic),
+                      ("apns-push-type", activity ? "liveactivity" : "alert"),
+                      ("apns-priority", request.activityEvent == .update ? "5" : "10"),
                       ("apns-expiration", String(request.expiration)), ("apns-collapse-id", request.collapseID),
                       ("content-type", "application/json")],
             body: request.payload)

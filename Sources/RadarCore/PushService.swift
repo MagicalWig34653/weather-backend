@@ -33,11 +33,19 @@ public final class PushService: Sendable {
     private let purgeState = PushGuarded(Date.distantPast)
     /// Subscriptions loaded per evaluation page (bounded memory).
     let evaluationPageSize: Int
+    /// Activity work is subordinate to alert delivery: at most this many activity sends and this many seconds per tick (review A1).
+    let activitySendsPerTick: Int
+    let activitySecondsPerTick: Double
+    /// Work of the last committed run that has not been sent yet; replaced by the next run, drained within each tick's budget.
+    let activityQueue = PushGuarded<[ActivityWork]>([])
+    public static let reservationTimeout: TimeInterval = 15 * 60
 
     public init(config: Config, repo: any Repo, sender: any ApnsSender, owner: String, evaluationPageSize: Int = 2000,
+                activitySendsPerTick: Int = 200, activitySecondsPerTick: Double = 8,
                 clock: @escaping @Sendable () -> Date = { Date() }) {
         self.config = config; self.repo = repo; self.sender = sender; self.owner = owner; self.clock = clock
         self.evaluationPageSize = max(1, evaluationPageSize)
+        self.activitySendsPerTick = max(1, activitySendsPerTick); self.activitySecondsPerTick = max(0.1, activitySecondsPerTick)
     }
 
     public func release() async { try? await repo.releaseLeader(name: Self.leaderName, owner: owner) }
@@ -49,6 +57,8 @@ public final class PushService: Sendable {
         result.isLeader = true
         try await evaluate(&result)
         try await dispatch(&result)
+        // Alerts first; Live Activity sends and endings only use the remaining per-tick budget.
+        if result.isLeader { try await processActivities(&result) }
         let now = clock()
         if purgeState.withLock({ last in
             guard now.timeIntervalSince(last) >= Self.purgeInterval else { return false }
@@ -68,6 +78,7 @@ public final class PushService: Sendable {
         guard let run = try await repo.latestPublished() else { return }
         if let last = try await repo.lastEvaluatedRun(), last >= run.runID { return }
         let now = clock()
+        var activityWork: [ActivityWork] = []
         var updates: [SubscriptionUpdate] = []
         var outbox: [NewOutboxItem] = []
         let fresh = now.timeIntervalSince(run.nominal) <= PushEvaluator.maxRunAge
@@ -96,11 +107,14 @@ public final class PushService: Sendable {
                                 classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
                                 threshold: sub.threshold, sharePercent: sub.minSharePercent ?? PushRegion.defaultShare))
                         } else {
-                            classes[index].append(PushIntensity.classify(image, x: sub.cellX, y: sub.cellY))
+                            // Live Activities need "unknown" (-1) apart from "dry"; the alert automaton treats both as dry.
+                            classes[index].append(sub.liveActivity ? PushIntensity.classifyOrUnknown(image, x: sub.cellX, y: sub.cellY)
+                                                                   : PushIntensity.classify(image, x: sub.cellX, y: sub.cellY))
                         }
                     }
                 }
                 guard complete else { break }
+                var live: [(sub: PushSubscription, classes: [Int], notify: Bool, state: PushState, sentAt: Date?)] = []
                 for (index, sub) in page.enumerated() {
                     let step = PushEvaluator.step(state: sub.state, threshold: sub.threshold, leadMinutes: sub.leadMinutes,
                                                   lastSentAt: sub.lastSentAt, classes: classes[index], now: now)
@@ -112,17 +126,50 @@ public final class PushService: Sendable {
                             payloadJSON: PushEvaluator.payload(minutes: minutes, subscriptionID: sub.id, timeSensitive: sub.timeSensitive, region: sub.kind == .circle),
                             expiresAt: now.addingTimeInterval(PushEvaluator.maxRunAge)))
                     }
-                    if step.state != sub.state || sentAt != sub.lastSentAt { updates.append(SubscriptionUpdate(id: sub.id, state: step.state, lastSentAt: sentAt)) }
+                    if sub.liveActivity, sub.kind == .point {
+                        // Update (incl. the wet hysteresis) is decided below, once the activity target is known.
+                        live.append((sub, classes[index], step.notifyMinutes != nil, step.state, sentAt))
+                    } else if step.state != sub.state || sentAt != sub.lastSentAt {
+                        updates.append(SubscriptionUpdate(id: sub.id, state: step.state, lastSentAt: sentAt))
+                    }
+                }
+                // One bulk lookup per page; only subscriptions with a running activity or a start to send stay in memory.
+                if !live.isEmpty {
+                    let targets = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: live.map(\.sub.id)).map { ($0.subscription.id, $0) })
+                    for entry in live {
+                        let sub = entry.sub
+                        var sentAt = entry.sentAt
+                        // Rain already running: a known wet slot 0 in two consecutive complete runs starts the activity
+                        // (unknown pixels reset the streak). The 60-minute repeat lock is shared with the rain-start alert
+                        // via `lastSentAt`, so both start paths can never fire twice.
+                        let wetNow = entry.classes.first.map { $0 >= sub.threshold } ?? false
+                        var wetStart = false
+                        if let target = targets[sub.id] {
+                            if wetNow, sub.wetSeen, !entry.notify, sub.enabled, target.activity == nil,
+                               target.installation.liveActivityStartToken != nil,
+                               sentAt.map({ now.timeIntervalSince($0) >= PushEvaluator.repeatLock }) ?? true {
+                                wetStart = true
+                                sentAt = now
+                            }
+                            if target.activity != nil || ((entry.notify || wetStart) && target.installation.liveActivityStartToken != nil) {
+                                activityWork.append(ActivityWork(target: target, classes: entry.classes, notify: entry.notify || wetStart, reference: run.nominal))
+                            }
+                        }
+                        if entry.state != sub.state || sentAt != sub.lastSentAt || wetNow != sub.wetSeen {
+                            updates.append(SubscriptionUpdate(id: sub.id, state: entry.state, lastSentAt: sentAt, wetSeen: wetNow))
+                        }
+                    }
                 }
                 guard page.count >= evaluationPageSize, let last = page.last?.id else { break }
                 page = try await repo.evaluationSubscriptions(gridVersion: PushGrid.version, after: last, limit: evaluationPageSize)
             }
-            if !complete { updates = []; outbox = [] }
+            if !complete { updates = []; outbox = []; activityWork = [] }
         }
         // Stale or incomplete runs are marked as seen without any state change, so they are never replayed later.
         if try await repo.commitEvaluation(runID: run.runID, updates: updates, outbox: outbox, now: now) {
             result.evaluatedRun = run.runID
             result.queued = outbox.count
+            activityQueue.withLock { $0 = activityWork }
         }
     }
 
@@ -172,6 +219,13 @@ public final class PushService: Sendable {
             if !progressed || items.count < Self.batchSize { return }
         }
     }
+}
+
+struct ActivityWork: Sendable {
+    var target: PushActivityTarget
+    var classes: [Int]
+    var notify: Bool
+    var reference: Date
 }
 
 final class PushGuarded<Value>: @unchecked Sendable {

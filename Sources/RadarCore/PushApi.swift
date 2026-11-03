@@ -88,11 +88,11 @@ public final class PushApi: Sendable {
         self.repo = repo; self.config = config; self.sender = sender; self.clock = clock; self.globalRequestLimit = globalRequestLimit
     }
 
-    struct InstallationBody: Decodable { var token: String; var env: String; var locale: String }
+    struct InstallationBody: Decodable { var token: String; var env: String; var locale: String; var live_activity_start_token: String? }
     struct SubscriptionBody: Decodable {
         var grid_version: Int; var cell_x: Int; var cell_y: Int; var threshold: Int; var lead_minutes: Int; var enabled: Bool?; var time_sensitive: Bool?
         /// Optional region fields; without them the subscription is a single cell as before.
-        var kind: String?; var radius_cells: Int?; var min_share_percent: Int?
+        var live_activity: Bool?; var kind: String?; var radius_cells: Int?; var min_share_percent: Int?
     }
 
     private static func json(_ status: Int, _ object: Any? = nil) -> ApiResponse {
@@ -143,20 +143,39 @@ public final class PushApi: Sendable {
         default:
             return nil
         }
+        guard kind == .point || body.live_activity != true else { return nil }
         return PushSubscriptionInput(gridVersion: body.grid_version, cellX: cellX, cellY: cellY,
                                      threshold: body.threshold, leadMinutes: body.lead_minutes, enabled: body.enabled ?? true,
-                                     timeSensitive: body.time_sensitive ?? false, kind: kind, radiusCells: radius, minSharePercent: share)
+                                     timeSensitive: body.time_sensitive ?? false, kind: kind, radiusCells: radius, minSharePercent: share, liveActivity: body.live_activity ?? false)
     }
 
     /// nil when the path is not a push route (or push is disabled): the caller answers 404.
     public func handle(method: String, path rawPath: String, secret: String?, body: [UInt8]) async -> ApiResponse? {
         let path = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? rawPath
         guard config.push.enabled, path.hasPrefix(Self.prefix) else { return nil }
-        let parts = path.dropFirst(Self.prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 2, parts[0] == "installations", parts.count <= 4, parts.count != 3 || parts[2] == "subscriptions" || parts[2] == "test" else { return nil }
+        var parts = path.dropFirst(Self.prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        // The short activity route resolves its owner, then uses the same authentication and limits. Same order as the other
+        // routes (review A6): body size, global limits, then input format (also the secret) without the database; only then the
+        // single owner lookup. The global request counter is incremented once (not again after the rewrite).
+        var countedGlobal = false
+        var ownerResolved = false
+        if parts.count == 3, parts[0] == "subscriptions", parts[2] == "activity" {
+            guard body.count <= PushGrid.maxBodyBytes else { return Self.error(413, "too_large") }
+            let early = clock()
+            guard limiter.allow("global:any", limit: globalRequestLimit, window: Self.window, now: early),
+                  limiter.allow("global:activity", limit: globalRequestLimit, window: Self.window, now: early) else { return Self.error(429, "rate_limited") }
+            countedGlobal = true; ownerResolved = true
+            guard let sub = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
+            guard Self.validSecret(secret) != nil else { return Self.error(401, "unauthorized") }
+            do {
+                guard let owner = try await repo.subscriptionOwner(subscriptionID: sub) else { return Self.error(404, "not_found") }
+                parts = ["installations", owner, "subscriptions", sub, "activity"]
+            } catch { return Self.error(503, "unavailable") }
+        }
+        guard parts.count >= 2, parts[0] == "installations", parts.count <= 5, (parts.count != 5 || parts[2] == "subscriptions" && parts[4] == "activity"), parts.count != 3 || parts[2] == "subscriptions" || parts[2] == "test" else { return nil }
         guard body.count <= PushGrid.maxBodyBytes else { return Self.error(413, "too_large") }
         let now = clock()
-        guard limiter.allow("global:any", limit: globalRequestLimit, window: Self.window, now: now) else { return Self.error(429, "rate_limited") }
+        guard countedGlobal || limiter.allow("global:any", limit: globalRequestLimit, window: Self.window, now: now) else { return Self.error(429, "rate_limited") }
         guard let installID = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
         guard limiter.allow("i:" + installID, limit: Self.perInstallationLimit, window: Self.window, now: now) else {
             return Self.error(429, "rate_limited")
@@ -184,6 +203,7 @@ public final class PushApi: Sendable {
                 }
                 case "POST": return try await authenticated(installID, secret, now) { _ in
                     guard let input = self.decodeSubscription(body) else { return Self.error(400, "invalid_subscription") }
+                    if let refusal = try await self.startTokenRefusal(input, installID) { return refusal }
                     let id = UUID().uuidString.lowercased()
                     switch try await self.repo.addSubscription(installationID: installID, id: id, input,
                                                                maxPerInstallation: PushGrid.maxSubscriptionsPerInstallation,
@@ -194,19 +214,49 @@ public final class PushApi: Sendable {
                     case .regionLimit: return Self.error(409, "region_limit")
                     case .regionCapacity: return Self.error(409, "region_capacity")
                     case .serverFull: return Self.error(503, "server_full")
+                    case .activityCapacity: return Self.error(503, "activity_full")
                     }
                 }
                 default: return Self.error(405, "method_not_allowed")
                 }
             }
             guard let subID = Self.canonicalUUID(parts[3]) else { return Self.error(400, "invalid_id") }
+            if parts.count == 5 {
+                guard method == "PUT" || method == "DELETE" else { return Self.error(405, "method_not_allowed") }
+                let verified = ownerResolved
+                return try await authenticated(installID, secret, now) { _ in
+                    if !verified { guard try await self.repo.subscriptionOwner(subscriptionID: subID) == installID else { return Self.error(404, "not_found") } }
+                    // DELETE without `activity_token` frees a reservation that never got a token (review A7).
+                    if method == "DELETE", (try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any])?["activity_token"] == nil {
+                        _ = try await self.repo.deleteReservation(subscriptionID: subID)
+                        return Self.json(204)
+                    }
+                    guard let object = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any],
+                          let raw = object["activity_token"] as? String, let token = Self.validToken(raw) else { return Self.error(400, "invalid_activity_token") }
+                    if method == "DELETE" {
+                        _ = try await self.repo.deleteActivity(subscriptionID: subID, matchingToken: token)
+                        return Self.json(204)
+                    }
+                    switch try await self.repo.setActivityToken(subscriptionID: subID, token: token, now: now) {
+                    case .updated: return Self.json(204)
+                    case .notFound: return Self.error(404, "not_found")
+                    case .notEligible: return Self.error(409, "activity_not_eligible")
+                    case .activityLimit: return Self.error(409, "activity_limit")
+                    }
+                }
+            }
             switch method {
             case "PUT": return try await authenticated(installID, secret, now) { _ in
                 guard let input = self.decodeSubscription(body) else { return Self.error(400, "invalid_subscription") }
+                if let refusal = try await self.startTokenRefusal(input, installID) { return refusal }
                 do {
                     return try await self.repo.updateSubscription(installationID: installID, id: subID, input, regionLimits: self.config.push.regionLimits) ? Self.json(204) : Self.error(404, "not_found")
                 } catch let limit as PushRegionLimitError {
-                    return Self.error(409, limit == .capacity ? "region_capacity" : "region_limit")
+                    switch limit {
+                    case .activityCapacity: return Self.error(503, "activity_full")
+                    case .capacity: return Self.error(409, "region_capacity")
+                    case .perInstallation: return Self.error(409, "region_limit")
+                    }
                 }
             }
             case "DELETE": return try await authenticated(installID, secret, now) { _ in
@@ -221,7 +271,7 @@ public final class PushApi: Sendable {
 
     private static func describe(_ sub: PushSubscription) -> [String: Any] {
         var entry: [String: Any] = ["id": sub.id, "grid_version": sub.gridVersion, "cell_x": sub.cellX, "cell_y": sub.cellY, "threshold": sub.threshold,
-                                    "lead_minutes": sub.leadMinutes, "enabled": sub.enabled, "time_sensitive": sub.timeSensitive,
+                                    "lead_minutes": sub.leadMinutes, "enabled": sub.enabled, "time_sensitive": sub.timeSensitive, "live_activity": sub.liveActivity,
                                     "kind": sub.kind == .circle ? "circle" : "point"]
         if sub.kind == .circle {
             entry["radius_cells"] = sub.radiusCells
@@ -261,6 +311,14 @@ public final class PushApi: Sendable {
         }
     }
 
+    /// `live_activity: true` is only accepted for an installation that has reported a push-to-start token (review A1):
+    /// anonymous installations cannot inflate the activity work. `409 start_token_required` otherwise.
+    private func startTokenRefusal(_ input: PushSubscriptionInput, _ installID: String) async throws -> ApiResponse? {
+        guard input.liveActivity else { return nil }
+        guard try await repo.installation(id: installID)?.liveActivityStartToken != nil else { return Self.error(409, "start_token_required") }
+        return nil
+    }
+
     private func decodeSubscription(_ body: [UInt8]) -> PushSubscriptionInput? {
         guard let decoded = try? JSONDecoder().decode(SubscriptionBody.self, from: Data(body)) else { return nil }
         return validInput(decoded)
@@ -289,11 +347,18 @@ public final class PushApi: Sendable {
         guard let decoded = try? JSONDecoder().decode(InstallationBody.self, from: Data(body)),
               let token = Self.validToken(decoded.token), let env = PushEnvironment(rawValue: decoded.env),
               ["de", "en"].contains(decoded.locale) else { return Self.error(400, "invalid_installation") }
+        let object = (try? JSONSerialization.jsonObject(with: Data(body))) as? [String: Any]
+        let hasStartToken = object?.keys.contains("live_activity_start_token") == true
+        if let raw = decoded.live_activity_start_token, Self.validToken(raw) == nil { return Self.error(400, "invalid_installation") }
         switch try await repo.upsertInstallation(id: installID, secretHash: Hashing.sha256Hex(Array(secret.utf8)), token: token,
                                                  env: env, locale: decoded.locale, now: now,
                                                  maxInstallations: config.push.maxInstallations) {
-        case .created: return Self.json(201)
-        case .updated: return Self.json(204)
+        case .created:
+            if hasStartToken { try await repo.setLiveActivityStartToken(installationID: installID, token: decoded.live_activity_start_token.flatMap(Self.validToken)) }
+            return Self.json(201)
+        case .updated:
+            if hasStartToken { try await repo.setLiveActivityStartToken(installationID: installID, token: decoded.live_activity_start_token.flatMap(Self.validToken)) }
+            return Self.json(204)
         case .forbidden:
             limiter.record("f:" + installID, window: Self.window, now: now)
             return Self.error(401, "unauthorized")

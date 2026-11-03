@@ -12,6 +12,10 @@ public actor MemoryRepo: Repo {
         var backfilled = false
     }
     var push = MemoryPushStore()
+    /// Repository calls by name (tests assert that the activity work needs a constant number of calls, review A1).
+    var callCounts: [String: Int] = [:]
+    func note(_ name: String) { callCounts[name, default: 0] += 1 }
+    public func callCount(_ name: String) -> Int { callCounts[name] ?? 0 }
     var layerRuns: [String: Run] = [:]
     var layerSlots: [String: [String: (ref: SlotRef, type: String, sha: String, data: [UInt8])]] = [:]
     private var leaders: [String: (owner: String, until: Date)] = [:]

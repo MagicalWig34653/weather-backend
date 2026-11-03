@@ -30,6 +30,26 @@ public enum PushIntensity {
         return bestDistance <= maxDistanceSquared ? best : 0
     }
 
+    /// Marker for "pixel could not be interpreted" (masked / unknown colour). Neither wet nor dry; only used for Live Activities.
+    public static let unknown = -1
+    /// Alpha below this is a fully transparent background pixel, i.e. "no rain". Between this and `minAlpha` the pixel is a
+    /// semi-transparent mask (e.g. "no data" grey) and therefore unknown.
+    static let transparentAlpha = 16
+
+    /// Like `classify`, but separates "dry" (0) from "unknown" (-1): unrecognised colours and semi-transparent masks.
+    public static func classifyOrUnknown(r: UInt8, g: UInt8, b: UInt8, a: UInt8) -> Int {
+        if Int(a) < transparentAlpha { return 0 }
+        guard Int(a) >= minAlpha else { return unknown }
+        let value = classify(r: r, g: g, b: b, a: a)
+        return value == 0 ? unknown : value
+    }
+
+    public static func classifyOrUnknown(_ image: RGBAImage, x: Int, y: Int) -> Int {
+        guard x >= 0, y >= 0, x < image.width, y < image.height else { return unknown }
+        let o = (y * image.width + x) * 4
+        return classifyOrUnknown(r: image.pixels[o], g: image.pixels[o + 1], b: image.pixels[o + 2], a: image.pixels[o + 3])
+    }
+
     public static func classify(_ image: RGBAImage, x: Int, y: Int) -> Int {
         guard x >= 0, y >= 0, x < image.width, y < image.height else { return 0 }
         let o = (y * image.width + x) * 4

@@ -12,8 +12,11 @@ public struct RegionLimits: Sendable, Equatable {
     public var maxCellsServerwide = 50_000_000
     /// Hard cap of all subscriptions (points and regions) on the server.
     public var maxSubscriptionsServerwide = 400_000
+    /// Hard cap of subscriptions with `live_activity=true` (review A1): bounds the activity work per radar run and tick.
+    public var maxLiveActivitySubscriptions = 5_000
     public init(maxRegionsPerInstallation: Int = 3, maxCellsPerInstallation: Int = 8_000, maxCellsServerwide: Int = 50_000_000,
-                maxSubscriptionsServerwide: Int = 400_000) {
+                maxSubscriptionsServerwide: Int = 400_000, maxLiveActivitySubscriptions: Int = 5_000) {
+        self.maxLiveActivitySubscriptions = maxLiveActivitySubscriptions
         self.maxRegionsPerInstallation = maxRegionsPerInstallation; self.maxCellsPerInstallation = maxCellsPerInstallation
         self.maxCellsServerwide = maxCellsServerwide; self.maxSubscriptionsServerwide = maxSubscriptionsServerwide
     }
@@ -28,7 +31,7 @@ public struct RegionLimits: Sendable, Equatable {
     }
 }
 
-public enum PushRegionLimitError: Error, Sendable, Equatable { case perInstallation, capacity }
+public enum PushRegionLimitError: Error, Sendable, Equatable { case perInstallation, capacity, activityCapacity }
 
 /// Geometry and trigger rule of circular regions. No coordinates: everything is in cells of the ingest raster.
 public enum PushRegion {

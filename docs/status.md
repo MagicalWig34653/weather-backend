@@ -2,6 +2,33 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## P2 Backend Live-Activity-Push (3. November 2026, Implementierung und Tests zur Abnahme)
+
+Nutzerauftrag additiv nach dem App-Vertrag (Abschnitte 5/6), dort nur gelesen. Vorhandenen Diff übernommen und vervollständigt. Fortsetzung auf ausdrücklichen Nutzerwunsch ohne Teilagenten; nur dieses Repo geändert. Kein Rollout, Commit oder Push; keine neue Rechercheablage.
+
+- Umsetzung: Migration `007_push_activity.sql`, optionale Start-/Activity-Token und `live_activity=false`, Memory-/MariaDB-Persistenz, API, Capability `live_activity`, eigener APNs-Pfad und Start/Update/Ende. Nur aktivierte Ortsabos, ein belegter Activity-Platz je Installation einschließlich Reservierung, Rotation ohne Fristverlängerung, Acht-Stunden-Ende auch ohne neuen Radarlauf. API-Form, ContentState-Datumsformat und Datenschutz in der [API-Referenz](../docs-site/content/api.md#live-activities-additiv-nur-ortsabos); Wiederanlaufgrenzen und P8-Vertrag in [decisions.md](decisions.md#p2-backend-live-activity-push-3-november-2026).
+- Tests ergänzt: `Tests/RadarCoreTests/PushActivityTests.swift` (21 neue Tests für veröffentlichte Radar-Fixtures mit Fake-Sender, Lebenszyklus/60-Minuten-Sperre/Acht-Stunden-Ende, Token-Rotation/410, Reservierung/Limit/Cascade, API-Felder/alte Requests/Validierung/Ratenlimit, APNs-Header/Umgebung, Payload/Codable-Daten und 4-KB-Grenze); vorhandene Capability-Erwartung in `PushTests.swift` erweitert.
+- Prüfstand: `swift build` vom Nutzer/Hauptagenten als grün gemeldet, nicht in dieser Fortsetzung wiederholt. Testcode durch Lesen auf Signaturen und Ablauf geprüft; `git diff --check` erfolgreich. **Nicht geprüft:** Kompilierung/Ausführung der neuen Tests (`swift test` übernimmt der Hauptagent, auf Nutzeranweisung hier nicht ausgeführt), Migration/Transaktionen gegen MariaDB, echte APNs-/ActivityKit-Zustellung, Geräteverhalten und P8-Decodierung.
+- Nächster Schritt: Hauptagent führt `swift test` aus und nimmt die Tests ab. Danach separater MariaDB-Test und App-/Geräteabgleich vor einem gesondert freizugebenden Livegang. Activity-Versand hat keine persistente Nachrichten-Outbox: bei unklarem Start bleibt der Platz reserviert, Updates versuchen es mit dem nächsten Lauf erneut, Ende beim nächsten Tick; Prozessabbruch kann eine Nachricht auslassen. Normale Push-Outbox unverändert.
+
+## Live Activity startet bei laufendem Regen (3. November 2026, lokal, nicht committet/deployt)
+
+Umgesetzt (Details: [decisions.md](decisions.md#live-activity-startet-auch-bei-laufendem-regen-3-november-2026-lokal-nicht-committetdeployt)): zusätzlicher Startweg bei bekannt nassem aktuellem Slot in zwei aufeinanderfolgenden vollständigen Läufen, gemeinsame 60-Minuten-Sperre mit dem Regenbeginn-Start, Hysterese-Bit in `push_sub.state` (keine Migration), eigener Startalert „Es regnet gerade“ / „It is raining right now“ (Apple verlangt einen Alert beim Start). Dateien: `PushService.swift`, `PushActivity.swift`, `PushModels.swift`, `MariaRepo+Push.swift`, `MemoryRepo+Push.swift`, `PushActivityTests.swift`, `api.md`, `decisions.md`.
+
+Prüfung: `swift build` grün; `swift test` komplett gegen Wegwerf-MariaDB 11 (Docker, tmpfs, Container entfernt): 199 Tests in 35 Suiten bestanden (1111 s); davon 9 neue (8 Verhalten mit Memory-Fake-Sender, 1 Persistenztest Memory und MariaDB). Bestehende Tests unverändert grün. **Nicht geprüft:** echtes APNs/ActivityKit am Gerät (insbesondere ob der Startalert-Text wie erwartet erscheint), Last, Rollout, echte DWD-Maskenpixel.
+
+## Live-Activity-Review Runde 3 (3. November 2026, lokal, nicht committet/deployt)
+
+Umgesetzt (Details: [decisions.md](decisions.md#live-activity-review-runde-3-3-november-2026)): Activity-Limit unter Nebenläufigkeit (READ COMMITTED plus sperrende Lesezugriffe, keine Migration), unbekannte Radarpixel bestätigen kein Activity-Ende, tokenloser Endepfad löscht keinen später gemeldeten Token, Startalert in Installationssprache.
+
+Prüfung: `swift build` grün; `swift test` komplett gegen Wegwerf-MariaDB 11 (Docker, tmpfs, entfernt): 189 Tests in 34 Suiten bestanden (1089 s). Nebenläufigkeitstest schlug ohne Fix reproduzierbar fehl. **Nicht geprüft:** echte DWD-Maskenpixel (Alpha-Annahme 16..127), APNs/ActivityKit am Gerät, Rollout.
+
+## Live-Activity-Härtung A1/A6/A7/A8 (3. November 2026, lokal, nicht committet/deployt)
+
+Umgesetzt (Details: [decisions.md](decisions.md#live-activity-härtung-a1a6a7a8-3-november-2026)): Sammelabfragen je Auswertungsseite, Ablaufprüfung nur über Activity-Zeilen, Activity-Versand nach den Alerts mit Budget (200 Sendungen/8 s je Tick), `live_activity=true` nur mit Start-Token (`409 start_token_required`) und Obergrenze `PUSH_MAX_ACTIVITY_SUBSCRIPTIONS` (Standard 5 000, `503 activity_full`), Migration `008_push_activity_index.sql`, kurzer Pfad ohne DB-Zugriff vor Limits/Format, Reservierung per `DELETE` ohne Token löschbar plus 15-Minuten-Timeout, `BadDeviceToken` auf das Start-Token räumt Token und Reservierung. Tests: `PushActivityTests.swift` (neue Suites Hardening und Bulk-Repo, Letztere auch gegen MariaDB).
+
+Prüfstand: siehe Abschnitt „Prüfung“ unten in diesem Block.
+
 ## Backend-Härtung (2. November 2026, lokal, nicht gepusht, nicht deployt)
 
 Umgesetzt (Security-Review H1/H2/M1/M2, Entscheidungen in [decisions.md](decisions.md), Tests `HardeningTests.swift`): serverweite Obergrenzen Installationen/Abos (`503 server_full`, `PUSH_MAX_*`), Auswertung in Seiten (`evaluationSubscriptions(after:limit:)`, 2 000 je Seite), Zellbudget 50 Mio. und Summe 30 s gemerkt statt GROUP BY je Request, Rate-Limiter mit Verdrängung, `global:any`-Rate, Fehlversuchszähler je Installation, `status()` 5 s Memo, Negativ-Cache (10 s) für fehlende Slots, `authenticate` mit einer Query (`last_seen_at` höchstens stündlich). Keine Migration. Nicht gebaut: Registrierungsschutz (Frage am Todolino-Board), Aktivierung neuer Installationen erst nach Token-Test. Geprüft (2.11., macOS, Debug): `swift build`; `swift test` 151 Tests grün gegen Fake und Wegwerf-MariaDB (Docker, tmpfs, danach entfernt), 20+ neue Tests in `HardeningTests.swift`; zwei bestehende Tests angepasst (Rate-Limit-Zählung, `RegionLimits` explizit 2 Mio.). Nicht geprüft: Last, Verhalten im echten Swarm. Betreiber: optional `PUSH_MAX_*` in der `.env`, sonst Defaults; kein ALTER nötig.

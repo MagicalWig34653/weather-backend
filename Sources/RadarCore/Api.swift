@@ -180,7 +180,7 @@ public final class Api: Sendable {
             layers.append(entry)
         }
         let doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
-                                  "capabilities": config.push.enabled ? ["regions"] : [], "now": iso(clock()), "layers": layers]
+                                  "capabilities": config.push.enabled ? ["regions", "live_activity"] : [], "now": iso(clock()), "layers": layers]
         return Array(try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys]))
     }
 

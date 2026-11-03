@@ -170,6 +170,7 @@ public struct Config: Sendable {
         c.push.maxInstallations = try positive("PUSH_MAX_INSTALLATIONS", c.push.maxInstallations)
         c.push.regionLimits.maxSubscriptionsServerwide = try positive("PUSH_MAX_SUBSCRIPTIONS", c.push.regionLimits.maxSubscriptionsServerwide)
         c.push.regionLimits.maxCellsServerwide = try positive("PUSH_MAX_REGION_CELLS", c.push.regionLimits.maxCellsServerwide)
+        c.push.regionLimits.maxLiveActivitySubscriptions = try positive("PUSH_MAX_ACTIVITY_SUBSCRIPTIONS", c.push.regionLimits.maxLiveActivitySubscriptions)
         if c.push.enabled {
             c.push.keyPEM = try secret(env, "APNS_KEY", "")
             c.push.keyID = text("APNS_KEY_ID")

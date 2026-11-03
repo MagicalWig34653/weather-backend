@@ -48,8 +48,11 @@ public final class MariaRepo: Repo, @unchecked Sendable {
     }
 
     /// Runs `body` in a transaction (commit on success, rollback on error).
-    func transaction<T>(_ body: (MySQLConnection) async throws -> T) async throws -> T {
+    /// `readCommitted`: applies to this transaction only (`SET TRANSACTION` without scope). Needed where reads after a row lock
+    /// must see the latest committed state instead of the REPEATABLE READ snapshot opened by an earlier plain SELECT.
+    func transaction<T>(readCommitted: Bool = false, _ body: (MySQLConnection) async throws -> T) async throws -> T {
         try await connection { conn in
+            if readCommitted { _ = try await conn.simpleQuery("SET TRANSACTION ISOLATION LEVEL READ COMMITTED").get() }
             _ = try await conn.simpleQuery("START TRANSACTION").get()
             do {
                 let result = try await body(conn)
@@ -334,7 +337,7 @@ public final class MariaRepo: Repo, @unchecked Sendable {
 extension MariaRepo {
     /// Test helper for disposable databases only.
     public func dropAllForTests() async throws {
-        for table in ["layer_slot", "layer_run", "push_outbox", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
+        for table in ["layer_slot", "layer_run", "push_outbox", "push_activity", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
             try await rawExecute("DROP TABLE IF EXISTS \(table)")
         }
     }

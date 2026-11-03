@@ -99,6 +99,25 @@ public protocol PushRepo: Sendable {
     func installation(id: String) async throws -> PushInstallation?
     /// One page (ascending id, ids greater than `after`) of the enabled subscriptions of a raster version, for the evaluation after a radar run.
     func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription]
+    /// Missing start-token input is handled by the API: this explicitly sets or clears the current token.
+    func setLiveActivityStartToken(installationID: String, token: String?) async throws
+    /// Rotation-safe invalidation: an old APNs response cannot erase a newly registered token.
+    func clearLiveActivityStartToken(installationID: String, matchingToken: String) async throws
+    func activityTarget(subscriptionID: String) async throws -> PushActivityTarget?
+    /// Owning installation of a subscription: one cheap query (the short activity route needs only this before authentication).
+    func subscriptionOwner(subscriptionID: String) async throws -> String?
+    /// Bulk lookup (installation, activity row) for the given subscriptions in a constant number of queries, independent of the count.
+    func activityTargets(subscriptionIDs: [String]) async throws -> [PushActivityTarget]
+    /// One page (ascending subscription id after `after`) of activity rows that must end now: deadline reached, opted out,
+    /// no longer an enabled point subscription, or a reservation without token older than `reservationTimeout`. One query per page.
+    func endableActivities(now: Date, reservationTimeout: TimeInterval, after: String?, limit: Int) async throws -> [PushActivityTarget]
+    /// Deletes a reservation that has no activity token yet (owner request); a registered activity is left alone.
+    @discardableResult func deleteReservation(subscriptionID: String) async throws -> Bool
+    /// Atomic installation-wide reservation; pending and token-backed activities both occupy the single slot.
+    func reserveActivity(subscriptionID: String, now: Date) async throws -> Bool
+    /// Registers a local activity or replaces a pending/current token without extending the eight-hour deadline.
+    func setActivityToken(subscriptionID: String, token: String, now: Date) async throws -> PushActivityRegistrationResult
+    @discardableResult func deleteActivity(subscriptionID: String, matchingToken: String?) async throws -> Bool
     func lastEvaluatedRun() async throws -> String?
     /// Atomic: only if `runID` is newer than the last evaluated run it stores it, applies the state updates and inserts the
     /// outbox entries (duplicate `dedupeKey` ignored). Returns false when the run was already evaluated.
