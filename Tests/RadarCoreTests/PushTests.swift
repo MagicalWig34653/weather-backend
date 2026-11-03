@@ -646,7 +646,7 @@ struct PushTestNotificationTests {
         let sent = await sender.requests
         #expect(sent.count == 1 && sent[0].tokenHex == tokenA && sent[0].env == .sandbox && sent[0].topic == "de.example.app")
         let payload = String(decoding: sent[0].payload, as: UTF8.self)
-        #expect(payload.contains("ShowerNow Testmeldung") && payload.contains(#""type":"test""#))
+        #expect(payload.contains("Showers Testmeldung") && payload.contains(#""type":"test""#))
         #expect(!payload.contains("interruption-level") && !payload.contains("loc-key"))
         #expect(sent[0].expiration == Int(run0.addingTimeInterval(PushApi.testExpirySeconds).timeIntervalSince1970))
         // The test stores nothing: no subscription, no outbox entry.

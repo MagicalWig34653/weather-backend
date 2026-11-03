@@ -1059,7 +1059,7 @@ struct PushActivityRainingStartTests {
             try await service.evaluateActivity(sub: try await F.target(repo).subscription, classes: Self.raining(until: 4), notify: true, reference: run0, now: run0, result: &result)
             let start = try #require(await sender.requests.first { $0.activityEvent == .start })
             #expect((try F.aps(start)["alert"] as? [String: String])?["body"] == text)
-            #expect((try F.aps(start)["alert"] as? [String: String])?["title"] == "ShowerNow")
+            #expect((try F.aps(start)["alert"] as? [String: String])?["title"] == "Showers")
         }
     }
 }

@@ -22,7 +22,7 @@ private func fullInfo(_ s: inout SiteInfo) {
 struct SitePageTests {
     @Test func pagesServeWithHeadings() async throws {
         let a = api(fullInfo)
-        for (path, heading) in [("/datenschutz", "<h1>Datenschutzerklärung</h1>"), ("/marketing", "<h1>ShowerNow</h1>"), ("/support", "<h1>Support</h1>")] {
+        for (path, heading) in [("/datenschutz", "<h1>Datenschutzerklärung</h1>"), ("/marketing", "<h1>Showers</h1>"), ("/support", "<h1>Support</h1>")] {
             let r = try await a.handle(path: path, ifNoneMatch: nil)
             #expect(r.status == 200, "\(path)")
             #expect(text(r).contains(heading), "\(path)")

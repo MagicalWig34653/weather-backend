@@ -1,6 +1,6 @@
 # Datenschutz und Marketing-Seiten
 
-Der Radar-Dienst liefert zusätzlich drei kleine, öffentliche HTML-Seiten, die ShowerNow für App Store Connect und TestFlight braucht. Sie sind in den Dienst eingebaut (`Sources/RadarCore/SitePages.swift`), brauchen weder Datenbank noch Zusatzdienste und bleiben ohne Konfiguration funktionsfähig.
+Der Radar-Dienst liefert zusätzlich drei kleine, öffentliche HTML-Seiten, die Showers für App Store Connect und TestFlight braucht. Sie sind in den Dienst eingebaut (`Sources/RadarCore/SitePages.swift`), brauchen weder Datenbank noch Zusatzdienste und bleiben ohne Konfiguration funktionsfähig.
 
 ## Endpunkte
 

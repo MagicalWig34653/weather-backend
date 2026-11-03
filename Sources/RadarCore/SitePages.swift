@@ -67,7 +67,7 @@ public enum SitePages {
         <meta name="color-scheme" content="light dark">
         <meta name="robots" content="noindex,follow">
         <meta name="description" content="\(escape(description))">
-        <title>\(escape(title)) \u{2013} ShowerNow</title>
+        <title>\(escape(title)) \u{2013} Showers</title>
         <style>
         :root{color-scheme:light dark;--bg:#fff;--fg:#1b1f24;--muted:#5b6672;--line:#d8dee4;--accent:#0a63c9;--card:#f4f7fa;--warn:#fff4d6;--warnfg:#5c3d00}
         @media(prefers-color-scheme:dark){:root{--bg:#10151a;--fg:#e6ebf0;--muted:#9aa7b4;--line:#2a333c;--accent:#6cb2ff;--card:#18202a;--warn:#3a2f10;--warnfg:#ffdf91}}
@@ -84,7 +84,7 @@ public enum SitePages {
         .muted,footer{color:var(--muted);font-size:.9rem}
         footer{margin-top:2.5rem;border-top:1px solid var(--line);padding-top:1rem}
         </style></head><body><main>
-        <nav><a href="/marketing">ShowerNow</a><a href="/datenschutz">Datenschutz</a><a href="/support">Support</a></nav>
+        <nav><a href="/marketing">Showers</a><a href="/datenschutz">Datenschutz</a><a href="/support">Support</a></nav>
         \(body)
         <footer>Quelle: Deutscher Wetterdienst. Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet.</footer>
         </main></body></html>
@@ -108,7 +108,7 @@ public enum SitePages {
 
         let body = """
         <h1>Datenschutzerklärung</h1>
-        <p class="muted">Für die App ShowerNow (iPhone, iPad) und den zugehörigen Radar-Dienst. Stand: \(updated).</p>
+        <p class="muted">Für die App Showers (iPhone, iPad) und den zugehörigen Radar-Dienst. Stand: \(updated).</p>
 
         <h2>1. Verantwortlicher</h2>
         \(controller)
@@ -121,7 +121,7 @@ public enum SitePages {
         </ul>
 
         <h2>3. Radarkarte und Radar-Dienst</h2>
-        <p>Die App lädt die Radarbilder für ganz Deutschland vom ShowerNow-Radar-Dienst. Die Anfragen enthalten keinen Ort: Es gibt feste Pfade je Radarlauf und Zeitschritt (Ganzbild für Deutschland), keine Cookies und keine Kennung.</p>
+        <p>Die App lädt die Radarbilder für ganz Deutschland vom Showers-Radar-Dienst. Die Anfragen enthalten keinen Ort: Es gibt feste Pfade je Radarlauf und Zeitschritt (Ganzbild für Deutschland), keine Cookies und keine Kennung.</p>
         <p>Der Radar-Dienst selbst führt keine Zugriffsprotokolle und speichert keine IP-Adressen oder Abfragedetails. Seine technischen Logs enthalten nur Lauf-Kennungen und Fehlerklassen.</p>
         <p>Dem Radar-Dienst ist ein Reverse Proxy (TLS, Weiterleitung) vorgeschaltet. Dieser sieht technisch bedingt die IP-Adresse jedes Abrufs. \(proxy)</p>
 
@@ -148,19 +148,19 @@ public enum SitePages {
         <h2>10. Quellen</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet.</p>
         """
-        return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der ShowerNow-App und des Radar-Dienstes.", body: body)
+        return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der Showers-App und des Radar-Dienstes.", body: body)
     }
 
     public static func marketing(_ info: SiteInfo) -> String {
-        var status = "<p>ShowerNow befindet sich in einer frühen Beta und wird über TestFlight erprobt.</p>"
+        var status = "<p>Showers befindet sich in einer frühen Beta und wird über TestFlight erprobt.</p>"
         var links: [String] = []
-        if let l = safeLink(info.appStoreURL, label: "ShowerNow im App Store") { links.append(l) }
-        if let l = safeLink(info.testflightURL, label: "ShowerNow über TestFlight testen") { links.append(l) }
+        if let l = safeLink(info.appStoreURL, label: "Showers im App Store") { links.append(l) }
+        if let l = safeLink(info.testflightURL, label: "Showers über TestFlight testen") { links.append(l) }
         if !links.isEmpty { status += "<p>" + links.joined(separator: "<br>") + "</p>" }
 
         let body = """
-        <h1>ShowerNow</h1>
-        <p>ShowerNow ist ein nativer Regenradar für iPhone und iPad auf Basis der Radardaten des Deutschen Wetterdienstes (DWD). Datensparsam, ohne Konto, ohne Werbung.</p>
+        <h1>Showers</h1>
+        <p>Showers ist ein nativer Regenradar für iPhone und iPad auf Basis der Radardaten des Deutschen Wetterdienstes (DWD). Datensparsam, ohne Konto, ohne Werbung.</p>
 
         <h2>Funktionen</h2>
         <div class="card"><ul>
@@ -185,7 +185,7 @@ public enum SitePages {
         <h2>Quelle</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus DWD-Rasterdaten bildlich wiedergegeben und aufbereitet (verändert).</p>
         """
-        return page(title: "ShowerNow", description: "ShowerNow: nativer DWD-Regenradar für iPhone und iPad.", body: body)
+        return page(title: "Showers", description: "Showers: nativer DWD-Regenradar für iPhone und iPad.", body: body)
     }
 
     public static func support(_ info: SiteInfo) -> String {
@@ -194,12 +194,12 @@ public enum SitePages {
             : "<p>Kontakt per E-Mail: \(mailLink(info.operatorEmail))</p>"
         let body = """
         <h1>Support</h1>
-        <p>Fragen, Fehler oder Wünsche zu ShowerNow?</p>
+        <p>Fragen, Fehler oder Wünsche zu Showers?</p>
         \(contact)
         <p>Fehler und Ideen kannst du auch auf <a href="\(issuesURL)" rel="noopener noreferrer">GitHub</a> melden. Bitte schreibe dort keine persönlichen Daten oder genauen Standorte.</p>
         <p><a href="/datenschutz">Datenschutzerklärung</a></p>
         """
-        return page(title: "Support", description: "Support für die ShowerNow-App.", body: body)
+        return page(title: "Support", description: "Support für die Showers-App.", body: body)
     }
 
     /// Path -> HTML for the public pages; nil for any other path.

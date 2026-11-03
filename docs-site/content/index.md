@@ -1,6 +1,6 @@
-# ShowerNow Radar-Cache
+# Showers Radar-Cache
 
-Der Radar-Cache ist das Backend der Regen-App ShowerNow. Er holt alle 5 Minuten den Niederschlagsradar des Deutschen Wetterdienstes (DWD) für ganz Deutschland, speichert ihn und liefert ihn der App als fertige Ganzbilder aus. Die App lädt dadurch die Radarkarte schnell und ohne Ortsbezug im Request. Dieselbe Pipeline ist die Grundlage für spätere Benachrichtigungen (Plan, noch nicht umgesetzt).
+Der Radar-Cache ist das Backend der Regen-App Showers. Er holt alle 5 Minuten den Niederschlagsradar des Deutschen Wetterdienstes (DWD) für ganz Deutschland, speichert ihn und liefert ihn der App als fertige Ganzbilder aus. Die App lädt dadurch die Radarkarte schnell und ohne Ortsbezug im Request. Dieselbe Pipeline ist die Grundlage für spätere Benachrichtigungen (Plan, noch nicht umgesetzt).
 
 > **Quelle: Deutscher Wetterdienst.** Die Bilder sind aus DWD-Rasterdaten (WMS `dwd:Niederschlagsradar`) bildlich wiedergegeben und verlustfrei in WebP umgewandelt (Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben). Der Vermerk steht im Manifest und muss in der App an der Karte sichtbar bleiben.
 

@@ -105,7 +105,7 @@ public enum PushEvaluator {
     /// Test notification: plain, clearly labelled text (no place, no coordinates, no subscription data).
     public static func testPayload(locale: String) -> String {
         let en = locale == "en"
-        let alert = ["title": en ? "ShowerNow test notification" : "ShowerNow Testmeldung",
+        let alert = ["title": en ? "Showers test notification" : "Showers Testmeldung",
                      "body": en ? "Notifications work on this device. This is only a test." : "Mitteilungen funktionieren auf diesem Gerät. Dies ist nur ein Test."]
         return encode(["aps": ["alert": alert, "sound": "default", "thread-id": "test"], "type": "test"])
     }

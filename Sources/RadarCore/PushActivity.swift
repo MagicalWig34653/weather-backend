@@ -33,7 +33,7 @@ public enum PushActivityPayload {
             let phase = content["phase"] as? String
             let rainingNow = phase == "endsIn" || phase == "raining"
             let en = locale == "en"
-            aps["alert"] = ["title": "ShowerNow", "body": rainingNow ? (en ? "It is raining right now" : "Es regnet gerade")
+            aps["alert"] = ["title": "Showers", "body": rainingNow ? (en ? "It is raining right now" : "Es regnet gerade")
                                                                     : (en ? "Rain starting soon" : "Regen beginnt bald")]
         }
         if event == .end { aps["dismissal-date"] = Int(now.timeIntervalSince1970) }

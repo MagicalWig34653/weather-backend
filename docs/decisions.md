@@ -201,3 +201,9 @@ Nutzerwunsch: Die Live Activity soll auch starten, wenn es bereits regnet, und d
 - **Inhalt:** unverändert über `PushActivityPayload.content`: `endsIn` mit `eventDate` (erster sicher trockener Slot) oder `raining` ohne `eventDate` (Ende unsicher oder außerhalb des Fensters). Keine neuen Payload-Felder.
 - **Startalert:** Apple verlangt beim Push-to-Start einen `alert` (Quelle: Apple-Dokumentation „Starting and updating Live Activities with ActivityKit push notifications“, Abschnitt „Construct the payload that starts a Live Activity“: Anforderungen „Include an `alert` in the JSON payload“, Begründung: damit das System die Person über die neu gestartete Activity informiert und sie nicht überrascht; abgerufen 3. November 2026). Ein Start ohne Alert ist also nicht belegt zulässig und wird nicht genutzt. Bei `phase` `endsIn`/`raining` lautet der Text daher „Es regnet gerade“ (`en`: „It is raining right now“), sonst weiter „Regen beginnt bald“ / „Rain starting soon“. Sprache wie bisher aus der Installation (`encode(locale:)`).
 - **Auswirkung auf die App:** keine Vertragsänderung (Felder, Endpunkte, Token unverändert). Die App muss `phase` `endsIn`/`raining` beim Start ohnehin darstellen (Update-Pfad); neu ist nur, dass `start` jetzt auch mit diesen Phasen kommt.
+
+## Umbenennung Showers, Backend (3. November 2026)
+
+- Nutzerentscheidung: App heißt künftig Showers; es reicht die optische Umbenennung. Backend darf weiter über `showernow.linolaske.de` laufen, `showers.linolaske.de` zeigt auf dasselbe Backend.
+- Umgesetzt: sichtbare Texte (Seiten, APNs-Titel, Doku). Bewusst unverändert: Domain, DB-/User-Name, Secrets, Lock, Compose/Swarm, Image, APNs-Topic/Bundle-ID, User-Agent.
+- Folge: Der Push-Titel „Showers“ gilt serverseitig für alle Installationen, auch für alte App-Versionen.
