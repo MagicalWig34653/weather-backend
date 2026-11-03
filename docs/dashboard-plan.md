@@ -2,7 +2,7 @@
 
 Stand: 3. November 2026. Status: Plan, noch keine Umsetzung. Board: Todolino-Aufgabe „Dashboard für Cache Hits, Statistiken und Traffic Analyse. Zugriff über einen zweiten Port“ mit je einer Unteraufgabe je Arbeitspaket (Abschnitt 11).
 
-Nutzerentscheidungen (3.11.2026): eigene Webseite mit SvelteKit (statischer Build) und shadcn-svelte; Login per Passkey (WebAuthn), keine Benutzerverwaltung (genau ein Betreiber); zweiter Listener/Port, intern, standardmäßig aus; statischer Build im Backend-Image eingebettet; erster Passkey per fester Registrierung nur beim ersten Start ohne Token; Statistik: 30 Tage Tagesaggregate, nur Zähler ohne IPs, Koordinaten, Installations-IDs, Tokens; Konfiguration im Dashboard mit Rangfolge ENV > Dashboard-Wert (DB) > Default, Geheimnisse nur per ENV, Änderungsprotokoll, serverseitige Grenzen, CSRF. Einstellungen mit Neustartbedarf: vorläufig nur als „Neustart nötig“ markieren (Frage F0B3870B am Board noch offen).
+Nutzerentscheidungen (3.11.2026): eigene Webseite mit SvelteKit (statischer Build) und shadcn-svelte; Login per Passkey (WebAuthn), keine Benutzerverwaltung (genau ein Betreiber); zweiter Listener/Port, intern, standardmäßig aus; statischer Build im Backend-Image eingebettet; erster Passkey per fester Registrierung nur beim ersten Start ohne Token; Statistik: 30 Tage Tagesaggregate, nur Zähler ohne IPs, Koordinaten, Installations-IDs, Tokens; Konfiguration im Dashboard mit Rangfolge ENV > Dashboard-Wert (DB) > Default, Geheimnisse nur per ENV, Änderungsprotokoll, serverseitige Grenzen, CSRF. Alle Board-Fragen sind beantwortet (3.11.2026): Zugriff über den vorhandenen internen Reverse Proxy des Betreibers (Dienst `dashboard` im Overlay-Netz, kein Host-Port, kein Ingress; der Proxy terminiert TLS, der Betreiber muss im Repo nichts dafür tun); Einstellungen mit Neustartbedarf: Dashboard-Knopf für einen kontrollierten Neustart (Abschnitt 5.3, ohne Docker-Socket); Aufbewahrung 30 Tage Tagesaggregate; erster Passkey per fester Registrierung ohne Token; Auslieferung als statischer Build im Backend-Image.
 
 ## 1. Ziel und Nicht-Ziele
 
@@ -14,17 +14,17 @@ Nicht-Ziele:
 - Keine personenbezogenen Daten in der Statistik: keine IPs, Koordinaten, Installations-IDs, Tokens, keine rohen Pfade. Keine Zugriffsprotokolle (bleibt wie im Radar-Dienst).
 - Keine Echtzeit-Streams, kein Alerting, keine externen Dienste (kein Prometheus/Grafana, keine CDN-Assets, keine Analyse-SDKs).
 - Keine Geheimnisse im Dashboard (APNs-Key, DB-Passwort), keine Anzeige oder Speicherung.
-- Kein Neustart-Knopf (offen, F0B3870B), keine Änderung von DB-, Listener- und Dashboard-Bootstrap-Werten.
-- Kein öffentlicher Zugriff, kein Ingress für das Dashboard.
+- Kein Docker-Socket und keine Swarm-API im Dashboard; der Neustart-Knopf arbeitet nur über eine Konfigurations-Generation in der Datenbank (Abschnitt 5.3). Keine Änderung von DB-, Listener- und Dashboard-Bootstrap-Werten.
+- Kein öffentlicher Zugriff, kein Ingress, kein veröffentlichter Host-Port für das Dashboard.
 
 ## 2. Architektur
 
 ### 2.1 Listener
 
-- Zweiter Vapor-Listener in derselben Binärdatei, nur bei `DASH_ENABLED=true` (Standard `false`). Port `DASH_PORT` (Standard 9090), Bindung im Container `0.0.0.0`; Erreichbarkeit regelt Deploy (Abschnitt 9), nicht der Code.
+- Zweiter Vapor-Listener in derselben Binärdatei, nur bei `DASH_ENABLED=true` (Standard `false`). Port `DASH_PORT` (Standard 9090), Bindung im Container `0.0.0.0`; Erreichbarkeit regelt Deploy (Abschnitt 9), nicht der Code. Der Port wird nirgends veröffentlicht: Zugriff nur aus dem Overlay-Netz über den vorhandenen internen Reverse Proxy des Betreibers (terminiert TLS und leitet an `dashboard:9090` weiter).
 - Umsetzung vorgeschlagen als zweite `Application`-Instanz (Vapor bindet je Application einen HTTP-Server); WP5 prüft das gegen die Vapor-Version 4.122 und fällt sonst auf einen eigenen NIO-Server zurück. Nicht belegt, daher Prüfpunkt.
-- Eigener Befehl `radar dashboard` (nur Dashboard-Listener, keine Ingest-Schleifen) neben `radar serve`. `serve` startet den Listener nur mit `DASH_ENABLED=true`. Empfehlung für Produktion: eigener Swarm-Dienst `dashboard` mit einem Replikat (Overlay `stack.dashboard.yaml`, Muster wie `stack.push.yaml`); die öffentlichen `radar`-Replikate behalten `DASH_ENABLED=false` und enthalten keinen aktiven Dashboard-Listener. Vorteil: exakte In-Memory-Rate-Limits, kleinere Angriffsfläche. Entscheidung am Board (Abschnitt 12, Frage 1).
-- Fail-closed: Mit `DASH_ENABLED=true` verweigert der Start ohne `DASH_ORIGIN` (z. B. `https://dash.example.internal`). Aus `DASH_ORIGIN` werden WebAuthn-Origin und RP-ID (Host) sowie die erlaubte `Host`-Kopfzeile abgeleitet (Schutz gegen DNS-Rebinding).
+- Eigener Befehl `radar dashboard` (nur Dashboard-Listener, keine Ingest-Schleifen) neben `radar serve`. `serve` startet den Listener nur mit `DASH_ENABLED=true`. Empfehlung für Produktion: eigener Swarm-Dienst `dashboard` mit einem Replikat (Overlay `stack.dashboard.yaml`, Muster wie `stack.push.yaml`); die öffentlichen `radar`-Replikate behalten `DASH_ENABLED=false` und enthalten keinen aktiven Dashboard-Listener. Vorteil: exakte In-Memory-Rate-Limits, kleinere Angriffsfläche. Entschieden (3.11.2026): eigener Dienst `dashboard`, Zugriff über den vorhandenen internen Reverse Proxy.
+- Fail-closed: Mit `DASH_ENABLED=true` verweigert der Start ohne `DASH_ORIGIN` (z. B. `https://dash.example.internal`). Aus `DASH_ORIGIN` werden WebAuthn-Origin und RP-ID (Host) sowie die erlaubte `Host`-Kopfzeile abgeleitet (Schutz gegen DNS-Rebinding). `DASH_RP_ID` ist optional und überschreibt nur die RP-ID (muss ein Domain-Suffix des Origin-Hosts sein); beides kommt ausschließlich aus der Konfiguration (ENV), nie aus Anfragen. Der Proxy muss `Host` unverändert durchreichen (oder der Betreiber setzt `DASH_ORIGIN` auf die öffentliche interne Adresse); `X-Forwarded-*` werden nicht ausgewertet.
 - Der öffentliche Listener bleibt unverändert: `/dash` dort immer 404.
 
 ### 2.2 Routen
@@ -42,6 +42,8 @@ Alle JSON-Routen unter `/dash/api`, JSON-only (`Content-Type: application/json` 
 | GET `/dash/api/config` | Register mit Wert, Quelle, Sperre | Sitzung |
 | PUT `/dash/api/config/{key}`, DELETE `/dash/api/config/{key}` | Wert setzen bzw. auf Default zurück | Sitzung + CSRF |
 | GET `/dash/api/config/audit?limit=` | Änderungsprotokoll | Sitzung |
+| GET `/dash/api/restart` | Stand `config_generation`, `applied_generation` je Replikat, Liste der offenen `restart`-Schlüssel | Sitzung |
+| POST `/dash/api/restart` | kontrollierten Neustart anfordern (Generation erhöhen), Abschnitt 5.3 | Sitzung + CSRF + Bestätigung |
 | GET `/dash/**` | statische Dateien, Fallback `index.html` | keine (nur öffentliche Build-Artefakte) |
 
 Antwortformen werden vor Beginn von WP5/WP7 in `docs-site/content/dashboard-api.md` (Teil von WP5) festgeschrieben; Eintrag in `GET /dash/api/config`: `key`, `group`, `type`, `default`, `min`, `max`, `unit`, `description`, `apply` (`live`|`restart`), `source` (`env`|`dashboard`|`default`), `locked` (bei `env`), `value`, `restart_pending`. Geheimnisse und ENV-only-Schlüssel erscheinen nie mit Wert (nur Name, `source: env`, `value: null` für Geheimnisse).
@@ -110,9 +112,11 @@ Neue Migration `migrations/009_dashboard.sql` (idempotent, `CREATE TABLE IF NOT 
 | `dashboard_session` | `id_hash BINARY(32) PK`, `csrf_hash BINARY(32)`, `created_at`, `last_seen_at`, `expires_at` | nur Hashes; abgelaufene Zeilen beim Zugriff löschen |
 | `stats_daily` | `day DATE`, `metric VARCHAR(32)`, `label VARCHAR(48)`, `value BIGINT UNSIGNED`, `PRIMARY KEY (day, metric, label)` | Zähler per `ON DUPLICATE KEY UPDATE value = value + VALUES(value)`; Aufbewahrung 30 Tage |
 | `config_override` | `config_key VARCHAR(64) PK`, `value VARCHAR(600)`, `updated_at`, `revision BIGINT` | nur Schlüssel des Registers; Geheimnisse nie |
-| `config_audit` | `id BIGINT AUTO_INCREMENT PK`, `at`, `action ENUM('set','reset','login','setup','reset_cli')`, `config_key VARCHAR(64) NULL`, `old_value VARCHAR(200) NULL`, `new_value VARCHAR(200) NULL` | „wer“ ist stets der einzige Betreiber (Passkey); Werte gekürzt; Aufbewahrung 365 Tage (Vorschlag) |
+| `config_generation` | `id TINYINT PK` (fest 1), `generation BIGINT`, `requested_at` | Neustart-Generation (Abschnitt 5.3); Erhöhen per `UPDATE … SET generation = generation + 1` |
+| `config_replica` | `replica_id VARCHAR(64) PK`, `applied_generation BIGINT`, `started_at`, `last_seen_at` | je Radar-Replikat eine Zeile (Hostname-Hash, keine Nutzerdaten); nur für die Anzeige des Neustart-Fortschritts; veraltete Zeilen (> 10 min) werden ignoriert und gelöscht |
+| `config_audit` | `id BIGINT AUTO_INCREMENT PK`, `at`, `action ENUM('set','reset','restart','login','setup','reset_cli')`, `config_key VARCHAR(64) NULL`, `old_value VARCHAR(200) NULL`, `new_value VARCHAR(200) NULL` | „wer“ ist stets der einzige Betreiber (Passkey); Werte gekürzt; Aufbewahrung 365 Tage (Vorschlag) |
 
-Die fünf Tabellen der Entscheidung plus `dashboard_challenge` (nötig wegen Mehrprozess-Betrieb). Zugriff über ein neues `DashboardRepo`-Protokoll (Datei `DashboardRepo.swift`) mit Implementierungen `MariaRepo+Dashboard.swift` und `MemoryRepo+Dashboard.swift`, Muster wie `PushRepo`.
+Die fünf Tabellen der Entscheidung plus `dashboard_challenge` (nötig wegen Mehrprozess-Betrieb) sowie `config_generation` und `config_replica` (Neustart-Knopf). Zugriff über ein neues `DashboardRepo`-Protokoll (Datei `DashboardRepo.swift`) mit Implementierungen `MariaRepo+Dashboard.swift` und `MemoryRepo+Dashboard.swift`, Muster wie `PushRepo`.
 
 Betreiber-Texte im Audit (Name, Adresse) sind die öffentlich im Impressum stehenden Angaben; trotzdem werden `OPERATOR_*`-Werte im Audit nur gekürzt und als „geändert“ ohne Volltext gespeichert (Entscheidung im Register: Spalte „Audit-Wert“ `maskiert`).
 
@@ -155,7 +159,8 @@ Grenzen mit „(neu)“ sind Vorschläge dieses Plans, in der Umsetzung durch Re
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_POOL_SIZE` | Text/Zahl | 127.0.0.1, 3306, showernow, showernow, 4 | Pool 1 bis 10 | nur ENV | Bootstrap vor DB-Zugriff; im Dashboard schreibgeschützt sichtbar |
 | `DB_PASSWORD(_FILE)` | Geheimnis | – | – | nur ENV | nie angezeigt |
 | `HTTP_PORT` | Zahl | 8080 | – | nur ENV | Listener |
-| `DASH_ENABLED`, `DASH_PORT`, `DASH_ORIGIN`, `DASH_SETUP_WINDOW_MINUTES`, `DASH_SESSION_HOURS`, `DASH_IDLE_MINUTES` | verschiedene | false, 9090, –, 15, 12, 30 | siehe 2.4/2.5 | nur ENV | Dashboard-Bootstrap |
+| `REPLICA_SLOT`, `RESTART_STAGGER_SECONDS` | Zahl | –, 45 | Stagger 15 bis 300 | nur ENV | Neustart-Staffelung (Abschnitt 5.3); Slot kommt aus Swarm-Template |
+| `DASH_ENABLED`, `DASH_PORT`, `DASH_ORIGIN`, `DASH_RP_ID`, `DASH_SETUP_WINDOW_MINUTES`, `DASH_SESSION_HOURS`, `DASH_IDLE_MINUTES` | verschiedene | false, 9090, –, 15, 12, 30 | siehe 2.4/2.5 | nur ENV | Dashboard-Bootstrap |
 | `MIGRATIONS_DIR`, `BUILD_REVISION` | Text | migrations, – | – | nur ENV | Revision nur Anzeige |
 | `WMS_URL`, `EUMETSAT_WMS_URL` | URL | DWD/EUMETSAT-Standard | – | nur ENV | nur für Tests; Dashboard-Änderung wäre ein SSRF-/Datenintegritätsrisiko |
 | `CACHE_MAX_MB` | Zahl (MB) | 64 | 8 bis 1024 (neu) | restart | `SlotCache.maxBytes` ist `let`; live später möglich |
@@ -186,7 +191,17 @@ Grenzen mit „(neu)“ sind Vorschläge dieses Plans, in der Umsetzung durch Re
 | `PUSH_MAX_ACTIVITY_SUBSCRIPTIONS` | Zahl | 5 000 | 1 bis 50 000 (neu) | live | |
 | Phase 2: heute Konstanten in `PushApi`/`RegionLimits`: `perInstallationLimit` 60/min, `globalRegistrationLimit` 600/min, `globalRequestLimit` 3000/min, `failedAuthLimit` 10/min, `testLimit` 3/h, `maxRegionsPerInstallation` 3, `maxCellsPerInstallation` 8000 | Zahl | wie links | vorgeschlagen 10 bis 600, 60 bis 6000, 300 bis 30000, 3 bis 60, 1 bis 10, 1 bis 10, 500 bis 50000 (alle neu) | live | erst nach Überführung in `Config` (WP3, zweite Stufe); Dashboard darf nie über die Obergrenzen oder unter die Untergrenzen |
 
-Die Anzeige „Neustart nötig“ ist statisch: Änderung speichern, Hinweis „wirkt nach dem nächsten Neustart/Redeploy“ (kein Abgleich mit dem tatsächlichen Prozessstand; so auch in F0B3870B vorläufig).
+### 5.3 Neustart-Knopf (Entscheidung 3.11.2026: kontrollierter Neustart per Dashboard)
+
+Grundsatz: Das Dashboard bekommt **keinen Docker-Socket** und keine Swarm-Rechte. Der Neustart läuft über die Datenbank; Swarm startet beendete Replikate selbst neu.
+
+1. **Anzeige:** Hat ein gespeicherter Dashboard-Wert `apply = restart` und weicht vom beim Prozessstart geladenen Wert ab, zeigt die Konfigurationsseite je Zeile „Neustart nötig“ und oben ein Banner mit Knopf „Radar-Dienst neu starten“. Der Abgleich nutzt `config_override.revision` gegenüber der beim Start gelesenen Revision (`config_replica` / Prozess-Revision), nicht nur eine statische Markierung. `live`-Werte wirken ohne Neustart (30-s-Nachladen, Abschnitt 5.1).
+2. **Auslösen:** `POST /dash/api/restart` nur mit Passkey-Sitzung, CSRF-Token, Bestätigungsdialog (Seite zeigt die Liste der offenen Schlüssel und die Folge „Radar-Replikate starten nacheinander neu“), Rate-Limit (z. B. 2 pro Minute, 6 pro Stunde), Audit-Eintrag (`action = restart`, Generation alt/neu) und Log-Ereignis. Wirkung: `config_generation.generation` um 1 erhöhen (atomar, eine Zeile).
+3. **Erkennen:** Jedes `radar`-Replikat liest `generation` periodisch (im bestehenden 30-s-Nachladen der Revision, mit Jitter) und vergleicht sie mit dem beim Start gelesenen Wert. Bei Abweichung leitet es seinen geordneten Austritt ein; die Replikate stellen dabei `applied_generation` in `config_replica` ein.
+4. **Gestaffelter, geordneter Austritt (Verfügbarkeit):** Nicht alle Replikate gleichzeitig. Jedes Replikat wartet eine Staffelung ab, abgeleitet aus dem stabilen Replikat-Index (Swarm-Template `{{.Task.Slot}}` als `REPLICA_SLOT`, Zusatz-Jitter): Wartezeit = `(slot - 1) × RESTART_STAGGER_SECONDS` (Standard 45 s, Grenzen 15 bis 300) plus 0 bis 5 s Jitter; zusätzlich beendet sich ein Replikat erst, wenn die Replikat-Tabelle mindestens ein anderes bereites Replikat der **neuen** Generation zeigt oder es das Replikat mit dem kleinsten Slot ist. Der Leader (Ingest-Schleifen) geht zuletzt: Er wartet, bis alle anderen auf die neue Generation gewechselt sind (Obergrenze 10 min, danach geht er trotzdem). Austritt = Graceful Shutdown (Vapor-Lifecycle: keine neuen Anfragen annehmen, laufende beenden, Statistik-Flush, Leader-Sperre freigeben), danach Prozessende mit Exit-Code 0; `restart_policy: any` startet den Task neu, `update_config` bleibt unverändert. Mit nur einem Replikat gibt es zwangsläufig ein kurzes Ausfallfenster (Healthcheck/`start_period` abwarten); die Seite weist darauf hin, wenn `replicas < 2`.
+5. **Nach dem Neustart:** Der neue Prozess liest die aktuelle `generation` als Ausgangswert und löst keinen weiteren Neustart aus (verhindert Schleifen); er trägt sich in `config_replica` ein. Die Seite zeigt je Replikat „neu gestartet / wartet“ bis alle `applied_generation = generation` haben, danach verschwindet das Banner.
+6. **Grenzen und Absicherung:** Mindestabstand zwischen zwei Neustarts (z. B. 5 Minuten, sonst 429); Healthcheck des Dienstes (`/healthz`) bleibt maßgeblich, ein Replikat mit ungültiger neuer Konfiguration fällt auf den Default zurück (Abschnitt 5.1) statt in eine Absturzschleife; das Dashboard selbst (Dienst `dashboard`) ist nicht betroffen, startet aber bei geänderten `DASH_*`-Werten ohnehin nur über Redeploy (ENV-only).
+7. **Tests (WP3/WP5, Memory-Repo mit mehreren simulierten Replikaten):** Generation erhöht → alle Replikate beenden sich, aber nie mehr als eines gleichzeitig; Leader zuletzt; neuer Prozess startet nicht erneut; zweiter Klick innerhalb des Mindestabstands wird abgelehnt; Audit-Eintrag vorhanden; Auslösen ohne Sitzung/CSRF/Bestätigung scheitert.
 
 ## 6. Frontend
 
@@ -196,7 +211,7 @@ SvelteKit (Svelte 5) mit `adapter-static`, SPA-Modus (`ssr = false`, Fallback `i
 
 - Übersicht: Cache-Quote heute und 30 Tage, Anfragen heute, Gauges (Installationen, Abos, Ebenenstatus), Hinweis „Verzug bis 60 s“.
 - Traffic: Tagesreihen (Anfragen, Bytes) nach Route und Statusklasse, 304-Anteil, Rate-Limit-Treffer.
-- Konfiguration: nach Gruppen, je Zeile Wert, Quelle-Badge, Schloss („durch Umgebungsvariable festgelegt“), Typ/Grenzen, „live“/„Neustart nötig“, Speichern, Auf Default; Reiter „Änderungsprotokoll“.
+- Konfiguration: nach Gruppen, je Zeile Wert, Quelle-Badge, Schloss („durch Umgebungsvariable festgelegt“), Typ/Grenzen, „live“/„Neustart nötig“, Speichern, Auf Default; Banner „Neustart nötig“ mit Knopf (Bestätigungsdialog, Fortschritt je Replikat, Abschnitt 5.3); Reiter „Änderungsprotokoll“.
 - Login und Einrichtung: Zustand aus `GET /dash/api/session`; Einrichtung zeigt den Hinweis auf das offene Fenster.
 
 Diagramme: shadcn-svelte-Chart-Komponente (nach Doku auf LayerChart aufgebaut; Verfügbarkeit mit Svelte 5 und Lizenz in WP6 prüfen), alternativ eigene SVG-Balken (keine Abhängigkeit, genügt für Tagesreihen). Keine `{@html}`-Ausgaben, alle Serverwerte als Text.
@@ -238,7 +253,8 @@ Vertrauen: nur Betreiber mit Passkey; Netz „intern“ ist nicht vertrauenswür
 | Informationsleck | generische Fehler, keine Geheimnisse in Antworten, kein Stacktrace, Statistik ohne personenbezogene Daten |
 | Replay | Challenge-Einmalverwendung, Ablauf 5 min, `sign_count` |
 | Lieferkette | Lockfile, `npm ci --ignore-scripts`, gepinntes Node-Image, `npm audit`, Swift-Paket exakt gepinnt, `Package.resolved` |
-| Listener unbeabsichtigt öffentlich | Standard aus, `ports:` nur im Overlay, kein Ingress, Doku und Deploy-Prüfung |
+| Listener unbeabsichtigt öffentlich | Standard aus, im Overlay `dashboard` gar kein `ports:` und kein Ingress (nur Overlay-Netz, Zugriff über den internen Proxy), Deploy-Prüfung per `docker stack config` |
+| Missbrauch des Neustart-Knopfs (Dauer-Neustarts, Ausfall) | Nur Passkey-Sitzung + CSRF + Bestätigung, Rate-Limit und Mindestabstand, gestaffelter Austritt, Audit; kein Docker-Socket, daher keine Rechteausweitung auf den Host |
 
 ### 7.2 Review
 
@@ -256,6 +272,7 @@ WP9: unabhängiger Sicherheits-Review (Skill `security-audit`/`security-review`)
 | WebAuthn | Registrierung und Anmeldung mit Software-Authenticator (CryptoKit/swift-crypto P-256), falscher Origin/RP-ID/Challenge, Wiederverwendung, Zähler-Rückgang, Doppelregistrierung, geschlossenes Fenster, `dashboard-reset` |
 | Sitzung/CSRF | Cookie-Attribute, Ablauf, fehlendes/falsches Token, falscher Origin/Host, Content-Type |
 | Rate-Limit | Grenzen je Endpunkt, Fehlversuche |
+| Neustart | Generation erhöhen → mehrere simulierte Replikate beenden sich gestaffelt (nie alle gleichzeitig, Leader zuletzt), kein Neustart-Schleife, Mindestabstand, Audit, Schutz (Sitzung/CSRF/Bestätigung) |
 | Statik | Traversal-Varianten, Fallback, Köpfe/CSP |
 | Listener | bei `DASH_ENABLED=false` kein Port; öffentlicher Port liefert 404 für `/dash` |
 | Frontend | `svelte-check`, `vitest` (Stores, Formatierung, Fehlerzustände), Build; E2E mit Playwright und virtuellem WebAuthn-Authenticator (Chrome-DevTools-Protokoll) |
@@ -264,13 +281,13 @@ WP9: unabhängiger Sicherheits-Review (Skill `security-audit`/`security-review`)
 ## 9. Deploy
 
 - `stack.yaml` bleibt für `radar` unverändert bis auf `${KEY:-}`-Durchreichung der dashboardfähigen Schlüssel (Abschnitt 5.1) und `DASH_ENABLED: "false"`. Kein neues `ports:`.
-- Neues Overlay `deploy/swarm/stack.dashboard.yaml` (nur eingebunden bei `DASH_ENABLED=true`, Muster `stack.push.yaml`; `swarm-deploy.sh`/`update.sh` ergänzen): Dienst `dashboard` mit Befehl `[dashboard]`, ein Replikat, Netz `internal`, Secrets wie `radar` (DB), **kein Ingress-Port**, Healthcheck auf `/dash/api/session`. `deploy-branch.yml` spiegelt die neue Datei.
-- Erreichbarkeit (zu prüfen und zu entscheiden, Frage 1): Der externe Reverse Proxy läuft außerhalb des Swarm. Ohne veröffentlichten Port erreicht er einen reinen Overlay-Dienst nicht. Optionen: (A) Proxy-/VPN-Container im Overlay-Netz `internal`, TLS dort; (B) Veröffentlichung im Modus `host` auf einem Node, Zugriff nur über VPN/Firewall; (C) SSH-Tunnel auf `localhost` mit `DASH_ORIGIN=http://localhost:…` (Entwicklung, Safari-Cookie-Einschränkung beachten). WP8 prüft die Docker-Swarm-Möglichkeiten (u. a. ob die Port-Bindung an eine Host-IP im Stack-Format verfügbar ist) gegen die offizielle Doku, bevor etwas dokumentiert wird. WebAuthn verlangt einen sicheren Kontext (HTTPS oder `localhost`) und eine feste RP-ID.
+- Neues Overlay `deploy/swarm/stack.dashboard.yaml` (nur eingebunden bei `DASH_ENABLED=true`, Muster `stack.push.yaml`; `swarm-deploy.sh`/`update.sh` ergänzen): Dienst `dashboard` mit Befehl `[dashboard]`, ein Replikat, Netz `internal`, Secrets wie `radar` (DB), **kein `ports:`-Eintrag (weder Ingress noch `host`)**, Healthcheck auf `/dash/api/session`, `DASH_ORIGIN` (und optional `DASH_RP_ID`) aus der `.env`. Der Radar-Dienst bekommt zusätzlich `REPLICA_SLOT: "{{.Task.Slot}}"` für die Staffelung (Abschnitt 5.3). `deploy-branch.yml` spiegelt die neue Datei.
+- Erreichbarkeit (Entscheidung 3.11.2026): Ein bereits vorhandener interner Reverse Proxy des Betreibers terminiert TLS und leitet an den Dienst `dashboard` (Port 9090) im Overlay-Netz weiter. Der Betreiber muss dafür nichts im Repo tun; das Repo liefert weder Proxy noch VPN noch Host-Port. WP8 dokumentiert nur die Anforderungen an den Proxy (Overlay-Netz erreichbar, `Host` unverändert, HTTPS, WebSockets nicht nötig) und dass `DASH_ORIGIN` exakt der Adresse entsprechen muss, unter der der Betreiber das Dashboard aufruft. Prüfung per `docker stack config`: im Dashboard-Dienst kein `ports:`. WebAuthn verlangt einen sicheren Kontext (HTTPS) und eine feste RP-ID.
 - `.env.example`, `setup.sh --help`, `update.sh`, `docs-site/content/betrieb.md` und `installation.md`: neue Abschnitte „Dashboard“ (Aktivierung, Einrichtung, Notfall-Reset, Aufbewahrung, Datenschutz). `docs/decisions.md`, `docs/status.md`, `README.md` führt der Dokumentations-/Abschluss-Agent nach.
 
 ## 10. Reihenfolge, Arbeitspakete, Dateibesitz
 
-Vorbedingung W0 (kein Paket): die uncommittete Live-Activity-Härtung (u. a. `Api.swift`, `Config.swift`, `PushApi.swift`, `Repo.swift`, `MariaRepo*.swift`, `MemoryRepo*.swift`, `stack.yaml`, `.env.example`) wird von ihrem Besitzer committet oder abgegeben, bevor ein Paket diese Dateien ändert. Pakete berühren sie nicht früher. `main.swift` hat genau einen Besitzer (WP5); andere Pakete stellen Funktionen in eigenen Dateien bereit.
+Vorbedingung W0 (kein Paket) ist **erfüllt** (3.11.2026): Die Live-Activity-Härtung ist committet (Backend-Commits 49321e4 und 1945a4e, CI grün). Die Pakete dürfen die Dateien (u. a. `Api.swift`, `Config.swift`, `PushApi.swift`, `Repo.swift`, `MariaRepo*.swift`, `MemoryRepo*.swift`, `stack.yaml`, `.env.example`) ab diesem Stand ändern. `main.swift` hat genau einen Besitzer (WP5); andere Pakete stellen Funktionen in eigenen Dateien bereit.
 
 | Paket | Inhalt | Besitzer | Exklusive Dateien | Hängt ab von | Welle |
 |---|---|---|---|---|---|
@@ -301,13 +318,15 @@ Risiken:
 3. Rangfolge ENV > Dashboard funktioniert nur, wenn `stack.yaml` keine Standardwerte mehr erzwingt; Umstellung betrifft bestehende `.env`-Dateien und `setup.sh`/`update.sh` (WP8, Regressionsrisiko im Deploy).
 4. `live`-Konfiguration erfordert Umbau mehrerer Verbraucher von kopierten Struct-Werten auf einen Snapshot (WP3); Fehler können Ingest/Push beeinflussen. Deshalb nur ausgewählte Schlüssel live, übrige Neustart.
 5. CSP mit shadcn-svelte/bits-ui: Inline-Styles könnten `style-src-attr 'unsafe-inline'` erzwingen (WP6 klärt).
-6. Erreichbarkeit des internen Ports aus dem externen Reverse Proxy im Swarm ist nicht belegt (Abschnitt 9).
+6. Zugriff über den vorhandenen internen Reverse Proxy: Dessen Konfiguration (Host-Kopfzeile, Overlay-Erreichbarkeit, HTTPS-Origin) liegt außerhalb des Repos und ist nicht geprüft; falsches `DASH_ORIGIN`/`Host` führt zu 403 und fehlgeschlagenen Passkeys (WP8-Doku, WP9-Smoke).
+11. Neustart-Knopf: Fehler in der Staffelung könnten alle Replikate gleichzeitig beenden oder eine Neustartschleife auslösen (Ausfall der öffentlichen API). Gegenmaßnahmen: Abschnitt 5.3 (Staffelung, Leader zuletzt, Mindestabstand, neuer Prozess übernimmt aktuelle Generation), Test mit mehreren Replikaten (WP3/WP5), Smoke im echten Swarm in WP9. Ohne zweites Replikat entsteht ein kurzes Ausfallfenster.
+12. Kein Docker-Socket: Das Dashboard kann Replikate nur zum Beenden auffordern; hängt ein Replikat, hilft nur Swarm (Healthcheck) oder der Betreiber.
 7. Rate-Limit ohne IP: interner Angreifer kann Anmeldung kurz blockieren; Limits pro Prozess.
 8. Statistik nur täglich: „Traffic über Zeit“ ist grob; Stundenwerte wären zusätzliche Tabelle (nicht geplant).
 9. Gespeichertes XSS über Betreibertexte auf öffentlichen Seiten, falls `SitePages` nicht überall escaped (Test in WP3/WP9).
 10. Zweite `Application` in Vapor als zweiter Listener ist nicht geprüft (WP5).
 
-Offene Entscheidungen (Board): Frage F0B3870B (Neustart-Einstellungen, vorläufig „nur markieren“) und neue Frage zum Zugriffsweg und zur Dienstform (Overlay-Dienst `dashboard` mit Proxy/VPN im Overlay-Netz, Empfehlung, gegen Listener in den `radar`-Replikaten mit SSH-Tunnel).
+Offene Entscheidungen: keine. Die fünf Board-Fragen (Zugriffsweg, Neustart, Aufbewahrung, erster Passkey, Auslieferung) sind am 3.11.2026 beantwortet und im Plan umgesetzt. Offene Prüfpunkte (keine Nutzerentscheidungen): Staffelungswerte (`RESTART_STAGGER_SECONDS`, Mindestabstand) und die Proxy-Anforderungen werden in WP3/WP8/WP9 praktisch bestätigt.
 
 Nicht ausgeführt: keine Builds oder Tests; Plan basiert auf gelesenem Code (`Config.swift`, `Api.swift`, `PushApi.swift`, `main.swift`, `stack.yaml`, `.env.example`, `Dockerfile`, `MariaRepo.migrate`) und der Bibliotheksprüfung vom 3.11.2026.
 
