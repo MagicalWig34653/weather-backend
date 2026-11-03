@@ -38,6 +38,23 @@ jobs:
           RADAR_TEST_DB_HOST: mariadb
           RADAR_TEST_DB_PASSWORD: ci-only
 
+  dashboard:
+    name: Dashboard (SvelteKit, statischer Build)
+    runs-on: ubuntu-24.04
+    container: node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: npm ci --ignore-scripts --no-fund
+      - run: npm run check
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Audit (Produktionsabhaengigkeiten; Befund nur als Warnung)
+        run: npm audit --omit=dev || echo "::warning::npm audit meldet Befunde (nur Build-Werkzeuge, siehe dashboard/README.md)"
+
   deploy-files:
     name: Shell scripts and stack file
     runs-on: ubuntu-24.04
