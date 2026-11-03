@@ -2,6 +2,10 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Live Activity Push gepusht (3. November 2026)
+
+Commits auf `main`: `5e64b24` (docs: Dashboard-Plan), `49321e4` (feat: Live Activity Push inkl. Migration 007/008, Haertung, Regen-Start, Doku). Vor dem Push: `swift build` und `swift test --filter PushActivity` (48 Tests) gruen; volle Suite zuvor 199 Tests gruen gegen Wegwerf-MariaDB. CI-Laeufe zum Push: CI, Docker publish (Image `edge`), Pages, Deploy branch alle erfolgreich. **Kein Rollout:** Betreiber braucht `update.sh --pull-scripts --force`, Datenbankrechte ALTER/CREATE/INDEX fuer Migration 007/008, optional `PUSH_MAX_ACTIVITY_SUBSCRIPTIONS`, APNs-Key und Push aktiviert. Nicht geprueft: echtes APNs/ActivityKit am Geraet, Rollout.
+
 ## P2 Backend Live-Activity-Push (3. November 2026, Implementierung und Tests zur Abnahme)
 
 Nutzerauftrag additiv nach dem App-Vertrag (Abschnitte 5/6), dort nur gelesen. Vorhandenen Diff übernommen und vervollständigt. Fortsetzung auf ausdrücklichen Nutzerwunsch ohne Teilagenten; nur dieses Repo geändert. Kein Rollout, Commit oder Push; keine neue Rechercheablage.
