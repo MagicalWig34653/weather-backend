@@ -1,3 +1,4 @@
+// Vorlage fuer WP5 (WP4): in Sources/radar/main.swift uebernehmen (das Ziel radar erlaubt wegen @main nur eine Datei). Zuletzt gegen Vapor 4.122 kompiliert.
 import RadarCore
 import Vapor
 
