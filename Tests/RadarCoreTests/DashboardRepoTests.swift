@@ -8,6 +8,8 @@ private func bytes(_ seed: UInt8, count: Int) -> [UInt8] { (0..<count).map { UIn
 private func at(_ seconds: Double) -> Date { t0.addingTimeInterval(seconds) }
 private let day: Double = 86400
 
+// Nested in DatabaseSuites like the other database suites: they share one test database and must never overlap.
+extension DatabaseSuites {
 @Suite("Dashboard repo", .serialized)
 struct DashboardRepoTests {
     @Test(arguments: RepoKind.allCases) func credentialIsInsertedOnceAtomically(kind: RepoKind) async throws {
@@ -236,4 +238,5 @@ struct DashboardRepoTests {
         try await repo.removeReplica(replicaID: "b")
         #expect(try await repo.replicas(now: at(700)).isEmpty)
     }
+}
 }
