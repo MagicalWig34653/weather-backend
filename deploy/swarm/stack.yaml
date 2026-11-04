@@ -4,7 +4,13 @@ version: '3.8'
 # ensures that exactly one replica fetches each 5-minute DWD run (see docs/decisions.md).
 # MariaDB is EXTERNAL (not part of this stack). TLS and the reverse proxy are external, too. No Redis.
 # Configure via .env in the repository root (written by deploy/swarm/setup.sh, see .env.example)
-# and the external Swarm secret referenced at the bottom (push: see stack.push.yaml).
+# and the external Swarm secret referenced at the bottom.
+# PUSH: the APNs key (external secret apns_key) is NOT in this file but in the overlay stack.push.yaml. Deploy through
+# swarm-deploy.sh / update.sh (they add the overlay when PUSH_ENABLED=true) or by hand with BOTH files:
+#   docker stack deploy --resolve-image never -c stack.yaml -c stack.push.yaml <stack>
+# With PUSH_ENABLED=true and this file alone, /run/secrets/apns_key does not exist and the service fails at start.
+# Every variable the server reads and that is meant for the operator is passed through below with the default of the code;
+# envOnly keys without need here: HTTP_PORT (container port is fixed 8080), MIGRATIONS_DIR (set by the image).
 x-radar: &radar
   image: ghcr.io/magicalwig34653/weather-backend-radar:${RADAR_IMAGE_TAG:-edge}
   networks: [internal]
@@ -29,8 +35,13 @@ x-radar: &radar
     PRESSURE_EU_FORECAST_HOURS: ${PRESSURE_EU_FORECAST_HOURS:-24}
     LAYER_PAUSE_SECONDS: ${LAYER_PAUSE_SECONDS:-2}
     FETCH_WORKERS: ${FETCH_WORKERS:-3}
+    IMAGE_WIDTH: ${IMAGE_WIDTH:-1024}
+    AVAILABILITY_DELAY_SECONDS: ${AVAILABILITY_DELAY_SECONDS:-200}
+    JITTER_SECONDS: ${JITTER_SECONDS:-20}
+    REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-30}
     USER_AGENT: ${USER_AGENT:-ShowerNow-radar-ingest/1.0}
     WMS_URL: ${WMS_URL:-https://maps.dwd.de/geoserver/ows}
+    EUMETSAT_WMS_URL: ${EUMETSAT_WMS_URL:-https://view.eumetsat.int/geoserver/wms}
     OPERATOR_NAME: ${OPERATOR_NAME:-}
     OPERATOR_ADDRESS: ${OPERATOR_ADDRESS:-}
     OPERATOR_EMAIL: ${OPERATOR_EMAIL:-}
@@ -50,7 +61,15 @@ x-radar: &radar
     PUSH_MAX_SUBSCRIPTIONS: ${PUSH_MAX_SUBSCRIPTIONS:-400000}
     PUSH_MAX_REGION_CELLS: ${PUSH_MAX_REGION_CELLS:-50000000}
     PUSH_MAX_ACTIVITY_SUBSCRIPTIONS: ${PUSH_MAX_ACTIVITY_SUBSCRIPTIONS:-5000}
-    BUILD_REVISION: ${BUILD_REVISION:-}
+    PUSH_MAX_REGIONS_PER_INSTALLATION: ${PUSH_MAX_REGIONS_PER_INSTALLATION:-3}
+    PUSH_MAX_CELLS_PER_INSTALLATION: ${PUSH_MAX_CELLS_PER_INSTALLATION:-8000}
+    PUSH_RATE_PER_INSTALLATION: ${PUSH_RATE_PER_INSTALLATION:-60}
+    PUSH_RATE_GLOBAL_REGISTRATIONS: ${PUSH_RATE_GLOBAL_REGISTRATIONS:-600}
+    PUSH_RATE_GLOBAL_REQUESTS: ${PUSH_RATE_GLOBAL_REQUESTS:-3000}
+    PUSH_RATE_FAILED_AUTH: ${PUSH_RATE_FAILED_AUTH:-10}
+    PUSH_TEST_LIMIT_PER_HOUR: ${PUSH_TEST_LIMIT_PER_HOUR:-3}
+    # BUILD_REVISION is deliberately NOT passed through: the image sets it (Dockerfile ENV from the build argument); an
+    # entry here would override it with an empty value and /v1/status would show no revision.
   secrets: [db_password]
 services:
   migrate:

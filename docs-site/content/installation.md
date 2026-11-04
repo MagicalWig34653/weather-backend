@@ -91,7 +91,7 @@ deploy/swarm/setup.sh --non-interactive --answers-file answers.env --swarm-init
 
 ### 3. Variablen der `.env`
 
-`setup.sh` schreibt diese Datei (Modus 600, nicht versioniert, Vorlage `.env.example`); `update.sh` und `deploy/swarm/swarm-deploy.sh` lesen sie.
+`setup.sh` schreibt diese Datei (Modus 600, nicht versioniert, Vorlage `.env.example`); `update.sh` und `setup.sh` laden sie vor dem Deploy in die Umgebung; `deploy/swarm/swarm-deploy.sh` liest `PUSH_ENABLED` und `APNS_KEY_SECRET` notfalls selbst aus der `.env` (Umgebungsvariablen der Shell haben Vorrang), alle übrigen Werte nur aus der Umgebung (`set -a; . ./.env; set +a`).
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -126,10 +126,15 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.
 | `PROXY_LOG_NOTE` | leer | Ein Satz des Betreibers zur Protokollierung des Reverse Proxys (erscheint auf `/datenschutz`). |
 | `APP_STORE_URL`, `TESTFLIGHT_URL` | leer | Optionale `https`-Links auf `/marketing`. |
 | `WMS_URL` | DWD-GeoServer | Nur für Tests: anderer WMS-Endpunkt. |
-| `BUILD_REVISION` | leer | Commit des Images (setzt der Docker-Workflow als Build-Argument); nur in `/v1/status` sichtbar. |
+| `EUMETSAT_WMS_URL` | EUMETSAT-GeoServer (`https://view.eumetsat.int/geoserver/wms`) | Nur für Tests: anderer WMS-Endpunkt der EUMETSAT-Ebenen. |
+| `IMAGE_WIDTH` | `1024` | Bildbreite der Radar-Ebene in Pixeln (256 bis 2048). Mit `PUSH_ENABLED=true` muss sie `1024` bleiben. |
+| `AVAILABILITY_DELAY_SECONDS`, `JITTER_SECONDS`, `REQUEST_TIMEOUT_SECONDS` | `200`, `20`, `30` | Wartezeit nach dem Rasterzeitpunkt bis zum Abruf (60 bis 900), zufälliger Zusatz (0 bis 120) und Timeout je Abruf (5 bis 120), jeweils in Sekunden. |
+| `BUILD_REVISION` | – | Commit des Images (setzt der Docker-Workflow im Image); nur in `/v1/status` sichtbar. Der Stack reicht die Variable bewusst nicht durch, ein Wert in der `.env` wirkt nicht. |
 | `PUSH_ENABLED` | `false` | Optionaler Pushdienst (Registrierungs-API, Auswertung, APNs-Versand). Mit `true` sind die vier `APNS_*`-Werte Pflicht und `IMAGE_WIDTH` muss `1024` sein; sonst Startfehler. |
 | `PUSH_MAX_INSTALLATIONS`, `PUSH_MAX_SUBSCRIPTIONS`, `PUSH_MAX_REGION_CELLS` | `100000`, `400000`, `50000000` | Serverweite Obergrenzen für Installationen, Abos und Regionszellen (Missbrauchsschutz); darüber `503 server_full` bzw. `409 region_capacity`. Weiche Werte (Zähler werden bis zu 30 s zwischengespeichert). |
 | `PUSH_MAX_ACTIVITY_SUBSCRIPTIONS` | `5000` | Obergrenze der Abos mit `live_activity: true` (begrenzt die Live-Activity-Arbeit je Radarlauf); darüber `503 activity_full`. Migration `008_push_activity_index.sql` legt dafür einen Index an (Recht `CREATE INDEX`/`ALTER`). |
+| `PUSH_MAX_REGIONS_PER_INSTALLATION`, `PUSH_MAX_CELLS_PER_INSTALLATION` | `3`, `8000` | Regionen (1 bis 10) und Rasterzellen (500 bis 50000) je Installation. |
+| `PUSH_RATE_PER_INSTALLATION`, `PUSH_RATE_GLOBAL_REGISTRATIONS`, `PUSH_RATE_GLOBAL_REQUESTS`, `PUSH_RATE_FAILED_AUTH`, `PUSH_TEST_LIMIT_PER_HOUR` | `60`, `600`, `3000`, `10`, `3` | Ratenlimits (Bereiche 10 bis 600, 60 bis 6000, 300 bis 30000, 3 bis 60 pro Minute; Testmeldungen 1 bis 10 pro Stunde); die globalen Werte gelten je Replikat. |
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | leer | Key-ID (10 Zeichen), Team-ID und `apns-topic` (Bundle-ID). Keine Geheimnisse, aber Betreiberwerte. |
 | `APNS_ENV` | `production` | `sandbox`, `production` oder `both`: erlaubte APNs-Umgebungen. Jede Installation meldet ihre Umgebung; der Sender nutzt den passenden Apple-Host. Meldungen einer nicht erlaubten Umgebung werden verworfen, die Testmeldung antwortet `409`. Beim Start steht die erlaubte Menge im Log. |
 | `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`; vom Overlay `stack.push.yaml` eingehängt, siehe unten). |
@@ -167,9 +172,19 @@ docker secret create showernow_apns_key /pfad/zu/AuthKey_XXXXXXXXXX.p8
 deploy/swarm/update.sh --pull-scripts --force
 ```
 
+> **Achtung: Hauptdatei allein reicht nicht.** `deploy/swarm/stack.yaml` enthält den APNs-Schlüssel nicht; das Secret hängt nur im Overlay `stack.push.yaml`. Wer mit `PUSH_ENABLED=true` nur `stack.yaml` deployt (zum Beispiel von Hand mit `docker stack deploy -c stack.yaml …`), erhält Container ohne `/run/secrets/apns_key`; sie starten nicht (Startfehler beim Lesen von `APNS_KEY_FILE`, Service bleibt bei 0 laufenden Replikaten). `update.sh`, `setup.sh` und `swarm-deploy.sh` binden das Overlay selbst ein. Von Hand immer beide Dateien angeben, im Ordner `deploy/swarm`, mit geladener `.env` (Migrationsjob und Sperre übernimmt dieser Weg nicht, vorher `swarm-deploy.sh` oder `update.sh` bevorzugen):
+>
+> ```sh
+> cd deploy/swarm
+> set -a; . ../../.env; set +a
+> docker stack deploy --resolve-image never -c stack.yaml -c stack.push.yaml radar
+> ```
+>
+> Prüfen, ob das Secret am Dienst hängt: `docker service inspect radar_radar --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'` muss `apns_key` und `db_password` zeigen.
+
 Verdrahtung: `deploy/swarm/stack.yaml` reicht `PUSH_ENABLED` (Standard `false`), `APNS_KEY_FILE=/run/secrets/apns_key`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` und `APNS_ENV` durch. Das externe Secret selbst hängt nur im Overlay `deploy/swarm/stack.push.yaml` (Name über `APNS_KEY_SECRET`, Standard `showernow_apns_key`), das `swarm-deploy.sh` nur bei `PUSH_ENABLED=true` zusätzlich einbindet. Grund: Ein im Stack referenziertes externes Secret muss existieren, sonst scheitert `docker stack deploy` mit „secret not found“; so bleiben Installationen ohne Push unberührt. `update.sh` und `swarm-deploy.sh` prüfen bei `PUSH_ENABLED=true` vor dem Rollout, dass das Secret existiert und die drei APNS-Werte gesetzt sind, und brechen sonst mit klarer Meldung ab, bevor etwas geändert wird. Rotation: neues Secret mit neuem Namen anlegen, `APNS_KEY_SECRET` anpassen, `update.sh --force`. Migration `003_push.sql` läuft über den normalen Migrationsjob und ist additiv (neue Tabellen `push_*`).
 
-Geprüft: `docker stack config` (Docker 29) mit und ohne Overlay zeigt das Secret nur mit Overlay; das Verhalten bei einem fehlenden externen Secret im echten Swarm sowie der Rollout mit Secret sind nicht gegen einen Swarm geprüft.
+Geprüft: `docker stack config` (Docker 29) mit und ohne Overlay zeigt das Secret nur mit Overlay; beim Zusammenführen werden die `secrets:`-Listen vereinigt (`apns_key` und `db_password`, Name `showernow_apns_key`, Mountpunkt `/run/secrets/apns_key`, wie `APNS_KEY_FILE` im Stack); `deploy/swarm/test-swarm-deploy.sh` prüft mit einem Stub-`docker`, dass `swarm-deploy.sh` das Overlay genau bei `PUSH_ENABLED=true` (Shell oder `.env`) einbindet; das Verhalten bei einem fehlenden externen Secret im echten Swarm sowie der Rollout mit Secret sind nicht gegen einen Swarm geprüft.
 
 ### 5. Migrationsjob und Deploy
 
