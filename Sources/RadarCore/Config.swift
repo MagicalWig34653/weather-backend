@@ -112,7 +112,13 @@ public struct Config: Sendable {
     /// Secret from NAME_FILE (Swarm secret, preferred) or NAME; never logged.
     static func secret(_ env: [String: String], _ name: String, _ fallback: String) throws -> String {
         if let path = env["\(name)_FILE"], !path.isEmpty {
-            let text = try String(contentsOfFile: path, encoding: .utf8)
+            let text: String
+            do { text = try String(contentsOfFile: path, encoding: .utf8) } catch {
+                // Clear operator hint instead of a bare Foundation error; neither the path content nor the error text is echoed.
+                let hint = name == "APNS_KEY" ? "Secret apns_key gemountet? Deploy mit stack.push.yaml"
+                    : name == "DB_PASSWORD" ? "Secret db_password gemountet?" : "Secret gemountet?"
+                throw ConfigError(description: "\(name)_FILE nicht lesbar: \(hint)")
+            }
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return env[name] ?? fallback

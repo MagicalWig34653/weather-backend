@@ -61,6 +61,12 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: shellcheck -x -P SCRIPTDIR deploy/swarm/*.sh
+      - name: Swarm deploy script (stub docker, push and dashboard overlays)
+        run: bash deploy/swarm/test-swarm-deploy.sh
+      - name: settings.sh (whiptail stub, quoting, backups, check)
+        run: bash deploy/swarm/test-settings.sh
+      - name: Settings tables match stack.yaml and .env.example
+        run: bash deploy/swarm/check-config-tables.sh
       - name: Validate the stack file and the dev compose file
         run: |
           DB_HOST=db.example.internal docker compose -f deploy/swarm/stack.yaml config --quiet

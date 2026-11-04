@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Offline test of swarm-deploy.sh with a stub `docker` (no Swarm needed): checks that the overlay stack.push.yaml is part of
 # `docker stack deploy` exactly when push is enabled (shell variable or env file), and that a missing secret aborts the rollout.
+# Same for the dashboard overlay stack.dashboard.yaml (DASH_ENABLED): present -> included, missing -> clear abort, shell wins over the env file.
 # Usage: deploy/swarm/test-swarm-deploy.sh   (needs bash only; not part of the deploy branch)
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/repo/deploy/swarm" "$WORK/bin"
-cp "$SRC"/swarm-deploy.sh "$SRC"/lib.sh "$SRC"/stack.yaml "$SRC"/stack.push.yaml "$WORK/repo/deploy/swarm/"
+cp "$SRC"/swarm-deploy.sh "$SRC"/update.sh "$SRC"/lib.sh "$SRC"/stack.yaml "$SRC"/stack.push.yaml "$WORK/repo/deploy/swarm/"
 cat > "$WORK/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 echo "docker $*" >> "$STUB_LOG"
@@ -26,9 +27,9 @@ run() { # name, expect_overlay(yes|no|abort), env assignments...
   local name="$1" expect="$2"; shift 2
   export STUB_LOG="$WORK/$name.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n"
   local rc=0
-  ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u APNS_KEY_SECRET -u ENV_FILE PATH="$WORK/bin:$PATH" DB_HOST=db "$@" ./swarm-deploy.sh ) >"$WORK/$name.out" 2>&1 || rc=$?
+  ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u APNS_KEY_SECRET -u DASH_ENABLED -u ENV_FILE PATH="$WORK/bin:$PATH" DB_HOST=db "$@" ./swarm-deploy.sh ) >"$WORK/$name.out" 2>&1 || rc=$?
   local deploys overlay
-  deploys=$(grep -c 'stack deploy' "$STUB_LOG" || true); overlay=$(grep 'stack deploy' "$STUB_LOG" | grep -c 'stack.push.yaml' || true)
+  deploys=$(grep -c 'stack deploy' "$STUB_LOG" || true); overlay=$(grep 'stack deploy' "$STUB_LOG" | grep -c "${CHECK:-stack.push.yaml}" || true)
   case "$expect" in
     yes) [ "$rc" = 0 ] && [ "$deploys" -ge 1 ] && [ "$overlay" = "$deploys" ] ;;
     no) [ "$rc" = 0 ] && [ "$deploys" -ge 1 ] && [ "$overlay" = 0 ] ;;
@@ -49,4 +50,41 @@ run default-dotenv-true yes
 run shell-wins no PUSH_ENABLED=false
 run secret-missing abort STUB_SECRET=no PUSH_ENABLED=true
 grep -q 'secret inspect my_key' "$WORK/envfile-true.log" || { echo "FAIL secret name from env file not used"; fail=1; }
+
+# ---- dashboard overlay (DASH_ENABLED) ----
+rm -f "$WORK/repo/.env"
+CHECK=stack.dashboard.yaml
+run dash-missing-aborts abort DASH_ENABLED=true
+grep -q 'Dashboard-Overlay fehlt' "$WORK/dash-missing-aborts.out" || { echo "FAIL message for the missing overlay"; fail=1; }
+run dash-off-no-overlay no DASH_ENABLED=false
+printf 'DASH_ENABLED=true\n' > "$WORK/dash.env"
+run dash-envfile-missing-aborts abort ENV_FILE="$WORK/dash.env"
+printf 'DASH_ENABLED=true\n' > "$WORK/repo/.env"
+run dash-dotenv-missing-aborts abort
+run dash-shell-false-wins no DASH_ENABLED=false
+echo 'services: {}' > "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
+run dash-present-included yes DASH_ENABLED=true
+run dash-dotenv-present-included yes
+run dash-shell-false-wins-present no DASH_ENABLED=false
+rm -f "$WORK/repo/.env"
+printf 'PUSH_ENABLED=true\nDASH_ENABLED=true\n' > "$WORK/both.env"
+run both-dashboard-part yes ENV_FILE="$WORK/both.env"
+CHECK=stack.push.yaml
+run both-push-part yes ENV_FILE="$WORK/both.env"
+unset CHECK
+
+# ---- update.sh stops before any change when the overlay is missing (dry run, no network: --tag given) ----
+upd() { # name, expect_rc0(yes|no), env-file content
+  local name="$1" expect="$2" rc=0
+  printf '%s' "$3" > "$WORK/upd.env"
+  ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" ./update.sh --env-file "$WORK/upd.env" --tag sha-abc1234 --dry-run ) >"$WORK/$name.out" 2>&1 || rc=$?
+  if { [ "$expect" = yes ] && [ "$rc" = 0 ]; } || { [ "$expect" = no ] && [ "$rc" != 0 ] && grep -q 'Dashboard-Overlay fehlt' "$WORK/$name.out"; }; then
+    echo "ok   $name"
+  else echo "FAIL $name (rc=$rc)"; cat "$WORK/$name.out"; fail=1; fi
+}
+rm -f "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
+upd update-dash-missing no $'DASH_ENABLED=true\n'
+upd update-dash-off yes $'DASH_ENABLED=false\n'
+echo 'services: {}' > "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
+upd update-dash-present yes $'DASH_ENABLED=true\n'
 exit $fail

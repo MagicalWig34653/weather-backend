@@ -46,16 +46,21 @@ jobs:
             git -C "$out" rm -rfq --ignore-unmatch .
           fi
           mkdir -p "$out/deploy/swarm"
-          for f in stack.yaml stack.push.yaml healthcheck.sh lib.sh setup.sh update.sh swarm-deploy.sh; do
+          for f in stack.yaml stack.push.yaml healthcheck.sh lib.sh setup.sh update.sh swarm-deploy.sh settings.sh config-registry.tsv config-extra.tsv; do
             cp -p "deploy/swarm/$f" "$out/deploy/swarm/$f"
           done
+          # Optional overlay of the dashboard (delivered with the dashboard work package); swarm-deploy.sh/update.sh stop with a
+          # clear message while DASH_ENABLED=true and the file is missing.
+          if [ -f deploy/swarm/stack.dashboard.yaml ]; then
+            cp -p deploy/swarm/stack.dashboard.yaml "$out/deploy/swarm/stack.dashboard.yaml"
+          fi
           cp -p .env.example "$out/.env.example"
           printf '%s\n' '.env' '.env.*' '!.env.example' '.env.bak' > "$out/.gitignore"
           cat > "$out/README.md" <<'README'
           # weather-backend: Deploy-Branch
 
           Automatisch aus `main` gespiegelt (Workflow `deploy-branch.yml`). Nie hier ändern; Änderungen nur auf `main`.
-          Enthält nur, was ein Docker-Swarm-Manager braucht: `deploy/swarm/*` und `.env.example`.
+          Enthält nur, was ein Docker-Swarm-Manager braucht: `deploy/swarm/*` (Deploy-Skripte, `settings.sh` mit den Tabellen `config-*.tsv`) und `.env.example`.
 
           Installation (Voraussetzungen: git, docker, curl):
 
@@ -63,6 +68,7 @@ jobs:
               cd radar && deploy/swarm/setup.sh
 
           Update: `deploy/swarm/update.sh --pull-scripts` (holt zuerst neue Skripte per `git pull --ff-only`, dann neues Image).
+          Einstellungen per Menü: `deploy/swarm/settings.sh` (whiptail; `--list`, `--set KEY=VALUE`, `--check`).
           Die `.env` liegt im Ordner `radar/` und wird nie versioniert.
 
           Dokumentation: https://magicalwig34653.github.io/weather-backend/

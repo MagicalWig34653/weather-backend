@@ -1,0 +1,12 @@
+# Handgepflegt: Deploy-Variablen, die der Server selbst nicht liest (Stack/Skripte). Gleiches Format wie config-registry.tsv.
+# Nicht hier eintragen, was in ConfigRegistry.settings steht; dessen Tabelle wird per Swift-Test erzeugt.
+#key	group	type	default	unit	min	max	choices	apply	secret	summary
+RADAR_STACK	Deploy	text:stackname	radar			63		envOnly	0	Stack-Name; bestimmt die Dienstnamen <stack>_radar und <stack>_migrate.
+RADAR_IMAGE_TAG	Deploy	text:imagetag	edge			128		envOnly	0	Image-Tag (edge = neuester main-Build; update.sh setzt sha-<commit>).
+RADAR_REPLICAS	Deploy	int	2		1	20		envOnly	0	Anzahl Radar-Replikate (ab 2 sind Rolling Updates unterbrechungsfrei).
+RADAR_PORT	Deploy	int	38090		1	65535		envOnly	0	Veröffentlichter Ingress-Port für den externen Reverse Proxy.
+RADAR_CPU_LIMIT	Deploy	number	0	CPUs	0	64		envOnly	0	CPU-Limit je Replikat, 0 = unbegrenzt.
+RADAR_MEMORY_LIMIT	Deploy	text:memlimit	0			16		envOnly	0	Speicher-Limit je Replikat, z. B. 512M, 0 = unbegrenzt.
+PUBLIC_BASE_URL	Deploy	url				200		envOnly	0	Öffentliche Basis-URL (ohne Pfad); für die Prüfung nach dem Rollout.
+DB_PASSWORD_SECRET	Datenbank	text:secretname	showernow_db_password			64		envOnly	0	Name des Swarm-Secrets mit dem DB-Passwort (nur der Name, nicht das Passwort).
+APNS_KEY_SECRET	Push	text:secretname	showernow_apns_key			64		envOnly	0	Name des Swarm-Secrets mit dem APNs-Schlüssel (.p8; nur der Name).

@@ -109,7 +109,7 @@ deploy/swarm/setup.sh --non-interactive --answers-file answers.env --swarm-init
 | `DB_POOL_SIZE` | `4` | Verbindungen je Replikat, 1 bis 10. |
 | `DB_PASSWORD_SECRET` | `showernow_db_password` | Name des Swarm-Secrets mit dem Passwort. |
 
-Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf von Hand in die `.env` eintragen (der Stack reicht sie durch):
+Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf mit [`settings.sh`](#einstellungen-mit-settingssh) oder von Hand in die `.env` eintragen (der Stack reicht sie durch):
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -207,6 +207,47 @@ curl -i https://radar.example.org/v1/radar/latest.json
 ```
 
 `latest.json` liefert **404**, solange noch kein Lauf veröffentlicht ist, und **200** nach dem ersten erfolgreichen Lauf (wenige Minuten nach dem Start; Start 200 s nach der Nominalzeit plus Jitter). Das ist auch die Prüfung, die `setup.sh` und `update.sh` ausführen: 200 und 404 gelten als erreichbar, alles andere als Warnung. Danach `ETag` und `Cache-Control` prüfen (siehe [API-Referenz](api.html)).
+
+## Einstellungen mit settings.sh
+
+`deploy/swarm/settings.sh` bearbeitet die `.env` per Menü (wie `raspi-config`) oder per Kommandozeile. Es liegt im Deploy-Branch neben `update.sh`; `update.sh --pull-scripts --force` holt es mit (`git pull --ff-only` im Klon, die `.env` ist nicht versioniert). Voraussetzung für das Menü: `whiptail` (Debian/Ubuntu: Paket `whiptail`; `dialog` geht als Rückfall) und Bash 4.4 oder neuer. Die Kommandozeilen-Modi brauchen kein whiptail.
+
+```sh
+cd radar                          # Klon des Branches deploy
+deploy/swarm/settings.sh          # Menü; die .env liegt zwei Ebenen über dem Skript
+deploy/swarm/settings.sh --env /pfad/.env --check
+```
+
+**Menü:** Hauptmenü mit Gruppen (Radar und Cache, Zusatzebenen, Push, Push-Limits, Betreiberseiten, Dashboard, Datenbank und Dienst, Deploy und Image), Suche, Hinweise, Änderungen speichern, Jetzt anwenden. Jede Zeile zeigt `Wert  Zustand  Wirkung` (Zustand: `gesetzt`, `Default`, `NEU`, `RESET`; Wirkung: `live`, `Neustart`, `nur ENV`). Die Detailansicht zeigt Beschreibung, Typ und Grenzen, Default und Wirkung; Eingaben werden gegen Typ und Grenzen geprüft (Fehler als Meldung). Änderungen sammelt das Menü im Speicher; beim Speichern erscheinen Diff und Prüfergebnis, danach die Bestätigung.
+
+**Wirkung:** `live` heißt, der Dienst übernimmt den Wert aus dem kommenden Dashboard binnen 30 s; eine Variable in der `.env` ist immer ENV, hat Vorrang und wirkt erst nach einem Rollout. `Neustart` und `nur ENV` werden beim Start gelesen. „Auf Default zurücksetzen“ kommentiert die Zeile aus (`#KEY=alt`): reversibel, der Alt-Wert bleibt lesbar, und der Stack nimmt den Default.
+
+**Anwenden:** „Jetzt anwenden“ rollt nie ohne Bestätigung aus. Zur Wahl stehen `swarm-deploy.sh` (nur die Einstellungen, der Image-Tag bleibt) oder `update.sh --force` (zusätzlich neuestes Image; fragt nach der Datenbanksicherung).
+
+| Modus | Wirkung |
+|---|---|
+| `--list` | alle Variablen mit Wert, Default und Quelle (Datei oder Default) |
+| `--get KEY` | wirksamen Wert ausgeben |
+| `--set KEY=VALUE` | prüfen und speichern, mehrfach möglich; ungültig → nichts wird geschrieben (Exit 3) |
+| `--unset KEY` | Zeile auskommentieren (zurück auf den Default) |
+| `--check` | ganze `.env` prüfen: Typ und Grenzen, unbekannte Variablen, Konflikte (z. B. `PUSH_ENABLED=true` ohne `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` oder mit `IMAGE_WIDTH` ungleich 1024), Shell-Ausdrücke in Werten, fehlende Docker-Secrets; Exit 1 bei Fehlern |
+| `--env PFAD` | andere `.env` |
+
+**Sicherheit:**
+
+- Geheimnisse (`DB_PASSWORD`, `APNS_KEY`, alles Unbekannte mit `PASSWORD`, `SECRET`, `KEY`, `TOKEN` im Namen) werden nie angezeigt und nie in die `.env` geschrieben. Das Menü zeigt stattdessen den passenden `docker secret create`-Befehl und den Status (`vorhanden`, `fehlt`, `unbekannt`, wenn `docker secret ls` nicht läuft).
+- Vor dem Schreiben entsteht eine Sicherung `.env.bak.JJJJMMTT-HHMMSS` (Rechte wie das Original). Eine vorhandene `.env.bak` wird nicht angefasst. Geschrieben wird atomar (temporäre Datei, dann `mv`), die Rechte der `.env` bleiben (z. B. 600). Kommentare und unbekannte Zeilen bleiben unverändert; eine Kommentarzeile `#KEY=...` wird an Ort und Stelle aktiviert.
+- Die `.env` wird von den Skripten per `. ./.env` gesourct. Werte mit Leerzeichen oder Sonderzeichen (`$`, Backtick, `"`, `'`, `\`, `;`) schreibt das Skript deshalb in einfachen Anführungszeichen und liest sie beim Einlesen ohne Auswertung zurück; Zeilenumbrüche im Wert werden abgelehnt. Das Skript führt nie etwas aus der `.env` aus (nur „Jetzt anwenden“ sourct sie nach Bestätigung für `swarm-deploy.sh`).
+- Die Tabellen `config-registry.tsv` (aus dem Swift-Register erzeugt; der Test `ConfigRegistryTSVTests` hält sie synchron, Neuerzeugung mit `UPDATE_CONFIG_TSV=1 swift test --filter ConfigRegistryTSVTests`) und `config-extra.tsv` (Deploy-Variablen, handgepflegt) liegen im Deploy-Branch. Ein CI-Schritt prüft, dass jede `${VAR}` aus `stack.yaml` in einer Tabelle steht.
+- Hinweis: `update.sh` überschreibt bei jedem Lauf die Sicherung `.env.bak`; `settings.sh` legt dagegen eigene Zeitstempel-Sicherungen an.
+
+### Dashboard aktivieren
+
+Gruppe „Dashboard“ im Menü (oder `--set DASH_ENABLED=true --set DASH_ORIGIN=https://...`). Namen und Bedeutung wie im Dashboard-Plan: `DASH_ENABLED` (Standard `false`), `DASH_ORIGIN` (Pflicht bei `true`: https-Adresse ohne Pfad, unter der Sie das Dashboard aufrufen; WebAuthn braucht HTTPS), `DASH_RP_ID` (optional, Standard der Host der Origin; Vorschlag im Menü), `RESTART_STAGGER_SECONDS` (Standard 45, 15 bis 300). `REPLICA_SLOT` setzt der Swarm per `{{.Task.Slot}}`, nicht manuell eintragen.
+
+- Das Dashboard läuft als eigener Dienst `dashboard` nur im Overlay-Netz, ohne veröffentlichten Port (Overlay `stack.dashboard.yaml`). Ihr interner Reverse Proxy terminiert TLS, leitet an `dashboard:9090` weiter und muss den `Host`-Header unverändert durchreichen.
+- **Erster Passkey:** Die Registrierung ist nur beim ersten Start ohne vorhandenes Credential offen. Richten Sie ihn nur im internen Netz direkt nach dem Start ein. Notfall-Reset: `radar dashboard-reset --yes`.
+- **Stand dieser Version:** `swarm-deploy.sh` und `update.sh` binden bei `DASH_ENABLED=true` (Shell vor `.env`, wie bei `PUSH_ENABLED`) das Overlay `deploy/swarm/stack.dashboard.yaml` ein. Es wird mit dem Dashboard-Arbeitspaket geliefert und fehlt noch: bis dahin brechen beide Skripte mit „Dashboard-Overlay fehlt“ ab, bevor etwas geändert wird, `settings.sh --check` warnt („Dashboard noch nicht verfügbar in dieser Version“) und das Menü zeigt „vorbereitet (Overlay noch nicht vorhanden)“. Die Warnungen entfallen, sobald die Datei existiert.
 
 ## Update
 

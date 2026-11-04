@@ -2,6 +2,12 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## settings.sh: whiptail-Menü für die .env (4. November 2026)
+
+Neu (Details: [decisions.md](decisions.md#settingssh-einstellungen-der-env-per-whiptail-menü-4-november-2026), [Installation](../docs-site/content/installation.md#einstellungen-mit-settingssh)): `deploy/swarm/settings.sh` (Menü, `--list/--get/--set/--unset/--check/--env`), Tabellen `config-registry.tsv` (62 Variablen, erzeugt aus dem Swift-Register) und `config-extra.tsv` (9 Deploy-Variablen), `check-config-tables.sh`, `test-settings.sh`, Dashboard-Overlay-Logik in `swarm-deploy.sh`/`update.sh`/`lib.sh` (Overlay `stack.dashboard.yaml` fehlt noch: WP8), `deploy-branch.yml` kopiert die neuen Dateien, `ci.yml` führt `test-swarm-deploy.sh`, `test-settings.sh` und den Tabellen-Check aus; `ConfigRegistryTSVTests`; `Config.secret` mit klarer Fehlermeldung.
+
+Geprüft (4.11.): `shellcheck` auf allen `deploy/swarm/*.sh` sauber; `test-settings.sh` 119 Prüfungen und `test-swarm-deploy.sh` (inkl. Dashboard-Fälle) in Debian-Container mit Bash 5 grün, `check-config-tables.sh` grün; TUI in Debian mit echtem whiptail über tmux bei 100x30 und 80x24 betrachtet; `swift test --filter "ConfigRegistry|ConfigStore|UnitTests"` 38 Tests grün. **Nicht geprüft:** echter Server/VPS (whiptail-Version dort, Locale, `docker secret ls` auf dem Manager), `dialog`-Rückfall, Rollout über „Jetzt anwenden“, `update.sh --pull-scripts` gegen den echten Branch. Kein Rollout. Betreiber: nach dem Merge `update.sh --pull-scripts --force`, dann `deploy/swarm/settings.sh`.
+
 ## Landingpage (4. November 2026)
 
 `/` und `/en` liefern eine Landingpage (Showers), Assets unter `/assets/<name>.<hash>.<ext>`; Details und Anpassung des App-Store-Links in [seiten.md](../docs-site/content/seiten.md). Neu: `LandingPage.swift`, `LandingAssetData.swift` (generiert, `tools/landing-assets.sh`), `LandingPageTests.swift`; `Api.swift` um eine Route ergänzt, `SitePageTests` erwartet `/` nicht mehr als 404. Geprüft: `swift build`, `swift test --filter "LandingPage|SitePage"` grün; visuell in Firefox (390, 820, 1440 px; hell, dunkel; de, en). **Nicht geprüft:** Lighthouse/axe, Safari, echte Mobilgeräte, Rollout und Aufruf unter beiden Hostnamen. Kein Rollout.

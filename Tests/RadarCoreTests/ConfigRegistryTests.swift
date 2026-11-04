@@ -201,4 +201,22 @@ import Testing
         #expect(await again.tick() == .none)
         #expect(try await repo.replicas(now: Date()).first?.appliedGeneration == 1)
     }
+
+    @Test func unreadableSecretFileGivesAClearError() throws {
+        let missing = "/nonexistent-\(UUID().uuidString)/apns_key"
+        do {
+            _ = try Config.fromEnvironment(["PUSH_ENABLED": "true", "APNS_KEY_ID": "ABCDE12345", "APNS_TEAM_ID": "ZYXWV98765",
+                                            "APNS_TOPIC": "de.example.app", "APNS_KEY_FILE": missing])
+            Issue.record("expected a ConfigError")
+        } catch let error as ConfigError {
+            #expect(error.description == "APNS_KEY_FILE nicht lesbar: Secret apns_key gemountet? Deploy mit stack.push.yaml")
+            #expect(!error.description.contains(missing))
+        }
+        do {
+            _ = try Config.fromEnvironment(["DB_PASSWORD_FILE": missing])
+            Issue.record("expected a ConfigError")
+        } catch let error as ConfigError {
+            #expect(error.description.hasPrefix("DB_PASSWORD_FILE nicht lesbar"))
+        }
+    }
 }
