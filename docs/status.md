@@ -2,6 +2,10 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Landingpage (4. November 2026)
+
+`/` und `/en` liefern eine Landingpage (Showers), Assets unter `/assets/<name>.<hash>.<ext>`; Details und Anpassung des App-Store-Links in [seiten.md](../docs-site/content/seiten.md). Neu: `LandingPage.swift`, `LandingAssetData.swift` (generiert, `tools/landing-assets.sh`), `LandingPageTests.swift`; `Api.swift` um eine Route ergänzt, `SitePageTests` erwartet `/` nicht mehr als 404. Geprüft: `swift build`, `swift test --filter "LandingPage|SitePage"` grün; visuell in Firefox (390, 820, 1440 px; hell, dunkel; de, en). **Nicht geprüft:** Lighthouse/axe, Safari, echte Mobilgeräte, Rollout und Aufruf unter beiden Hostnamen. Kein Rollout.
+
 ## Umbenennung Showers: sichtbare Texte (3. November 2026)
 
 Nutzerentscheidung 3.11.2026: App heißt künftig Showers; nur Optisches wird umbenannt. Geändert: Seiten (`SitePages.swift`), APNs-Titel (Live-Activity-Start und Testmeldung), zugehörige Tests, `docs-site` (Marke, `api.md`, `seiten.md`, `index.md`), README. Unverändert: Domain `showernow.linolaske.de` (`showers.linolaske.de` zeigt laut Nutzer aufs selbe Backend), DB-/User-Name, Secrets, Lock, Compose/Swarm, Image, APNs-Topic, User-Agent. Code hat keinen Host-/CORS-Check. Geprüft: `swift build`, `swift test --filter "SitePage|PushActivity|PushTests"` 121 Tests grün. Nicht geprüft: DB-Suite (nur Texte), Rollout, curl gegen beide Hosts. **Betreiber:** nach Rollout erscheint der Push-Titel „Showers“ auch bei Nutzern mit der alten App-Version (ShowerNow). Commit `3df0c8d`; CI, Docker publish (Image `edge`) und Pages erfolgreich. Kein Rollout.

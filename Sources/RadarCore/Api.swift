@@ -199,6 +199,9 @@ public final class Api: Sendable {
                 : ApiResponse(status: 503, headers: [], body: Array("stale\n".utf8))
         }
         if path == "/v1/status" { return try await status() }
+        if let page = LandingPage.route(path: path, info: config.site) {
+            return respond(headers: page.headers, body: page.body, ifNoneMatch: ifNoneMatch, etag: page.etag)
+        }
         if let html = SitePages.render(path: path, info: config.site) {
             let body = Array(html.utf8)
             return respond(headers: [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "public, max-age=3600"),

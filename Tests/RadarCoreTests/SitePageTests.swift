@@ -104,7 +104,7 @@ struct SitePageTests {
         let health = try await a.handle(path: "/healthz", ifNoneMatch: nil)
         #expect(health.status == 200 && text(health) == "ok\n" && hdr(health, "Cache-Control") == "no-store")
         #expect(try await a.handle(path: "/v1/radar/latest.json", ifNoneMatch: nil).status == 404)  // nothing published
-        for bad in ["/", "/datenschutz/", "/impressum", "/v1/radar/x"] {
+        for bad in ["/datenschutz/", "/impressum", "/v1/radar/x"] {
             #expect(try await a.handle(path: bad, ifNoneMatch: nil).status == 404, "\(bad)")
         }
     }

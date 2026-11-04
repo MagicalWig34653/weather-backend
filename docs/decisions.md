@@ -207,3 +207,7 @@ Nutzerwunsch: Die Live Activity soll auch starten, wenn es bereits regnet, und d
 - Nutzerentscheidung: App heißt künftig Showers; es reicht die optische Umbenennung. Backend darf weiter über `showernow.linolaske.de` laufen, `showers.linolaske.de` zeigt auf dasselbe Backend.
 - Umgesetzt: sichtbare Texte (Seiten, APNs-Titel, Doku). Bewusst unverändert: Domain, DB-/User-Name, Secrets, Lock, Compose/Swarm, Image, APNs-Topic/Bundle-ID, User-Agent.
 - Folge: Der Push-Titel „Showers“ gilt serverseitig für alle Installationen, auch für alte App-Versionen.
+
+## Landingpage auf dem öffentlichen Port (4. November 2026)
+
+Nutzerauftrag: moderne Landingpage. Entscheidungen: `/` (Deutsch) und `/en` (Englisch) statt Aushandlung per `Accept-Language`; CSS und Bilder als Assets mit Hash im Pfad (strikte CSP ohne `unsafe-inline`); Bilder als Base64 im Swift-Code statt SwiftPM-Resources (das Image enthält nur das Binary); keine neue Umgebungsvariable, `APP_STORE_URL`/`TESTFLIGHT_URL` der Betreiberseiten werden mitgenutzt, Standard „Bald im App Store“. Kein `og:image` (absolute URL nötig). Offen: App-Store-Link, Impressum-Seite. Details: [seiten.md](../docs-site/content/seiten.md).
