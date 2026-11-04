@@ -55,7 +55,7 @@ struct HistoryConfigTests {
         #expect(try Config.fromEnvironment([:]).historyHours == 48)
         #expect(try Config.fromEnvironment(["HISTORY_HOURS": "1"]).historyHours == 1)
         #expect(try Config.fromEnvironment(["HISTORY_HOURS": "72"]).historyHours == 72)
-        for bad in ["0", "73", "-5", "abc", "1.5", ""] {
+        for bad in ["0", "73", "-5", "abc", "1.5"] {
             #expect(throws: ConfigError.self, "\(bad)") { _ = try Config.fromEnvironment(["HISTORY_HOURS": bad]) }
         }
         do { _ = try Config.fromEnvironment(["HISTORY_HOURS": "100"]) } catch {

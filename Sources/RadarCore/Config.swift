@@ -94,7 +94,7 @@ public struct Config: Sendable {
     public var height: Int { RadarConstants.imageHeight(width: width) }
 
     /// Secret from NAME_FILE (Swarm secret, preferred) or NAME; never logged.
-    private static func secret(_ env: [String: String], _ name: String, _ fallback: String) throws -> String {
+    static func secret(_ env: [String: String], _ name: String, _ fallback: String) throws -> String {
         if let path = env["\(name)_FILE"], !path.isEmpty {
             let text = try String(contentsOfFile: path, encoding: .utf8)
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -102,7 +102,9 @@ public struct Config: Sendable {
         return env[name] ?? fallback
     }
 
-    public static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) throws -> Config {
+    /// An empty variable counts as unset (deploy files pass `KEY: ${KEY:-}` through, see docs/dashboard-plan.md 5.1).
+    public static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) throws -> Config {
+        let env = environment.filter { !$0.value.isEmpty }
         var c = Config()
         func int(_ key: String, _ fallback: Int) throws -> Int {
             guard let raw = env[key] else { return fallback }
@@ -171,11 +173,18 @@ public struct Config: Sendable {
         c.push.regionLimits.maxSubscriptionsServerwide = try positive("PUSH_MAX_SUBSCRIPTIONS", c.push.regionLimits.maxSubscriptionsServerwide)
         c.push.regionLimits.maxCellsServerwide = try positive("PUSH_MAX_REGION_CELLS", c.push.regionLimits.maxCellsServerwide)
         c.push.regionLimits.maxLiveActivitySubscriptions = try positive("PUSH_MAX_ACTIVITY_SUBSCRIPTIONS", c.push.regionLimits.maxLiveActivitySubscriptions)
+        // Read even while push is off, so that a dashboard value for PUSH_ENABLED can use them (the key itself only when enabled).
+        c.push.keyID = text("APNS_KEY_ID")
+        c.push.teamID = text("APNS_TEAM_ID")
+        c.push.topic = text("APNS_TOPIC")
+        if c.push.enabled { c.push.keyPEM = try secret(env, "APNS_KEY", "") }
+        return try c.validated()
+    }
+
+    /// Cross-field and range checks shared by the environment loader and dashboard overrides (`applying(overrides:)`).
+    public func validated() throws -> Config {
+        let c = self
         if c.push.enabled {
-            c.push.keyPEM = try secret(env, "APNS_KEY", "")
-            c.push.keyID = text("APNS_KEY_ID")
-            c.push.teamID = text("APNS_TEAM_ID")
-            c.push.topic = text("APNS_TOPIC")
             guard !c.push.keyPEM.isEmpty, !c.push.keyID.isEmpty, !c.push.teamID.isEmpty, !c.push.topic.isEmpty else {
                 throw ConfigError(description: "PUSH_ENABLED=true needs APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID and APNS_TOPIC")
             }
