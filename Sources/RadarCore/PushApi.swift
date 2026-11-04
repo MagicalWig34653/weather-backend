@@ -62,30 +62,38 @@ final class RateLimiter: @unchecked Sendable {
 ///   POST   /v1/push/installations/{id}/test                     sends one clearly labelled test notification to the installation's token
 public final class PushApi: Sendable {
     public static let prefix = "/v1/push/"
-    public static let perInstallationLimit = 60
-    public static let globalRegistrationLimit = 600
+    public static let perInstallationLimit = PushRateLimits().perInstallation
+    public static let globalRegistrationLimit = PushRateLimits().globalRegistration
     /// All push requests per window and replica, counted before any lookup (flood protection; real traffic is far below).
-    public static let globalRequestLimit = 3000
+    public static let globalRequestLimit = PushRateLimits().globalRequest
     /// Failed authentications per installation id and window; further attempts get `429` without a database query.
-    public static let failedAuthLimit = 10
+    public static let failedAuthLimit = PushRateLimits().failedAuth
     public static let window: TimeInterval = 60
 
     let repo: any Repo
-    let config: Config
+    let configProvider: ConfigProvider
+    var config: Config { configProvider() }
     let clock: @Sendable () -> Date
     /// nil when the APNs key could not be loaded: the test route then answers `503 apns_unavailable`.
     let sender: (any ApnsSender)?
     private let limiter = RateLimiter()
-    private let globalRequestLimit: Int
+    /// Test override of the global request limit; nil = `config.push.rateLimits.globalRequest`.
+    private let globalRequestLimitOverride: Int?
+    private var globalRequestLimit: Int { globalRequestLimitOverride ?? config.push.rateLimits.globalRequest }
 
     /// Test notifications per installation and hour (in memory per replica, like the other limits).
-    public static let testLimit = 3
+    public static let testLimit = PushRateLimits().testPerHour
     public static let testWindow: TimeInterval = 3600
     static let testExpirySeconds: TimeInterval = 600
 
-    public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, globalRequestLimit: Int = PushApi.globalRequestLimit,
+    public convenience init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, globalRequestLimit: Int? = nil,
+                            clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(repo: repo, configProvider: ConfigProvider(config), sender: sender, globalRequestLimit: globalRequestLimit, clock: clock)
+    }
+
+    public init(repo: any Repo, configProvider: ConfigProvider, sender: (any ApnsSender)? = nil, globalRequestLimit: Int? = nil,
                 clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.repo = repo; self.config = config; self.sender = sender; self.clock = clock; self.globalRequestLimit = globalRequestLimit
+        self.repo = repo; self.configProvider = configProvider; self.sender = sender; self.clock = clock; self.globalRequestLimitOverride = globalRequestLimit
     }
 
     struct InstallationBody: Decodable { var token: String; var env: String; var locale: String; var live_activity_start_token: String? }
@@ -177,7 +185,7 @@ public final class PushApi: Sendable {
         let now = clock()
         guard countedGlobal || limiter.allow("global:any", limit: globalRequestLimit, window: Self.window, now: now) else { return Self.error(429, "rate_limited") }
         guard let installID = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
-        guard limiter.allow("i:" + installID, limit: Self.perInstallationLimit, window: Self.window, now: now) else {
+        guard limiter.allow("i:" + installID, limit: config.push.rateLimits.perInstallation, window: Self.window, now: now) else {
             return Self.error(429, "rate_limited")
         }
         do {
@@ -285,7 +293,7 @@ public final class PushApi: Sendable {
         guard let sender else { return Self.error(503, "apns_unavailable") }
         guard let target = try await repo.installation(id: installID) else { return Self.error(401, "unauthorized") }
         guard config.push.environments.contains(target.env) else { return Self.error(409, "environment_not_allowed") }
-        guard limiter.allow("t:" + installID, limit: Self.testLimit, window: Self.testWindow, now: now) else {
+        guard limiter.allow("t:" + installID, limit: config.push.rateLimits.testPerHour, window: Self.testWindow, now: now) else {
             var response = Self.error(429, "test_rate_limited")
             response.headers.append(("Retry-After", String(Int(Self.testWindow))))
             return response
@@ -335,11 +343,11 @@ public final class PushApi: Sendable {
     }
 
     private func blockedByFailures(_ installID: String, _ now: Date) -> Bool {
-        limiter.count("f:" + installID, window: Self.window, now: now) >= Self.failedAuthLimit
+        limiter.count("f:" + installID, window: Self.window, now: now) >= config.push.rateLimits.failedAuth
     }
 
     private func putInstallation(_ installID: String, secret: String?, body: [UInt8], now: Date) async throws -> ApiResponse {
-        guard limiter.allow("global:put", limit: Self.globalRegistrationLimit, window: Self.window, now: now) else {
+        guard limiter.allow("global:put", limit: config.push.rateLimits.globalRegistration, window: Self.window, now: now) else {
             return Self.error(429, "rate_limited")
         }
         guard let secret = Self.validSecret(secret) else { return Self.error(401, "unauthorized") }

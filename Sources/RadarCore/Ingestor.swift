@@ -18,15 +18,21 @@ public final class Ingestor: Sendable {
     public static let failCooldownSeconds = 240
     public static let staleAfter: TimeInterval = 3600
 
-    let config: Config
+    let configProvider: ConfigProvider
+    var config: Config { configProvider() }
     let repo: any Repo
     let fetch: Fetch
     let owner: String
     let sleep: @Sendable (Double) async -> Void
 
-    public init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
+    public convenience init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
+                            sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
+        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep)
+    }
+
+    public init(configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
-        self.config = config; self.repo = repo; self.fetch = fetch; self.owner = owner; self.sleep = sleep
+        self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner; self.sleep = sleep
     }
 
     private func renew(_ runID: String) async throws {

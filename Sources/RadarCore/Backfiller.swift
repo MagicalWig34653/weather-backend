@@ -86,7 +86,8 @@ public final class Backfiller: Sendable {
     /// The newest runs belong to the regular ingest.
     public static let guardSteps = 2
 
-    let config: Config
+    let configProvider: ConfigProvider
+    var config: Config { configProvider() }
     let repo: any Repo
     let fetch: Fetch
     let owner: String
@@ -94,11 +95,18 @@ public final class Backfiller: Sendable {
     let sleep: @Sendable (Double) async -> Void
     let clock: @Sendable () -> Date
 
-    public init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
+    public convenience init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
+                            isBusy: @escaping @Sendable () -> Bool = { false },
+                            sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
+                            clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, isBusy: isBusy, sleep: sleep, clock: clock)
+    }
+
+    public init(configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 isBusy: @escaping @Sendable () -> Bool = { false },
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
                 clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.config = config; self.repo = repo; self.fetch = fetch; self.owner = owner
+        self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.isBusy = isBusy; self.sleep = sleep; self.clock = clock
     }
 

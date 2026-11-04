@@ -79,7 +79,8 @@ public final class Api: Sendable {
     static let manifestTTL: TimeInterval = 5
 
     let repo: any Repo
-    let config: Config
+    let configProvider: ConfigProvider
+    var config: Config { configProvider() }
     let alive: @Sendable () -> Bool
     let clock: @Sendable () -> Date
     public let cache: SlotCache
@@ -105,11 +106,17 @@ public final class Api: Sendable {
         }
     }
 
-    public init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
+    public convenience init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
+                            clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(repo: repo, configProvider: ConfigProvider(config), sender: sender, alive: alive, clock: clock)
+    }
+
+    /// `restart` values (cache size, layers, push on/off) are read once here; `live` values are read per request from the provider.
+    public init(repo: any Repo, configProvider: ConfigProvider, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
                 clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.repo = repo; self.config = config; self.alive = alive; self.clock = clock
-        cache = SlotCache(maxBytes: config.cacheMaxBytes, clock: clock)
-        push = PushApi(repo: repo, config: config, sender: sender, clock: clock)
+        self.repo = repo; self.configProvider = configProvider; self.alive = alive; self.clock = clock
+        cache = SlotCache(maxBytes: configProvider().cacheMaxBytes, clock: clock)
+        push = PushApi(repo: repo, configProvider: configProvider, sender: sender, clock: clock)
     }
 
     static func etagMatches(_ header: String?, _ etag: String) -> Bool {

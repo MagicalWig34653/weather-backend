@@ -25,6 +25,21 @@ public enum RadarConstants {
     }
 }
 
+/// Request limits of the push API (per replica, per window; in memory). Defaults are the former constants of `PushApi`.
+public struct PushRateLimits: Sendable, Equatable {
+    /// Requests per installation and minute.
+    public var perInstallation = 60
+    /// Registrations (PUT installation) per minute and replica.
+    public var globalRegistration = 600
+    /// All push requests per minute and replica, counted before any lookup.
+    public var globalRequest = 3000
+    /// Failed authentications per installation id and minute.
+    public var failedAuth = 10
+    /// Test notifications per installation and hour.
+    public var testPerHour = 3
+    public init() {}
+}
+
 /// Optional server push (rain-start notifications). Disabled by default; the radar service does not need it.
 public struct PushSettings: Sendable {
     public var enabled = false
@@ -38,6 +53,7 @@ public struct PushSettings: Sendable {
     /// Server-wide caps (`PUSH_MAX_INSTALLATIONS`, `PUSH_MAX_SUBSCRIPTIONS`, `PUSH_MAX_REGION_CELLS`); new installations get `503 server_full` beyond them.
     public var maxInstallations = 100_000
     public var regionLimits = RegionLimits()
+    public var rateLimits = PushRateLimits()
     public init() {}
 }
 
@@ -177,6 +193,18 @@ public struct Config: Sendable {
         c.push.keyID = text("APNS_KEY_ID")
         c.push.teamID = text("APNS_TEAM_ID")
         c.push.topic = text("APNS_TOPIC")
+        func ranged(_ key: String, _ fallback: Int, _ range: ClosedRange<Int>) throws -> Int {
+            let value = try int(key, fallback)
+            guard range.contains(value) else { throw ConfigError(description: "\(key) must be between \(range.lowerBound) and \(range.upperBound)") }
+            return value
+        }
+        c.push.rateLimits.perInstallation = try ranged("PUSH_RATE_PER_INSTALLATION", c.push.rateLimits.perInstallation, 10...600)
+        c.push.rateLimits.globalRegistration = try ranged("PUSH_RATE_GLOBAL_REGISTRATIONS", c.push.rateLimits.globalRegistration, 60...6000)
+        c.push.rateLimits.globalRequest = try ranged("PUSH_RATE_GLOBAL_REQUESTS", c.push.rateLimits.globalRequest, 300...30000)
+        c.push.rateLimits.failedAuth = try ranged("PUSH_RATE_FAILED_AUTH", c.push.rateLimits.failedAuth, 3...60)
+        c.push.rateLimits.testPerHour = try ranged("PUSH_TEST_LIMIT_PER_HOUR", c.push.rateLimits.testPerHour, 1...10)
+        c.push.regionLimits.maxRegionsPerInstallation = try ranged("PUSH_MAX_REGIONS_PER_INSTALLATION", c.push.regionLimits.maxRegionsPerInstallation, 1...10)
+        c.push.regionLimits.maxCellsPerInstallation = try ranged("PUSH_MAX_CELLS_PER_INSTALLATION", c.push.regionLimits.maxCellsPerInstallation, 500...50000)
         if c.push.enabled { c.push.keyPEM = try secret(env, "APNS_KEY", "") }
         return try c.validated()
     }

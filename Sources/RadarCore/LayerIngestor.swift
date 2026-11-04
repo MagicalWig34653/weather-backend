@@ -20,17 +20,24 @@ public final class LayerIngestor: Sendable {
     public static let staleAfter: TimeInterval = 3600
 
     public let spec: LayerSpec
-    let config: Config
+    let configProvider: ConfigProvider
+    var config: Config { configProvider() }
     let repo: any Repo
     let fetch: Fetch
     let owner: String
     let sleep: @Sendable (Double) async -> Void
     let clock: @Sendable () -> Date
 
-    public init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
+    public convenience init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
+                            sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
+                            clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock)
+    }
+
+    public init(spec: LayerSpec, configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
                 clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.spec = spec; self.config = config; self.repo = repo; self.fetch = fetch; self.owner = owner
+        self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.sleep = sleep; self.clock = clock
     }
 

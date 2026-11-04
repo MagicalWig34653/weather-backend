@@ -192,10 +192,10 @@ public enum ConfigRegistry {
         s("HISTORY_HOURS", "Radar", .int(min: 1, max: 72), "48", unit: "h", "Stunden Radar-Historie (history.json).", .live),
         s("FETCH_WORKERS", "Radar", .int(min: 1, max: 6), "3", "Parallele Abrufe beim DWD.", .restart),
         s("AVAILABILITY_DELAY_SECONDS", "Radar", .number(min: 60, max: 900), "200", unit: "s",
-          "Wartezeit nach dem Rasterzeitpunkt bis zum Abruf.", .live),
-        s("JITTER_SECONDS", "Radar", .number(min: 0, max: 120), "20", unit: "s", "Zufälliger Zusatz vor Abrufen.", .live),
-        s("REQUEST_TIMEOUT_SECONDS", "Radar", .number(min: 5, max: 120), "30", unit: "s", "Timeout je Abruf.", .live),
-        s("USER_AGENT", "Radar", .text(maxLength: 200, rule: .printableASCII), "ShowerNow-radar-ingest/1.0", "Wird an DWD und EUMETSAT gesendet.", .live),
+          "Wartezeit nach dem Rasterzeitpunkt bis zum Abruf.", .restart),
+        s("JITTER_SECONDS", "Radar", .number(min: 0, max: 120), "20", unit: "s", "Zufälliger Zusatz vor Abrufen.", .restart),
+        s("REQUEST_TIMEOUT_SECONDS", "Radar", .number(min: 5, max: 120), "30", unit: "s", "Timeout je Abruf.", .restart),
+        s("USER_AGENT", "Radar", .text(maxLength: 200, rule: .printableASCII), "ShowerNow-radar-ingest/1.0", "Wird an DWD und EUMETSAT gesendet.", .restart),
         s("PRESSURE_FORECAST_HOURS", "Ebenen", .int(min: 1, max: 168), "48", unit: "h", "Vorhersagestunden Luftdruck.", .live),
         s("PRESSURE_EU_FORECAST_HOURS", "Ebenen", .int(min: 1, max: 168), "24", unit: "h", "Vorhersagestunden Luftdruck Europa (Bild 4,3-fach größer).", .live),
         s("PRESSURE_RETENTION_RUNS", "Ebenen", .int(min: 2, max: 8), "2", "Aufbewahrte Luftdruck-Läufe.", .live),
@@ -223,6 +223,13 @@ public enum ConfigRegistry {
         s("PUSH_MAX_SUBSCRIPTIONS", "Push-Grenzen", .int(min: 1, max: 5_000_000), "400000", "Obergrenze Abos.", .live),
         s("PUSH_MAX_REGION_CELLS", "Push-Grenzen", .int(min: 1, max: 500_000_000), "50000000", "Obergrenze Regionszellen (etwa 1 s je 50 Mio. Zellen).", .live),
         s("PUSH_MAX_ACTIVITY_SUBSCRIPTIONS", "Push-Grenzen", .int(min: 1, max: 50_000), "5000", "Obergrenze Live-Activity-Abos.", .live),
+        s("PUSH_MAX_REGIONS_PER_INSTALLATION", "Push-Grenzen", .int(min: 1, max: 10), "3", "Regionen je Installation.", .live),
+        s("PUSH_MAX_CELLS_PER_INSTALLATION", "Push-Grenzen", .int(min: 500, max: 50_000), "8000", "Rasterzellen je Installation.", .live),
+        s("PUSH_RATE_PER_INSTALLATION", "Push-Ratenlimits", .int(min: 10, max: 600), "60", unit: "pro Minute", "Anfragen je Installation.", .live),
+        s("PUSH_RATE_GLOBAL_REGISTRATIONS", "Push-Ratenlimits", .int(min: 60, max: 6_000), "600", unit: "pro Minute", "Registrierungen je Replikat.", .live),
+        s("PUSH_RATE_GLOBAL_REQUESTS", "Push-Ratenlimits", .int(min: 300, max: 30_000), "3000", unit: "pro Minute", "Alle Push-Anfragen je Replikat (Überlastschutz).", .live),
+        s("PUSH_RATE_FAILED_AUTH", "Push-Ratenlimits", .int(min: 3, max: 60), "10", unit: "pro Minute", "Fehlgeschlagene Anmeldungen je Installation.", .live),
+        s("PUSH_TEST_LIMIT_PER_HOUR", "Push-Ratenlimits", .int(min: 1, max: 10), "3", unit: "pro Stunde", "Testmeldungen je Installation.", .live),
     ]
 
     private static let index: [String: ConfigSetting] = Dictionary(settings.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
@@ -465,6 +472,13 @@ extension Config {
             case "PUSH_MAX_SUBSCRIPTIONS": c.push.regionLimits.maxSubscriptionsServerwide = try int(key, raw)
             case "PUSH_MAX_REGION_CELLS": c.push.regionLimits.maxCellsServerwide = try int(key, raw)
             case "PUSH_MAX_ACTIVITY_SUBSCRIPTIONS": c.push.regionLimits.maxLiveActivitySubscriptions = try int(key, raw)
+            case "PUSH_MAX_REGIONS_PER_INSTALLATION": c.push.regionLimits.maxRegionsPerInstallation = try int(key, raw)
+            case "PUSH_MAX_CELLS_PER_INSTALLATION": c.push.regionLimits.maxCellsPerInstallation = try int(key, raw)
+            case "PUSH_RATE_PER_INSTALLATION": c.push.rateLimits.perInstallation = try int(key, raw)
+            case "PUSH_RATE_GLOBAL_REGISTRATIONS": c.push.rateLimits.globalRegistration = try int(key, raw)
+            case "PUSH_RATE_GLOBAL_REQUESTS": c.push.rateLimits.globalRequest = try int(key, raw)
+            case "PUSH_RATE_FAILED_AUTH": c.push.rateLimits.failedAuth = try int(key, raw)
+            case "PUSH_TEST_LIMIT_PER_HOUR": c.push.rateLimits.testPerHour = try int(key, raw)
             default: throw ConfigError(description: "\(key) has no dashboard mapping")
             }
         }
