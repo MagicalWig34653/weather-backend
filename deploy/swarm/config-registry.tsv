@@ -1,0 +1,63 @@
+#key	group	type	default	unit	min	max	choices	apply	secret	summary
+DB_HOST	Datenbank	text:free	127.0.0.1			500		envOnly	0	Datenbank-Host (Bootstrap vor dem ersten DB-Zugriff).
+DB_PORT	Datenbank	int	3306		1	65535		envOnly	0	Datenbank-Port.
+DB_NAME	Datenbank	text:free	showernow			500		envOnly	0	Name des Schemas.
+DB_USER	Datenbank	text:free	showernow			500		envOnly	0	Datenbank-Benutzer.
+DB_PASSWORD	Datenbank	secret						envOnly	1	Passwort (Swarm-Secret), nur per Umgebung.
+DB_POOL_SIZE	Datenbank	int	4		1	10		envOnly	0	Größe des Verbindungspools.
+HTTP_PORT	Dienst	int	8080		1	65535		envOnly	0	Port des Radar-Listeners.
+REPLICA_SLOT	Neustart	int			1	99		envOnly	0	Replikat-Index aus dem Swarm-Template (Task.Slot).
+RESTART_STAGGER_SECONDS	Neustart	int	45	s	15	300		envOnly	0	Abstand zwischen den Replikaten beim kontrollierten Neustart.
+DASH_ENABLED	Dashboard	bool	false					envOnly	0	Dashboard-Listener einschalten.
+DASH_PORT	Dashboard	int	9090		1	65535		envOnly	0	Port des Dashboard-Listeners.
+DASH_ORIGIN	Dashboard	text:free				500		envOnly	0	Erlaubter Origin (WebAuthn, CSRF).
+DASH_RP_ID	Dashboard	text:free				500		envOnly	0	WebAuthn Relying-Party-ID.
+DASH_SETUP_WINDOW_MINUTES	Dashboard	int	15	min	1	120		envOnly	0	Zeitfenster der Ersteinrichtung.
+DASH_SESSION_HOURS	Dashboard	int	12	h	1	72		envOnly	0	Maximale Sitzungsdauer.
+DASH_IDLE_MINUTES	Dashboard	int	30	min	1	240		envOnly	0	Abmeldung bei Inaktivität.
+MIGRATIONS_DIR	Dienst	text:free	migrations			500		envOnly	0	Verzeichnis der SQL-Migrationen.
+BUILD_REVISION	Dienst	text:free				500		envOnly	0	Commit des Images (nur Anzeige).
+WMS_URL	Quellen	text:free	https://maps.dwd.de/geoserver/ows			500		envOnly	0	DWD-WMS (nur für Tests ändern).
+EUMETSAT_WMS_URL	Quellen	text:free	https://view.eumetsat.int/geoserver/wms			500		envOnly	0	EUMETSAT-WMS (nur für Tests ändern).
+APNS_KEY	Push	secret						envOnly	1	APNs-Schlüssel (.p8, Swarm-Secret), nur per Umgebung.
+CACHE_MAX_MB	Cache	int	64	MB	8	1024		restart	0	Größe des Bild-Caches im Speicher.
+IMAGE_WIDTH	Radar	int	1024	px	256	2048		restart	0	Breite des Radarbilds; mit Push fest 1024. Änderung entwertet das Bildraster.
+LAYERS	Ebenen	layers					pressure|pressure_eu|lightning|clouds|cloudmask|cloudmask_vis|cloudmask_vis_eu	restart	0	Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.
+RETENTION_RUNS	Radar	int	16		15	96		live	0	Aufbewahrte Radar-Läufe.
+HISTORY_HOURS	Radar	int	48	h	1	72		live	0	Stunden Radar-Historie (history.json).
+FETCH_WORKERS	Radar	int	3		1	6		restart	0	Parallele Abrufe beim DWD.
+AVAILABILITY_DELAY_SECONDS	Radar	number	200	s	60	900		restart	0	Wartezeit nach dem Rasterzeitpunkt bis zum Abruf.
+JITTER_SECONDS	Radar	number	20	s	0	120		restart	0	Zufälliger Zusatz vor Abrufen.
+REQUEST_TIMEOUT_SECONDS	Radar	number	30	s	5	120		restart	0	Timeout je Abruf.
+USER_AGENT	Radar	text:printableASCII	ShowerNow-radar-ingest/1.0			200		restart	0	Wird an DWD und EUMETSAT gesendet.
+PRESSURE_FORECAST_HOURS	Ebenen	int	48	h	1	168		live	0	Vorhersagestunden Luftdruck.
+PRESSURE_EU_FORECAST_HOURS	Ebenen	int	24	h	1	168		live	0	Vorhersagestunden Luftdruck Europa (Bild 4,3-fach größer).
+PRESSURE_RETENTION_RUNS	Ebenen	int	2		2	8		live	0	Aufbewahrte Luftdruck-Läufe.
+LIGHTNING_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie Blitze.
+CLOUDS_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie Wolken.
+CLOUDMASK_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie Wolkenmaske.
+CLOUDMASK_VIS_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie sichtbarer Kanal.
+CLOUDMASK_VIS_EU_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie sichtbarer Kanal Europa.
+LAYER_PAUSE_SECONDS	Ebenen	number	2	s	1	60		live	0	Pause zwischen zwei Abrufen einer Zusatzebene (Dashboard strenger als der Code, schont den DWD).
+OPERATOR_NAME	Betreiberseiten	text:free				500		live	0	Name auf /datenschutz.
+OPERATOR_ADDRESS	Betreiberseiten	text:free				500		live	0	Anschrift auf /datenschutz.
+OPERATOR_EMAIL	Betreiberseiten	text:free				500		live	0	E-Mail auf /datenschutz.
+PROXY_LOG_NOTE	Betreiberseiten	text:free				500		live	0	Satz zu Zugriffsprotokollen des Reverse Proxys.
+APP_STORE_URL	Betreiberseiten	url:apps.apple.com				500		live	0	App-Store-Link auf /marketing.
+TESTFLIGHT_URL	Betreiberseiten	url:testflight.apple.com				500		live	0	TestFlight-Link auf /marketing.
+PUSH_ENABLED	Push	bool	false					restart	0	Server-Push einschalten (braucht APNs-Werte, Schlüssel und IMAGE_WIDTH=1024).
+APNS_KEY_ID	Push	text:apnsIdentifier				10		restart	0	Key-ID des APNs-Schlüssels (10 Zeichen).
+APNS_TEAM_ID	Push	text:apnsIdentifier				10		restart	0	Apple Team-ID (10 Zeichen).
+APNS_TOPIC	Push	text:bundleIdentifier				155		restart	0	Bundle-ID der App.
+APNS_ENV	Push	choice	production				sandbox|production|both	restart	0	Erlaubte APNs-Hosts.
+PUSH_MAX_INSTALLATIONS	Push-Grenzen	int	100000		1	1000000		live	0	Obergrenze Installationen (503 server_full).
+PUSH_MAX_SUBSCRIPTIONS	Push-Grenzen	int	400000		1	5000000		live	0	Obergrenze Abos.
+PUSH_MAX_REGION_CELLS	Push-Grenzen	int	50000000		1	500000000		live	0	Obergrenze Regionszellen (etwa 1 s je 50 Mio. Zellen).
+PUSH_MAX_ACTIVITY_SUBSCRIPTIONS	Push-Grenzen	int	5000		1	50000		live	0	Obergrenze Live-Activity-Abos.
+PUSH_MAX_REGIONS_PER_INSTALLATION	Push-Grenzen	int	3		1	10		live	0	Regionen je Installation.
+PUSH_MAX_CELLS_PER_INSTALLATION	Push-Grenzen	int	8000		500	50000		live	0	Rasterzellen je Installation.
+PUSH_RATE_PER_INSTALLATION	Push-Ratenlimits	int	60	pro Minute	10	600		live	0	Anfragen je Installation.
+PUSH_RATE_GLOBAL_REGISTRATIONS	Push-Ratenlimits	int	600	pro Minute	60	6000		live	0	Registrierungen je Replikat.
+PUSH_RATE_GLOBAL_REQUESTS	Push-Ratenlimits	int	3000	pro Minute	300	30000		live	0	Alle Push-Anfragen je Replikat (Überlastschutz).
+PUSH_RATE_FAILED_AUTH	Push-Ratenlimits	int	10	pro Minute	3	60		live	0	Fehlgeschlagene Anmeldungen je Installation.
+PUSH_TEST_LIMIT_PER_HOUR	Push-Ratenlimits	int	3	pro Stunde	1	10		live	0	Testmeldungen je Installation.

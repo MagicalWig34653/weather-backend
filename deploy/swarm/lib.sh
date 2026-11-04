@@ -93,3 +93,14 @@ require_push_secret() {
   for k in APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC; do [ -n "$(env_value "$file" "$k")" ] || missing="$missing $k"; done
   [ -z "$missing" ] || die "PUSH_ENABLED=true, but these values are missing in ${file}:${missing}. Nothing was changed."
 }
+
+# Dashboard (optional): with DASH_ENABLED=true the overlay stack.dashboard.yaml must exist next to the scripts, otherwise stop with a
+# clear message instead of deploying without the dashboard. DASH_ENABLED from the shell wins over the env file (like PUSH_ENABLED).
+# Usage: require_dashboard_overlay [ENV_FILE]. Without ENV_FILE only the shell variable counts (swarm-deploy.sh already resolved it).
+require_dashboard_overlay() {
+  local file="${1:-}" enabled="${DASH_ENABLED-}"
+  if [ -z "${DASH_ENABLED+x}" ] && [ -n "$file" ] && [ -f "$file" ]; then enabled="$(env_value "$file" DASH_ENABLED)"; fi
+  [ "$enabled" = true ] || return 0
+  [ -f "$SCRIPT_DIR/stack.dashboard.yaml" ] \
+    || die "Dashboard-Overlay fehlt: diese Version enthält das Dashboard noch nicht (deploy/swarm/stack.dashboard.yaml nicht gefunden). DASH_ENABLED=true in der .env entfernen oder auf false setzen, oder zuerst update.sh --pull-scripts. Nothing was changed."
+}

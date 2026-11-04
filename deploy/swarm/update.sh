@@ -104,6 +104,9 @@ CURRENT_TAG="$(sed -n 's/^RADAR_IMAGE_TAG=//p' "$ENV_FILE" | tail -n 1 | tr -d "
 CURRENT_TAG="${CURRENT_TAG:-edge}"
 CURRENT_IMAGE="${IMAGE_BASE}:${CURRENT_TAG}"
 
+# Dashboard enabled (DASH_ENABLED=true in the shell or the env file) but the overlay is missing: stop before anything changes.
+require_dashboard_overlay "$ENV_FILE"
+
 step "Find the newest image tag"
 if [ -z "$TAG" ]; then
   find_newest_sha_tag

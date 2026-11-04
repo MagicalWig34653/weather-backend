@@ -1,7 +1,7 @@
 # weather-backend: Deploy-Branch
 
 Automatisch aus `main` gespiegelt (Workflow `deploy-branch.yml`). Nie hier ändern; Änderungen nur auf `main`.
-Enthält nur, was ein Docker-Swarm-Manager braucht: `deploy/swarm/*` und `.env.example`.
+Enthält nur, was ein Docker-Swarm-Manager braucht: `deploy/swarm/*` (Deploy-Skripte, `settings.sh` mit den Tabellen `config-*.tsv`) und `.env.example`.
 
 Installation (Voraussetzungen: git, docker, curl):
 
@@ -9,6 +9,7 @@ Installation (Voraussetzungen: git, docker, curl):
     cd radar && deploy/swarm/setup.sh
 
 Update: `deploy/swarm/update.sh --pull-scripts` (holt zuerst neue Skripte per `git pull --ff-only`, dann neues Image).
+Einstellungen per Menü: `deploy/swarm/settings.sh` (whiptail; `--list`, `--set KEY=VALUE`, `--check`).
 Die `.env` liegt im Ordner `radar/` und wird nie versioniert.
 
 Dokumentation: https://magicalwig34653.github.io/weather-backend/

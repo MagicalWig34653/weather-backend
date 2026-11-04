@@ -31,10 +31,11 @@ say() { echo "$*"; }
 die() { echo "$*" >&2; exit 1; }
 # shellcheck source=lib.sh
 . ./lib.sh
-if [[ -z "${PUSH_ENABLED+x}" || -z "${APNS_KEY_SECRET+x}" ]]; then
+if [[ -z "${PUSH_ENABLED+x}" || -z "${APNS_KEY_SECRET+x}" || -z "${DASH_ENABLED+x}" ]]; then
   for envf in "${ENV_FILE:-}" "$PWD/../../.env" "$PWD/.env"; do
     [[ -n "$envf" && -f "$envf" ]] || continue
     [[ -n "${PUSH_ENABLED+x}" ]] || PUSH_ENABLED="$(env_value "$envf" PUSH_ENABLED)"
+    [[ -n "${DASH_ENABLED+x}" ]] || DASH_ENABLED="$(env_value "$envf" DASH_ENABLED)"
     [[ -n "${APNS_KEY_SECRET+x}" ]] || APNS_KEY_SECRET="$(env_value "$envf" APNS_KEY_SECRET)"
     break
   done
@@ -44,6 +45,13 @@ if [[ "${PUSH_ENABLED:-false}" == true ]]; then
     || { echo "PUSH_ENABLED=true, but the Swarm secret ${APNS_KEY_SECRET:-showernow_apns_key} does not exist (docker secret create ${APNS_KEY_SECRET:-showernow_apns_key} AuthKey_XXXXXXXXXX.p8)." >&2; exit 1; }
   compose_args+=(-c stack.push.yaml)
   echo "Push enabled: stack files ${compose_args[*]}"
+fi
+# Optional dashboard (DASH_ENABLED=true): own service "dashboard" from the overlay stack.dashboard.yaml (no published port).
+# The overlay is delivered with the dashboard work package; as long as it is missing, enabling it must not silently deploy without it.
+if [[ "${DASH_ENABLED:-false}" == true ]]; then
+  require_dashboard_overlay
+  compose_args+=(-c stack.dashboard.yaml)
+  echo "Dashboard enabled: stack files ${compose_args[*]}"
 fi
 for f in ${STACK_EXTRA_FILES:-}; do compose_args+=(-c "$f"); done
 # The DB is external: the one-shot migration below fails (without retry) if the DB is unreachable.
