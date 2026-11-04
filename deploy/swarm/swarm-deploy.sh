@@ -23,10 +23,27 @@ image=${RADAR_MIGRATE_IMAGE:-ghcr.io/magicalwig34653/weather-backend-radar:${RAD
 compose_args=(-c stack.yaml)
 # Optional push: only when PUSH_ENABLED=true (needs the external secret apns_key, see stack.push.yaml). Without push the
 # stack does not reference the secret, so a missing secret cannot break the rollout.
+# PUSH_ENABLED / APNS_KEY_SECRET normally come from the caller's environment (update.sh and setup.sh source the env file).
+# If they are not set there (e.g. swarm-deploy.sh started by hand), read them from the env file (ENV_FILE, ./.env or
+# ../../.env) so that the overlay is not skipped silently. The shell environment always wins.
+SCRIPT_DIR="$(pwd)"
+say() { echo "$*"; }
+die() { echo "$*" >&2; exit 1; }
+# shellcheck source=lib.sh
+. ./lib.sh
+if [[ -z "${PUSH_ENABLED+x}" || -z "${APNS_KEY_SECRET+x}" ]]; then
+  for envf in "${ENV_FILE:-}" "$PWD/../../.env" "$PWD/.env"; do
+    [[ -n "$envf" && -f "$envf" ]] || continue
+    [[ -n "${PUSH_ENABLED+x}" ]] || PUSH_ENABLED="$(env_value "$envf" PUSH_ENABLED)"
+    [[ -n "${APNS_KEY_SECRET+x}" ]] || APNS_KEY_SECRET="$(env_value "$envf" APNS_KEY_SECRET)"
+    break
+  done
+fi
 if [[ "${PUSH_ENABLED:-false}" == true ]]; then
   docker secret inspect "${APNS_KEY_SECRET:-showernow_apns_key}" >/dev/null 2>&1 \
-    || { echo "PUSH_ENABLED=true, but the Swarm secret ${APNS_KEY_SECRET:-showernow_apns_key} does not exist (docker secret create ...)." >&2; exit 1; }
+    || { echo "PUSH_ENABLED=true, but the Swarm secret ${APNS_KEY_SECRET:-showernow_apns_key} does not exist (docker secret create ${APNS_KEY_SECRET:-showernow_apns_key} AuthKey_XXXXXXXXXX.p8)." >&2; exit 1; }
   compose_args+=(-c stack.push.yaml)
+  echo "Push enabled: stack files ${compose_args[*]}"
 fi
 for f in ${STACK_EXTRA_FILES:-}; do compose_args+=(-c "$f"); done
 # The DB is external: the one-shot migration below fails (without retry) if the DB is unreachable.
