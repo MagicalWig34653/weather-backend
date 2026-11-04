@@ -49,7 +49,7 @@ fi
 # Optional dashboard (DASH_ENABLED=true): own service "dashboard" from the overlay stack.dashboard.yaml (no published port).
 # The overlay is delivered with the dashboard work package; as long as it is missing, enabling it must not silently deploy without it.
 if [[ "${DASH_ENABLED:-false}" == true ]]; then
-  require_dashboard_overlay
+  require_dashboard_overlay ""
   compose_args+=(-c stack.dashboard.yaml)
   echo "Dashboard enabled: stack files ${compose_args[*]}"
 fi

@@ -180,7 +180,7 @@ eff_value() {
 }
 queue_set() { # KEY WERT (bereits geprüft)
   unset 'PEND_UNSET[$1]'
-  if ! [ -n "${PEND_SET[$1]+x}" ] && in_file "$1" && [ "${ENV_VAL[$1]}" = "$2" ]; then return 0; fi
+  if [ -z "${PEND_SET[$1]+x}" ] && in_file "$1" && [ "${ENV_VAL[$1]}" = "$2" ]; then return 0; fi
   PEND_SET[$1]="$2"
 }
 queue_unset() {
