@@ -47,29 +47,37 @@ private final class FakeAuthenticator: @unchecked Sendable {
     /// Body of `setup/finish`.
     func registration(challengeID: String, challenge: String, origin: String = origin, rpID: String = rpID,
                       flags: UInt8 = 0x45, signCount: UInt32 = 0) -> [UInt8] {
-        let authData = rpHash(rpID) + [flags] + counter(signCount) + [UInt8](repeating: 0, count: 16)
-            + [UInt8(credentialID.count >> 8), UInt8(credentialID.count & 0xFF)] + credentialID + coseKey
-        let attestation = cMap([(cText("fmt"), cText("none")), (cText("attStmt"), cMap([])), (cText("authData"), cBytes(authData))])
-        return json(["challengeId": challengeID, "credential": [
-            "id": b64(credentialID), "rawId": b64(credentialID), "type": "public-key",
-            "response": ["clientDataJSON": b64(clientData(type: "webauthn.create", challenge: challenge, origin: origin)),
-                         "attestationObject": b64(attestation), "transports": ["internal"]],
-        ]])
+        var authData: [UInt8] = rpHash(rpID)
+        authData.append(flags)
+        authData += counter(signCount)
+        authData += [UInt8](repeating: 0, count: 16)
+        authData += [UInt8(credentialID.count >> 8), UInt8(credentialID.count & 0xFF)]
+        authData += credentialID
+        authData += coseKey
+        let attStmt: [([UInt8], [UInt8])] = [(cText("fmt"), cText("none")), (cText("attStmt"), cMap([])), (cText("authData"), cBytes(authData))]
+        let attestation = cMap(attStmt)
+        let clientDataB64: String = b64(clientData(type: "webauthn.create", challenge: challenge, origin: origin))
+        let response: [String: Any] = ["clientDataJSON": clientDataB64, "attestationObject": b64(attestation), "transports": ["internal"]]
+        let credential: [String: Any] = ["id": b64(credentialID), "rawId": b64(credentialID), "type": "public-key", "response": response]
+        let body: [String: Any] = ["challengeId": challengeID, "credential": credential]
+        return json(body)
     }
 
     /// Body of `login/finish`.
     func assertion(challengeID: String, challenge: String, signCount: UInt32, origin: String = origin, rpID: String = rpID,
                    flags: UInt8 = 0x05, signWith: P256.Signing.PrivateKey? = nil, credentialID idOverride: [UInt8]? = nil) -> [UInt8] {
-        let authData = rpHash(rpID) + [flags] + counter(signCount)
+        var authData: [UInt8] = rpHash(rpID)
+        authData.append(flags)
+        authData += counter(signCount)
         let cd = clientData(type: "webauthn.get", challenge: challenge, origin: origin)
-        let message = authData + Array(SHA256.hash(data: cd))
+        let message: [UInt8] = authData + Array(SHA256.hash(data: cd))
         let signature = try! (signWith ?? key).signature(for: message).derRepresentation
         let id = idOverride ?? credentialID
-        return json(["challengeId": challengeID, "credential": [
-            "id": b64(id), "rawId": b64(id), "type": "public-key",
-            "response": ["clientDataJSON": b64(cd), "authenticatorData": b64(authData), "signature": b64([UInt8](signature)),
-                         "userHandle": b64(Array("operator".utf8))],
-        ]])
+        let response: [String: Any] = ["clientDataJSON": b64(cd), "authenticatorData": b64(authData), "signature": b64([UInt8](signature)),
+                                       "userHandle": b64(Array("operator".utf8))]
+        let credential: [String: Any] = ["id": b64(id), "rawId": b64(id), "type": "public-key", "response": response]
+        let body: [String: Any] = ["challengeId": challengeID, "credential": credential]
+        return json(body)
     }
 }
 
@@ -242,7 +250,8 @@ struct DashboardAuthTests {
     @Test(arguments: RepoKind.allCases) func registrationRejectsBadAttestation(kind: RepoKind) async throws {
         let h = Harness(repo: try await kind.make(), scale: 100)
         let device = FakeAuthenticator()
-        for (origin, rp, flags) in [("https://evil.example.test", rpID, UInt8(0x45)), (origin, "evil.example.test", UInt8(0x45)), (origin, rpID, UInt8(0x41))] {
+        let variants: [(String, String, UInt8)] = [("https://evil.example.test", rpID, 0x45), (origin, "evil.example.test", 0x45), (origin, rpID, 0x41)]
+        for (origin, rp, flags) in variants {
             let begin = try await h.auth.beginSetup()
             await expectError(401) {
                 _ = try await h.auth.finishSetup(body: device.registration(challengeID: begin.challengeId, challenge: begin.options.challenge,
