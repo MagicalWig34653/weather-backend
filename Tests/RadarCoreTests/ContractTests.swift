@@ -229,7 +229,7 @@ struct ContractTests {
         let doc = try JSONSerialization.jsonObject(with: Data(latest.body)) as? [String: Any]
         #expect(doc?["run"] as? String == "20261030T1105Z")
 
-        for bad in ["/v1/radar/../x", "/v1/radar/20261030T1105Z/nope.webp", "/", "/v1/radar/20990101T0000Z/20990101T0000Z.webp"] {
+        for bad in ["/v1/radar/../x", "/v1/radar/20261030T1105Z/nope.webp", "/index.html", "/v1/radar/20990101T0000Z/20990101T0000Z.webp"] {
             #expect(try await api.handle(path: bad, ifNoneMatch: nil).status == 404, "\(bad)")
         }
         let health = try await api.handle(path: "/healthz", ifNoneMatch: nil)
