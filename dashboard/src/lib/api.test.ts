@@ -40,11 +40,11 @@ describe('ApiClient', () => {
 	it('sendet bei Schreibzugriffen JSON, Content-Type und Token', async () => {
 		const { api, fetch } = setup(response({ key: 'A' }));
 		api.setCsrfToken('tok');
-		await api.setConfig('HISTORY_HOURS', 8);
+		await api.setConfig('HISTORY_HOURS', '8');
 		const [url, init] = fetch.mock.calls[0];
 		expect(url).toBe('/dash/api/config/HISTORY_HOURS');
 		expect(init?.method).toBe('PUT');
-		expect(init?.body).toBe(JSON.stringify({ value: 8 }));
+		expect(init?.body).toBe(JSON.stringify({ value: '8' }));
 		const headers = init?.headers as Record<string, string>;
 		expect(headers['Content-Type']).toBe('application/json');
 		expect(headers['X-CSRF-Token']).toBe('tok');
@@ -78,6 +78,16 @@ describe('ApiClient', () => {
 		await expect(api.config()).rejects.toMatchObject({ status, code, message: 'Text' });
 	});
 
+	it('liest Retry-After bei 429', async () => {
+		const { api } = setup(
+			new Response(JSON.stringify({}), { status: 429, headers: { 'Retry-After': '240' } })
+		);
+		await expect(api.restartState()).rejects.toMatchObject({
+			code: 'rate_limited',
+			retryAfter: 240
+		});
+	});
+
 	it('toleriert Fehlerantworten ohne JSON-Koerper', async () => {
 		const { api } = setup(new Response('', { status: 403 }));
 		const err = await api.config().catch((e) => e);
@@ -95,7 +105,7 @@ describe('ApiClient', () => {
 		api.setCsrfToken('tok');
 		await api.logout();
 		fetch.mockResolvedValueOnce(response({}));
-		await api.setConfig('A', 1);
+		await api.setConfig('A', '1');
 		const headers = fetch.mock.calls[1][1]?.headers as Record<string, string>;
 		expect(headers['X-CSRF-Token']).toBeUndefined();
 	});

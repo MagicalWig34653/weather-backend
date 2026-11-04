@@ -12,33 +12,34 @@
 	let { entry, onchange }: { entry: ConfigEntry; onchange: (e: ConfigEntry) => void } = $props();
 
 	// Entwurf startet bewusst mit dem aktuellen Wert; spaetere Aenderungen setzt run() selbst.
-	const initial = () => (entry.value === null ? '' : String(entry.value));
+	const initial = () => entry.value ?? '';
 	let draft = $state(initial());
-	let checked = $state(untrack(() => entry.value === true));
+	let checked = $state(untrack(() => entry.value === 'true'));
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
 	const isBool = $derived(entry.type === 'bool');
 	const dirty = $derived(
-		isBool
-			? checked !== (entry.value === true)
-			: draft !== (entry.value === null ? '' : String(entry.value))
+		isBool ? checked !== (entry.value === 'true') : draft !== (entry.value ?? '')
 	);
 	const canReset = $derived(entry.source === 'dashboard');
 	const id = $derived(`cfg-${entry.key}`);
 	const bounds = $derived(
-		entry.min !== null && entry.max !== null
-			? `${entry.min} bis ${entry.max}${entry.unit ? ' ' + entry.unit : ''}`
-			: entry.unit
+		entry.minimum != null && entry.maximum != null
+			? `${entry.minimum} bis ${entry.maximum}${entry.unit ? ' ' + entry.unit : ''}`
+			: entry.maxLength != null
+				? `bis ${entry.maxLength} Zeichen`
+				: entry.choices?.length
+					? entry.choices.join(', ')
+					: entry.unit
 	);
 
-	function parse(): string | number | boolean {
-		if (isBool) return checked;
-		if (entry.type === 'int' || entry.type === 'double' || entry.type === 'duration') {
-			return Number(draft.replace(',', '.'));
-		}
-		return draft;
+	// Das Backend erwartet immer Text und prueft Typ und Grenzen selbst (422 mit Begruendung).
+	function parse(): string {
+		return isBool ? String(checked) : draft.trim();
 	}
+
+	const readonly = $derived(entry.lockedByEnv || !entry.editable);
 
 	async function run(action: () => Promise<ConfigEntry>): Promise<void> {
 		busy = true;
@@ -46,12 +47,16 @@
 		try {
 			const updated = await action();
 			onchange(updated);
-			draft = updated.value === null ? '' : String(updated.value);
-			checked = updated.value === true;
+			draft = updated.value ?? '';
+			checked = updated.value === 'true';
 		} catch (e) {
 			if (e instanceof ApiError && e.code === 'unauthorized') session.expire();
 			else if (e instanceof ApiError && e.code === 'rate_limited')
 				error = 'Zu viele Änderungen. Bitte kurz warten.';
+			else if (e instanceof ApiError && e.code === 'conflict')
+				error = 'Durch Umgebungsvariable festgelegt, nicht änderbar.';
+			else if (e instanceof ApiError && e.code === 'forbidden')
+				error = 'Dieser Wert ist nicht über das Dashboard änderbar.';
 			else error = e instanceof ApiError ? e.message : 'Unbekannter Fehler.';
 		} finally {
 			busy = false;
@@ -63,26 +68,34 @@
 	<div class="space-y-1.5">
 		<div class="flex flex-wrap items-center gap-2">
 			<Label for={id} class="font-mono text-sm">{entry.key}</Label>
-			{#if entry.locked}
+			{#if entry.lockedByEnv}
 				<Badge variant="outline"
 					><LockIcon aria-hidden="true" class="size-3" />Durch Umgebungsvariable festgelegt</Badge
+				>
+			{:else if !entry.editable && !entry.secret}
+				<Badge variant="outline"
+					><LockIcon aria-hidden="true" class="size-3" />Nur per Umgebungsvariable</Badge
 				>
 			{:else if entry.source === 'dashboard'}
 				<Badge variant="secondary">Dashboard-Wert</Badge>
 			{:else}
 				<Badge variant="outline">Standard</Badge>
 			{/if}
-			<Badge variant={entry.apply === 'restart' ? 'outline' : 'secondary'}>
-				{entry.apply === 'restart' ? 'Neustart nötig' : 'wirkt sofort'}
+			<Badge variant={entry.apply === 'live' ? 'secondary' : 'outline'}>
+				{entry.apply === 'restart'
+					? 'Neustart nötig'
+					: entry.apply === 'live'
+						? 'wirkt sofort'
+						: 'Bootstrap-Wert'}
 			</Badge>
-			{#if entry.restart_pending}
+			{#if entry.restartPending}
 				<Badge class="bg-warning text-warning-foreground">Neustart ausstehend</Badge>
 			{/if}
 		</div>
-		<p class="text-muted-foreground text-sm" id="{id}-desc">{entry.description}</p>
+		<p class="text-muted-foreground text-sm" id="{id}-desc">{entry.summary}</p>
 		<p class="text-muted-foreground text-xs">
-			Typ {entry.type}{bounds ? `, erlaubt ${bounds}` : ''}{entry.default !== null
-				? `, Standard ${entry.default}`
+			Typ {entry.type}{bounds ? `, erlaubt ${bounds}` : ''}{entry.defaultValue != null
+				? `, Standard ${entry.defaultValue}`
 				: ''}
 		</p>
 	</div>
@@ -108,17 +121,27 @@
 					{id}
 					type="checkbox"
 					bind:checked
-					disabled={entry.locked || busy}
+					disabled={readonly || busy}
 					class="accent-primary size-4"
 					aria-describedby="{id}-desc"
 				/>
 				{checked ? 'Ein' : 'Aus'}
 			</label>
+		{:else if entry.type === 'choice' && entry.choices}
+			<select
+				{id}
+				bind:value={draft}
+				disabled={readonly || busy}
+				aria-describedby="{id}-desc"
+				class="border-input bg-background focus-visible:ring-ring/50 h-9 w-full rounded-lg border px-2 text-sm outline-none focus-visible:ring-3 disabled:opacity-50"
+			>
+				{#each entry.choices as c (c)}<option value={c}>{c}</option>{/each}
+			</select>
 		{:else}
 			<Input
 				{id}
 				bind:value={draft}
-				disabled={entry.locked || busy}
+				disabled={readonly || busy}
 				inputmode={entry.type === 'int' ? 'numeric' : undefined}
 				aria-invalid={error ? true : undefined}
 				aria-describedby="{id}-desc{error ? ` ${id}-err` : ''}"
@@ -127,7 +150,7 @@
 		{#if error}
 			<p id="{id}-err" role="alert" class="text-destructive text-sm">{error}</p>
 		{/if}
-		{#if !entry.locked}
+		{#if !readonly}
 			<div class="flex gap-2">
 				<Button type="submit" size="sm" disabled={!dirty || busy}>Speichern</Button>
 				<Button

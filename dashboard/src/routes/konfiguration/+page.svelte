@@ -61,7 +61,7 @@
 		try {
 			restart = await api.requestRestart();
 			dialogOpen = false;
-			entries = entries.map((e) => ({ ...e, restart_pending: false }));
+			entries = entries.map((e) => ({ ...e, restartPending: false }));
 			clearInterval(poll);
 			poll = setInterval(async () => {
 				try {
@@ -75,7 +75,7 @@
 		} catch (e) {
 			if (e instanceof ApiError && e.code === 'unauthorized') session.expire();
 			else if (e instanceof ApiError && e.code === 'rate_limited')
-				restartError = 'Der letzte Neustart ist zu kurz her. Bitte einige Minuten warten.';
+				restartError = `Der letzte Neustart ist zu kurz her. Bitte ${e.retryAfter ? `etwa ${Math.ceil(e.retryAfter / 60)} Minute(n)` : 'einige Minuten'} warten.`;
 			else restartError = e instanceof ApiError ? e.message : 'Unbekannter Fehler.';
 		} finally {
 			restarting = false;

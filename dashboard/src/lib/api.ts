@@ -123,28 +123,36 @@ export interface StatsDaily {
 
 // ---------------------------------------------------------------- Konfiguration
 
-export type ConfigType = 'int' | 'double' | 'bool' | 'string' | 'duration' | 'list';
+/** Typname des Registers (ConfigRegistry.swift): int, number, text, url, bool, layers, choice, secret. */
+export type ConfigType =
+	'int' | 'number' | 'text' | 'url' | 'bool' | 'layers' | 'choice' | 'secret';
 export type ConfigSource = 'env' | 'dashboard' | 'default';
+/** live: wirkt nach hoechstens 30 s; restart: erst nach Neustart; envOnly: nur per Umgebungsvariable. */
+export type ConfigApply = 'live' | 'restart' | 'envOnly';
 
+/** Eintrag von GET /dash/api/config, Feldnamen wie `ConfigEntry` im Backend (camelCase, Werte als Text). */
 export interface ConfigEntry {
 	key: string;
 	group: string;
 	type: ConfigType;
-	default: string | number | boolean | null;
-	min: number | null;
-	max: number | null;
-	unit: string | null;
-	description: string;
-	/** live: wirkt nach hoechstens 30 s; restart: erst nach kontrolliertem Neustart. */
-	apply: 'live' | 'restart';
+	unit?: string | null;
+	summary: string;
+	apply: ConfigApply;
+	/** Geheimnis: value ist immer null, nie anzeigen oder speichern. */
+	secret: boolean;
+	/** false bei Geheimnissen und envOnly-Schluesseln. */
+	editable: boolean;
 	source: ConfigSource;
-	/** true bei source "env": durch Umgebungsvariable festgelegt, nicht aenderbar. */
-	locked: boolean;
-	/** Geheimnisse: immer null. */
-	value: string | number | boolean | null;
-	restart_pending: boolean;
-	/** Nur ENV, nie anzeigen oder speichern. */
-	secret?: boolean;
+	/** true: durch Umgebungsvariable festgelegt, nicht aenderbar. */
+	lockedByEnv: boolean;
+	value: string | null;
+	defaultValue: string | null;
+	isSet?: boolean | null;
+	minimum?: number | null;
+	maximum?: number | null;
+	maxLength?: number | null;
+	choices?: string[] | null;
+	restartPending: boolean;
 }
 
 export interface ConfigList {
@@ -197,7 +205,9 @@ export class ApiError extends Error {
 	constructor(
 		readonly status: number,
 		readonly code: ApiErrorCode,
-		message: string
+		message: string,
+		/** Sekunden aus dem Retry-After-Header (429), sonst null. */
+		readonly retryAfter: number | null = null
 	) {
 		super(message);
 		this.name = 'ApiError';
@@ -279,7 +289,13 @@ export class ApiClient {
 			} catch {
 				/* Fehlerantworten duerfen leer sein (z. B. 403 ohne Details). */
 			}
-			throw new ApiError(res.status, codeFor(res.status), message || `Fehler ${res.status}`);
+			const ra = Number(res.headers.get('Retry-After'));
+			throw new ApiError(
+				res.status,
+				codeFor(res.status),
+				message || `Fehler ${res.status}`,
+				Number.isFinite(ra) && ra > 0 ? ra : null
+			);
 		}
 		if (res.status === 204) return undefined as T;
 		return (await res.json()) as T;
@@ -329,7 +345,7 @@ export class ApiClient {
 	config() {
 		return this.request<ConfigList>('GET', '/config');
 	}
-	setConfig(key: string, value: string | number | boolean) {
+	setConfig(key: string, value: string) {
 		return this.request<ConfigEntry>('PUT', `/config/${encodeURIComponent(key)}`, { value });
 	}
 	resetConfig(key: string) {

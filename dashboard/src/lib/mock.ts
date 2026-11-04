@@ -66,92 +66,109 @@ const sampleConfig: ConfigEntry[] = [
 		key: 'HISTORY_HOURS',
 		group: 'Radar',
 		type: 'int',
-		default: 6,
-		min: 1,
-		max: 48,
+		defaultValue: '6',
+		minimum: 1,
+		maximum: 48,
 		unit: 'Stunden',
-		description: 'Länge der Radar-Historie, die vorgehalten wird.',
+		summary: 'Länge der Radar-Historie, die vorgehalten wird.',
 		apply: 'live',
+		editable: true,
+		secret: false,
 		source: 'dashboard',
-		locked: false,
-		value: 8,
-		restart_pending: false
+		lockedByEnv: false,
+		value: '8',
+		restartPending: false
 	},
 	{
 		key: 'LAYERS',
 		group: 'Radar',
-		type: 'list',
-		default: 'radar',
-		min: null,
-		max: null,
-		unit: null,
-		description: 'Aktivierte Zusatzebenen, kommagetrennt.',
+		type: 'layers',
+		defaultValue: 'radar',
+		summary: 'Aktivierte Zusatzebenen, kommagetrennt.',
 		apply: 'restart',
+		editable: true,
+		secret: false,
 		source: 'env',
-		locked: true,
+		lockedByEnv: true,
 		value: 'radar,pressure,lightning',
-		restart_pending: false
+		restartPending: false
 	},
 	{
-		key: 'RATE_LIMIT_PER_MINUTE',
-		group: 'Schutz',
+		key: 'FETCH_WORKERS',
+		group: 'Radar',
 		type: 'int',
-		default: 120,
-		min: 10,
-		max: 2000,
-		unit: 'pro Minute',
-		description: 'Anfragen je Installation und Minute, bevor 429 geantwortet wird.',
+		defaultValue: '2',
+		minimum: 1,
+		maximum: 8,
+		summary: 'Parallele Abrufe beim DWD.',
 		apply: 'live',
+		editable: true,
+		secret: false,
 		source: 'default',
-		locked: false,
-		value: 120,
-		restart_pending: false
+		lockedByEnv: false,
+		value: '2',
+		restartPending: false
 	},
 	{
-		key: 'LRU_CACHE_MB',
+		key: 'CACHE_MAX_MB',
 		group: 'Cache',
 		type: 'int',
-		default: 128,
-		min: 16,
-		max: 2048,
+		defaultValue: '128',
+		minimum: 16,
+		maximum: 2048,
 		unit: 'MB',
-		description: 'Größe des Arbeitsspeicher-Caches je Replikat.',
+		summary: 'Größe des Arbeitsspeicher-Caches je Replikat.',
 		apply: 'restart',
+		editable: true,
+		secret: false,
 		source: 'dashboard',
-		locked: false,
-		value: 256,
-		restart_pending: true
+		lockedByEnv: false,
+		value: '256',
+		restartPending: true
 	},
 	{
-		key: 'PUSH_ENABLED',
+		key: 'APNS_ENV',
 		group: 'Push',
-		type: 'bool',
-		default: false,
-		min: null,
-		max: null,
-		unit: null,
-		description: 'Schaltet den optionalen Pushdienst ein.',
+		type: 'choice',
+		defaultValue: 'production',
+		choices: ['sandbox', 'production', 'both'],
+		summary: 'Umgebung(en) für APNs.',
 		apply: 'restart',
+		editable: true,
+		secret: false,
 		source: 'default',
-		locked: false,
-		value: false,
-		restart_pending: false
+		lockedByEnv: false,
+		value: 'production',
+		restartPending: false
+	},
+	{
+		key: 'DB_HOST',
+		group: 'Datenbank',
+		type: 'text',
+		defaultValue: null,
+		summary: 'Datenbank-Host. Nur per Umgebungsvariable.',
+		apply: 'envOnly',
+		editable: false,
+		secret: false,
+		source: 'env',
+		lockedByEnv: true,
+		value: 'db.example.internal',
+		restartPending: false
 	},
 	{
 		key: 'APNS_KEY',
 		group: 'Push',
-		type: 'string',
-		default: null,
-		min: null,
-		max: null,
-		unit: null,
-		description: 'APNs-Schlüssel. Geheimnis, nur per Umgebungsvariable.',
-		apply: 'restart',
+		type: 'secret',
+		defaultValue: null,
+		summary: 'APNs-Schlüssel. Geheimnis, nur per Umgebungsvariable.',
+		apply: 'envOnly',
+		editable: false,
+		secret: true,
 		source: 'env',
-		locked: true,
+		lockedByEnv: true,
 		value: null,
-		restart_pending: false,
-		secret: true
+		isSet: true,
+		restartPending: false
 	}
 ];
 
@@ -165,7 +182,7 @@ export function createMockFetch() {
 			id: 3,
 			at: '2026-11-03T08:12:00Z',
 			action: 'set',
-			key: 'LRU_CACHE_MB',
+			key: 'CACHE_MAX_MB',
 			old_value: '128',
 			new_value: '256',
 			actor: 'operator'
@@ -202,7 +219,7 @@ export function createMockFetch() {
 					{ slot: 1, applied_generation: generation, state: 'running' },
 					{ slot: 2, applied_generation: generation, state: 'running' }
 				],
-		pending_keys: config.filter((c) => c.restart_pending).map((c) => c.key)
+		pending_keys: config.filter((c) => c.restartPending).map((c) => c.key)
 	});
 
 	return async function mockFetch(input: string, init: RequestInit = {}): Promise<Response> {
@@ -286,7 +303,7 @@ export function createMockFetch() {
 			if (body.confirm !== true) return json({ message: 'Bestätigung fehlt.' }, 400);
 			generation++;
 			restarting = true;
-			config = config.map((c) => ({ ...c, restart_pending: false }));
+			config = config.map((c) => ({ ...c, restartPending: false }));
 			audit.unshift({
 				id: audit.length + 1,
 				at: new Date().toISOString(),
@@ -303,21 +320,30 @@ export function createMockFetch() {
 		if (m) {
 			const entry = config.find((c) => c.key === m[1]);
 			if (!entry) return json({ message: 'Unbekannter Schlüssel.' }, 404);
-			if (entry.locked) return json({ message: 'Durch Umgebungsvariable festgelegt.' }, 409);
+			if (!entry.editable) return json({ message: 'Nicht änderbar.' }, 403);
+			if (entry.lockedByEnv) return json({ message: 'Durch Umgebungsvariable festgelegt.' }, 409);
 			if (method === 'PUT') {
-				const v = body.value;
+				const v = String(body.value ?? '');
 				if (entry.type === 'int') {
-					if (!Number.isInteger(v) || v < (entry.min ?? -Infinity) || v > (entry.max ?? Infinity)) {
+					const n = Number(v);
+					if (
+						!/^-?\d+$/.test(v) ||
+						n < (entry.minimum ?? -Infinity) ||
+						n > (entry.maximum ?? Infinity)
+					) {
 						return json(
-							{ message: `Erlaubt sind ganze Zahlen von ${entry.min} bis ${entry.max}.` },
+							{ message: `Erlaubt sind ganze Zahlen von ${entry.minimum} bis ${entry.maximum}.` },
 							422
 						);
 					}
 				}
+				if (entry.type === 'choice' && !entry.choices?.includes(v)) {
+					return json({ message: 'Ungültige Auswahl.' }, 422);
+				}
 				const old = String(entry.value);
 				entry.value = v;
 				entry.source = 'dashboard';
-				if (entry.apply === 'restart') entry.restart_pending = true;
+				if (entry.apply === 'restart') entry.restartPending = true;
 				audit.unshift({
 					id: audit.length + 1,
 					at: new Date().toISOString(),
@@ -331,16 +357,16 @@ export function createMockFetch() {
 			}
 			if (method === 'DELETE') {
 				const old = String(entry.value);
-				entry.value = entry.default;
+				entry.value = entry.defaultValue;
 				entry.source = 'default';
-				if (entry.apply === 'restart') entry.restart_pending = true;
+				if (entry.apply === 'restart') entry.restartPending = true;
 				audit.unshift({
 					id: audit.length + 1,
 					at: new Date().toISOString(),
 					action: 'reset',
 					key: entry.key,
 					old_value: old,
-					new_value: String(entry.default),
+					new_value: String(entry.defaultValue),
 					actor: 'operator'
 				});
 				return json(entry);
