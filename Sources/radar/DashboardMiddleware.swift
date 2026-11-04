@@ -1,0 +1,60 @@
+import RadarCore
+import Vapor
+
+// Thin Vapor wrappers around the framework independent guards in `RadarCore/DashboardSession.swift` (WP4).
+// Order on session routes: DashboardSessionMiddleware (host, cookie, 401) then DashboardCSRFMiddleware (origin, content type, token, 403).
+// Public auth routes (setup/login) use DashboardCSRFMiddleware(requireToken: false). No X-Forwarded-* header is ever read.
+
+struct DashboardSessionStorageKey: StorageKey { typealias Value = DashboardSessionInfo }
+
+extension Request {
+    /// Set by `DashboardSessionMiddleware`.
+    var dashboardSession: DashboardSessionInfo? {
+        get { storage[DashboardSessionStorageKey.self] }
+        set { storage[DashboardSessionStorageKey.self] = newValue }
+    }
+
+    var dashboardRequestInfo: DashboardRequestInfo {
+        DashboardRequestInfo(
+            method: method.rawValue, cookieHeader: headers.first(name: .cookie), origin: headers.first(name: .origin),
+            host: headers.first(name: .host), contentType: headers.first(name: .contentType),
+            csrfToken: headers.first(name: "X-CSRF-Token"))
+    }
+}
+
+func dashboardErrorResponse(_ error: DashboardAuthError) -> Response {
+    var headers = HTTPHeaders()
+    headers.add(name: .contentType, value: "application/json")
+    headers.add(name: .cacheControl, value: "no-store")
+    if let retry = error.retryAfter { headers.add(name: .retryAfter, value: String(retry)) }
+    return Response(status: HTTPStatus(statusCode: error.status), headers: headers, body: .init(string: "{\"error\":\"\(error.code)\"}"))
+}
+
+struct DashboardSessionMiddleware: AsyncMiddleware {
+    let sessions: DashboardSessions
+
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        do { request.dashboardSession = try await sessions.authenticate(request.dashboardRequestInfo) }
+        catch let error as DashboardAuthError { return dashboardErrorResponse(error) }
+        return try await next.respond(to: request)
+    }
+}
+
+struct DashboardCSRFMiddleware: AsyncMiddleware {
+    let sessions: DashboardSessions
+    /// False for the public setup/login routes (no session yet): only host, origin and content type are checked.
+    var requireToken = true
+
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        do {
+            let info = request.dashboardRequestInfo
+            if requireToken {
+                guard let session = request.dashboardSession else { return dashboardErrorResponse(.unauthorized) }
+                try sessions.authorizeWrite(info, session: session)
+            } else {
+                try sessions.checkWriteOrigin(info)
+            }
+        } catch let error as DashboardAuthError { return dashboardErrorResponse(error) }
+        return try await next.respond(to: request)
+    }
+}

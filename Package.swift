@@ -11,6 +11,8 @@ let package = Package(
         .package(url: "https://github.com/tayloraswift/swift-png.git", from: "4.5.2"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.24.0"),
+        // Dashboard passkeys (WebAuthn); pinned exactly, pre-release (docs/dashboard-plan.md 2.4).
+        .package(url: "https://github.com/swift-server/swift-webauthn.git", exact: "1.0.0-beta.1"),
     ],
     targets: [
         // libwebp (lossless encoder) from the system: libwebp-dev at build time, libwebp7 at run time.
@@ -26,6 +28,7 @@ let package = Package(
                 .product(name: "PNG", package: "swift-png"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "MySQLKit", package: "mysql-kit"),
+                .product(name: "WebAuthn", package: "swift-webauthn"),
             ]
         ),
         .executableTarget(
