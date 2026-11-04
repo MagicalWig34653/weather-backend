@@ -233,18 +233,18 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     /// Returns true when nothing is left to write. Safe to call concurrently: each call takes its own batch.
     @discardableResult
     public func flush() async -> Bool {
-        let (repo, batches): (Writer?, [String: [Key: Int]]) = lock.withLock {
-            guard let repo else { return (nil, [:]) }
+        let (writer, batches): (Writer?, [String: [Key: Int]]) = lock.withLock {
+            guard let target = self.repo else { return (nil, [:]) }
             var all = carry
             carry = [:]
             if !current.isEmpty { all[Self.utcDay(clock()), default: [:]].merge(current, uniquingKeysWith: +); current = [:] }
-            return (repo, all)
+            return (target, all)
         }
-        guard let repo else { return true }
+        guard let writer else { return true }
         var failed: [String: [Key: Int]] = [:]
         for (day, counters) in batches {
             let deltas = counters.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) }
-            do { try await repo.addStats(DashboardValidation.date(day: day), deltas) } catch { failed[day] = counters }
+            do { try await writer.addStats(DashboardValidation.date(day: day), deltas) } catch { failed[day] = counters }
         }
         if failed.isEmpty { return true }
         lock.withLock {
@@ -265,9 +265,9 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     /// Retention: runs `purgeDashboard` at most once per UTC day and process (idempotent, safe on every replica).
     @discardableResult
     public func purgeIfDue() async -> Bool {
-        let (repo, day): (Writer?, String) = lock.withLock { (repo, Self.utcDay(clock())) }
-        guard let repo, lock.withLock({ lastPurgeDay != day }) else { return false }
-        do { try await repo.purge(clock()) } catch { return false }
+        let (writer, day): (Writer?, String) = lock.withLock { (self.repo, Self.utcDay(clock())) }
+        guard let writer, lock.withLock({ lastPurgeDay != day }) else { return false }
+        do { try await writer.purge(clock()) } catch { return false }
         lock.withLock { lastPurgeDay = day }
         return true
     }
