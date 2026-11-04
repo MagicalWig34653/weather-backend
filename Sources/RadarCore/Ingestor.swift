@@ -24,15 +24,18 @@ public final class Ingestor: Sendable {
     let fetch: Fetch
     let owner: String
     let sleep: @Sendable (Double) async -> Void
+    let stats: any StatsSink
 
     public convenience init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
-                            sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
-        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep)
+                            sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
+                            stats: any StatsSink = NoStatsSink()) {
+        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, stats: stats)
     }
 
     public init(configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
-                sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
-        self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner; self.sleep = sleep
+                sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
+                stats: any StatsSink = NoStatsSink()) {
+        self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner; self.sleep = sleep; self.stats = stats
     }
 
     private func renew(_ runID: String) async throws {
@@ -102,11 +105,13 @@ public final class Ingestor: Sendable {
             throw CancellationError()
         } catch {
             try? await repo.fail(runID: runID, owner: owner, cooldownSeconds: Self.failCooldownSeconds)
+            stats.record("ingest_run", label: error is RunUnavailable ? "radar:missed" : "radar:error")
             throw error
         }
         // Analysis slots stay for HISTORY_HOURS plus 15 minutes of slack (derived from the run time, same on all replicas).
         let keepSince = run.addingTimeInterval(-(Double(config.historyHours) * 3600 + 900))
         _ = try? await repo.retain(keepPublished: config.retentionRuns, keepAnalysisSince: keepSince, staleAfter: Self.staleAfter)
+        stats.record("ingest_run", label: "radar:ok")
         return true
     }
 }

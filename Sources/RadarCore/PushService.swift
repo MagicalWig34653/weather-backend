@@ -39,11 +39,12 @@ public final class PushService: Sendable {
     /// Work of the last committed run that has not been sent yet; replaced by the next run, drained within each tick's budget.
     let activityQueue = PushGuarded<[ActivityWork]>([])
     public static let reservationTimeout: TimeInterval = 15 * 60
+    let stats: any StatsSink
 
     public init(config: Config, repo: any Repo, sender: any ApnsSender, owner: String, evaluationPageSize: Int = 2000,
                 activitySendsPerTick: Int = 200, activitySecondsPerTick: Double = 8,
-                clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.config = config; self.repo = repo; self.sender = sender; self.owner = owner; self.clock = clock
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
+        self.config = config; self.repo = repo; self.sender = sender; self.owner = owner; self.clock = clock; self.stats = stats
         self.evaluationPageSize = max(1, evaluationPageSize)
         self.activitySendsPerTick = max(1, activitySendsPerTick); self.activitySecondsPerTick = max(0.1, activitySecondsPerTick)
     }
@@ -199,13 +200,17 @@ public final class PushService: Sendable {
                 switch await sender.send(request) {
                 case .delivered:
                     try await repo.finishOutbox(id: item.id, .sent, now: now); result.sent += 1; progressed = true
+                    stats.record("push_sent", label: "delivered")
                 case .unregistered:
                     _ = try await repo.deleteInstallations(token: item.token, env: item.env); result.unregistered += 1; progressed = true
+                    stats.record("push_failed", label: "unregistered")
                 case .badToken(let reason), .rejected(let reason):
                     result.apnsReasons[String(reason.prefix(64)), default: 0] += 1
                     try await repo.finishOutbox(id: item.id, .dropped, now: now); result.dropped += 1; progressed = true
+                    stats.record("push_failed", label: "rejected")
                 case .retry(let reason):
                     result.apnsReasons[String(reason.prefix(64)), default: 0] += 1
+                    stats.record("push_failed", label: "retry")
                     let attempts = item.attempts + 1
                     let delay = Self.retryBackoffSeconds[min(attempts - 1, Self.retryBackoffSeconds.count - 1)] * (1 + Double.random(in: 0..<0.3))
                     let next = now.addingTimeInterval(delay)

@@ -19,10 +19,12 @@ public actor SlotCache {
     private let missingTTL: TimeInterval
     private let missingMax: Int
     private let clock: @Sendable () -> Date
+    private let stats: any StatsSink
     var missingCount: Int { missing.count }
 
-    public init(maxBytes: Int, missingTTL: TimeInterval = 10, missingMax: Int = 2000, clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.maxBytes = maxBytes; self.missingTTL = missingTTL; self.missingMax = max(1, missingMax); self.clock = clock
+    public init(maxBytes: Int, missingTTL: TimeInterval = 10, missingMax: Int = 2000, clock: @escaping @Sendable () -> Date = { Date() },
+                stats: any StatsSink = NoStatsSink()) {
+        self.maxBytes = maxBytes; self.missingTTL = missingTTL; self.missingMax = max(1, missingMax); self.clock = clock; self.stats = stats
     }
 
     private func rememberMissing(_ key: String) {
@@ -54,12 +56,14 @@ public actor SlotCache {
 
     /// On a miss exactly one task reads the DB per key; concurrent requests await the same task.
     public func load(_ key: String, _ loader: @escaping @Sendable () async throws -> SlotBlob?) async throws -> SlotBlob? {
-        if let hit = lookup(key) { return hit }
+        let scope = key.hasPrefix("layer:") ? "layer" : "radar"
+        if let hit = lookup(key) { stats.record("cache_hit", label: scope + ":memory"); return hit }
         if let until = missing[key] {
-            if until > clock() { return nil }
+            if until > clock() { stats.record("cache_hit", label: scope + ":negative"); return nil }
             missing[key] = nil
         }
-        if let flight = flights[key] { return try await flight.value }
+        if let flight = flights[key] { stats.record("cache_hit", label: scope + ":joined"); return try await flight.value }
+        stats.record("cache_miss", label: scope + ":db")
         dbReads += 1
         let task = Task { try await loader() }
         flights[key] = task
@@ -107,15 +111,15 @@ public final class Api: Sendable {
     }
 
     public convenience init(repo: any Repo, config: Config, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
-                            clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.init(repo: repo, configProvider: ConfigProvider(config), sender: sender, alive: alive, clock: clock)
+                            clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
+        self.init(repo: repo, configProvider: ConfigProvider(config), sender: sender, alive: alive, clock: clock, stats: stats)
     }
 
     /// `restart` values (cache size, layers, push on/off) are read once here; `live` values are read per request from the provider.
     public init(repo: any Repo, configProvider: ConfigProvider, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
-                clock: @escaping @Sendable () -> Date = { Date() }) {
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
         self.repo = repo; self.configProvider = configProvider; self.alive = alive; self.clock = clock
-        cache = SlotCache(maxBytes: configProvider().cacheMaxBytes, clock: clock)
+        cache = SlotCache(maxBytes: configProvider().cacheMaxBytes, clock: clock, stats: stats)
         push = PushApi(repo: repo, configProvider: configProvider, sender: sender, clock: clock)
     }
 

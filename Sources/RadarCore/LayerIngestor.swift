@@ -27,18 +27,19 @@ public final class LayerIngestor: Sendable {
     let owner: String
     let sleep: @Sendable (Double) async -> Void
     let clock: @Sendable () -> Date
+    let stats: any StatsSink
 
     public convenience init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                            clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock)
+                            clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
+        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats)
     }
 
     public init(spec: LayerSpec, configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                clock: @escaping @Sendable () -> Date = { Date() }) {
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
         self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
-        self.sleep = sleep; self.clock = clock
+        self.sleep = sleep; self.clock = clock; self.stats = stats
     }
 
     public var leaderName: String { "layer:\(spec.id)" }
@@ -231,7 +232,15 @@ public final class LayerIngestor: Sendable {
     }
 
     public func tick() async throws -> LayerTickResult {
-        spec.kind == .forecast ? try await tickForecast() : try await tickObservation()
+        do {
+            let result = spec.kind == .forecast ? try await tickForecast() : try await tickObservation()
+            if result.published != nil { stats.record("ingest_run", label: "\(spec.id):ok") }
+            if result.failed > 0 { stats.record("ingest_run", label: "\(spec.id):missed", by: result.failed) }
+            return result
+        } catch {
+            if !(error is CancellationError) { stats.record("ingest_run", label: "\(spec.id):error") }
+            throw error
+        }
     }
 }
 
