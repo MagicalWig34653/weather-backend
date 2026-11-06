@@ -1,0 +1,572 @@
+{
+  "description": "Beispielantworten (erfunden) je Endpunkt fuer Frontend-Mock und App-Tests. status null = Request-Body. Vertrag: docs-site/content/api.md und dashboard-api.md. App-Dateien snake_case, Dashboard-Dateien camelCase.",
+  "fixtures": [
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 201,
+      "file": "app/link-code.201.json",
+      "description": "Koppelcode erzeugt (Body {app_transaction})."
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": null,
+      "file": "app/link-code.request.json",
+      "description": "Beispiel-Request-Body (JWS gekuerzt, erfunden)."
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 400,
+      "file": "app/link-code.400-invalid_request.json",
+      "description": "Body ohne app_transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 401,
+      "file": "app/link-code.401-unauthorized.json",
+      "description": "Geheimnis falsch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 403,
+      "file": "app/link-code.403-not_testflight.json",
+      "description": "Nachweis ungueltig oder Production"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 409,
+      "file": "app/link-code.409-already_linked.json",
+      "description": "bereits gekoppelt"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 409,
+      "file": "app/link-code.409-link_full.json",
+      "description": "serverweit voll"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 413,
+      "file": "app/link-code.413-too_large.json",
+      "description": "Body > 8 KB"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 429,
+      "file": "app/link-code.429-rate_limited.json",
+      "description": "mehr als 60/min"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 429,
+      "file": "app/link-code.429-link_code_rate_limited.json",
+      "description": "mehr als 6 Codes/Stunde"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/push/installations/{installationId}/link",
+      "status": 200,
+      "file": "app/link.none.json",
+      "description": "nicht gekoppelt"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/push/installations/{installationId}/link",
+      "status": 200,
+      "file": "app/link.code_open.json",
+      "description": "Code offen"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/push/installations/{installationId}/link",
+      "status": 200,
+      "file": "app/link.linked.json",
+      "description": "gekoppelt, dauerhaft (kein Ablauf)"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/push/installations/{installationId}/link",
+      "status": 200,
+      "file": "app/link.linked-with-ttl.json",
+      "description": "gekoppelt, Betreiber hat DASH_DEVICE_TTL_DAYS gesetzt"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/push/installations/{installationId}/link",
+      "status": 404,
+      "file": "app/link.404-disabled.json",
+      "description": "DEVICE_LINK_ENABLED=false (Body leer oder {\"error\":\"not_found\"})"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/status",
+      "status": 200,
+      "file": "app/status.device_link.json",
+      "description": "Ausschnitt von /v1/status mit Capability device_link"
+    },
+    {
+      "method": "*",
+      "path": "/dash/api/*",
+      "status": 401,
+      "file": "dashboard/error.401.json",
+      "description": "keine Sitzung"
+    },
+    {
+      "method": "*",
+      "path": "/dash/api/*",
+      "status": 403,
+      "file": "dashboard/error.403.json",
+      "description": "Host/Origin/CSRF"
+    },
+    {
+      "method": "*",
+      "path": "/dash/api/*",
+      "status": 404,
+      "file": "dashboard/error.404.json",
+      "description": "unbekannt"
+    },
+    {
+      "method": "*",
+      "path": "/dash/api/*",
+      "status": 429,
+      "file": "dashboard/error.429.json",
+      "description": "Ratenlimit (Header Retry-After: 30)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/*",
+      "status": 503,
+      "file": "dashboard/error.503.json",
+      "description": "Datenbank nicht erreichbar"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/overview?range=1y",
+      "status": 400,
+      "file": "dashboard/error.400-validation.json",
+      "description": "ungueltiger range"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/overview?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-overview.200.json",
+      "description": "Uebersicht, Push aktiv"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/overview?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-overview.empty.json",
+      "description": "frisch gestartet, noch keine Zaehler, Push aus"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/overview?range=7d",
+      "status": 200,
+      "file": "dashboard/insights-overview.partial.json",
+      "description": "Teilausfall: Cache-KPI fehlt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/findings",
+      "status": 200,
+      "file": "dashboard/insights-findings.200.json",
+      "description": "zwei Warnungen"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/findings",
+      "status": 200,
+      "file": "dashboard/insights-findings.ok.json",
+      "description": "keine Befunde"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/findings",
+      "status": 200,
+      "file": "dashboard/insights-findings.critical.json",
+      "description": "kritisch: Schluessel abgelehnt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/ops?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-ops.200.json",
+      "description": "Betrieb, voll"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/ops?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-ops.empty.json",
+      "description": "frisch gestartet, WP11-Zaehler fehlen (null)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/traffic?range=72h",
+      "status": 200,
+      "file": "dashboard/insights-traffic.200.json",
+      "description": "Traffic"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/traffic?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-traffic.empty.json",
+      "description": "noch keine Zaehler"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/push?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-push.200.json",
+      "description": "Push-Seite voll"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/push?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-push.disabled.json",
+      "description": "PUSH_ENABLED=false: nur Voraussetzungen"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/push?range=24h",
+      "status": 200,
+      "file": "dashboard/insights-push.slice1.json",
+      "description": "vor WP11: nur Gauges (Slice 1), Zaehlerabschnitte null"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/distribution",
+      "status": 200,
+      "file": "dashboard/insights-distribution.200.json",
+      "description": "Verteilungen mit k-Unterdrueckung (minGroup 5)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/distribution",
+      "status": 200,
+      "file": "dashboard/insights-distribution.empty.json",
+      "description": "keine Installationen: alles null/leer"
+    },
+    {
+      "method": "PUT",
+      "path": "/dash/api/push/pause",
+      "status": null,
+      "file": "dashboard/push-pause.request.json",
+      "description": "Request-Body"
+    },
+    {
+      "method": "PUT",
+      "path": "/dash/api/push/pause",
+      "status": 200,
+      "file": "dashboard/push-pause.200.json",
+      "description": "Pause gesetzt"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/clear",
+      "status": null,
+      "file": "dashboard/cache-clear.request.json",
+      "description": "Request-Body"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/clear",
+      "status": 202,
+      "file": "dashboard/cache-clear.202.json",
+      "description": "Cache-Generation erhoeht"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices",
+      "status": 200,
+      "file": "dashboard/devices.200.json",
+      "description": "Liste mit einem Geraet"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices",
+      "status": 200,
+      "file": "dashboard/devices.empty.json",
+      "description": "keine Geraete gekoppelt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices",
+      "status": 200,
+      "file": "dashboard/devices.disabled.json",
+      "description": "DEVICE_LINK_ENABLED=false"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices",
+      "status": 200,
+      "file": "dashboard/devices.stale.json",
+      "description": "Geraet lange nicht gesehen (stale), Kopplung besteht dauerhaft"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": null,
+      "file": "dashboard/devices-pair.request.json",
+      "description": "Request-Body"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": 201,
+      "file": "dashboard/devices-pair.201.json",
+      "description": "gekoppelt"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": 400,
+      "file": "dashboard/devices-pair.400-validation.json",
+      "description": "Code-/Label-Format"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": 404,
+      "file": "dashboard/devices-pair.404-code_unknown.json",
+      "description": "falsch/abgelaufen/verbraucht"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": 409,
+      "file": "dashboard/devices-pair.409-device_limit.json",
+      "description": "DASH_MAX_DEVICES erreicht"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": 409,
+      "file": "dashboard/devices-pair.409-link_disabled.json",
+      "description": "Schalter aus"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pair",
+      "status": 429,
+      "file": "dashboard/devices-pair.429-rate_limited.json",
+      "description": "5 Fehlversuche/min"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}",
+      "status": 200,
+      "file": "dashboard/device.200.json",
+      "description": "Registrierungsstatus (Start-Token fehlt)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}",
+      "status": 404,
+      "file": "dashboard/device.404.json",
+      "description": "unbekannte Kopplungs-ID"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/diagnosis",
+      "status": 200,
+      "file": "dashboard/diagnosis.start_token_missing.json",
+      "description": "wahrscheinlichster Grund: Start-Token fehlt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/diagnosis",
+      "status": 200,
+      "file": "dashboard/diagnosis.env_mismatch.json",
+      "description": "Umgebung vom Server nicht erlaubt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/diagnosis",
+      "status": 200,
+      "file": "dashboard/diagnosis.all_ok.json",
+      "description": "alles in Ordnung (verdict null)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/events?limit=50",
+      "status": 200,
+      "file": "dashboard/device-events.200.json",
+      "description": "Ereignisverlauf, neueste zuerst"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/events?limit=50",
+      "status": 200,
+      "file": "dashboard/device-events.empty.json",
+      "description": "noch keine Ereignisse"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/{id}/actions/{action}",
+      "status": null,
+      "file": "dashboard/action.reeval.request.json",
+      "description": "Request-Body fuer reeval (Trockenlauf)"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/{id}/actions/{action}",
+      "status": 202,
+      "file": "dashboard/action.202.json",
+      "description": "Auftrag angelegt"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/{id}/actions/{action}",
+      "status": 409,
+      "file": "dashboard/action.409-command_pending.json",
+      "description": "gleicher Auftrag laeuft"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/{id}/actions/{action}",
+      "status": 429,
+      "file": "dashboard/action.429-action_rate_limited.json",
+      "description": "Limit je Geraet (Retry-After: 1800)"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/{id}/actions/{action}",
+      "status": 400,
+      "file": "dashboard/action.400-validation.json",
+      "description": "unbekannte Aktion / dryRun falscher Typ"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.queued.json",
+      "description": "wartet auf den Leader"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.done-reeval.json",
+      "description": "reeval Trockenlauf fertig"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.done-test.json",
+      "description": "Testpush zugestellt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.done-la_probe_skipped.json",
+      "description": "Probe uebersprungen: kein Start-Token"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.done-la_probe_rejected.json",
+      "description": "Probe von Apple abgelehnt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.failed.json",
+      "description": "Auftrag fehlgeschlagen"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
+      "file": "dashboard/command.expired.json",
+      "description": "kein Leader hat den Auftrag in 120 s abgeholt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands?limit=10",
+      "status": 200,
+      "file": "dashboard/commands.200.json",
+      "description": "letzte Auftraege"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dash/api/devices/{id}",
+      "status": 204,
+      "file": "dashboard/device-delete.204.json",
+      "description": "entkoppelt (kein Body)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/config",
+      "status": 200,
+      "file": "dashboard/config.200.json",
+      "description": "Register-Auszug"
+    },
+    {
+      "method": "PUT",
+      "path": "/dash/api/config/{key}",
+      "status": null,
+      "file": "dashboard/config-put.request.json",
+      "description": "Request-Body"
+    },
+    {
+      "method": "PUT",
+      "path": "/dash/api/config/{key}",
+      "status": 200,
+      "file": "dashboard/config-put.200.json",
+      "description": "gesetzt"
+    },
+    {
+      "method": "PUT",
+      "path": "/dash/api/config/{key}",
+      "status": 409,
+      "file": "dashboard/config-put.409-locked_by_env.json",
+      "description": "per ENV gesperrt"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/config/audit?limit=50",
+      "status": 200,
+      "file": "dashboard/config-audit.200.json",
+      "description": "Protokoll"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/config/audit?limit=50",
+      "status": 200,
+      "file": "dashboard/config-audit.empty.json",
+      "description": "leer"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/restart",
+      "status": 200,
+      "file": "dashboard/restart.200.json",
+      "description": "Neustart-Stand"
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/restart",
+      "status": 202,
+      "file": "dashboard/restart-post.202.json",
+      "description": "Neustart angefordert"
+    }
+  ]
+}

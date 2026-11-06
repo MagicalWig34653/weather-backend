@@ -1,0 +1,20 @@
+{
+  "generation": 4,
+  "pending": [
+    "CACHE_MAX_MB"
+  ],
+  "replicas": [
+    {
+      "id": "9f2a41c7",
+      "appliedGeneration": 4,
+      "startedAt": "2026-11-05T21:02:11Z",
+      "state": "current"
+    },
+    {
+      "id": "3be7d0a2",
+      "appliedGeneration": 3,
+      "startedAt": "2026-11-05T21:03:02Z",
+      "state": "waiting"
+    }
+  ]
+}

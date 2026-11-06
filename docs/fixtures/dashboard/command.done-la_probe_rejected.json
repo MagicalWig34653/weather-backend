@@ -1,0 +1,16 @@
+{
+  "commandId": "d1a3b5c7-9e2f-4b6d-a801-3c5e7f9b1d22",
+  "createdAt": "2026-11-06T09:22:00Z",
+  "kind": "la_probe",
+  "status": "done",
+  "startedAt": "2026-11-06T09:21:01Z",
+  "finishedAt": "2026-11-06T09:21:02Z",
+  "dryRun": null,
+  "result": {
+    "outcome": "rejected",
+    "apnsStatus": 400,
+    "reason": "BadDeviceToken",
+    "skipped": null
+  },
+  "error": null
+}

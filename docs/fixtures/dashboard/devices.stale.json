@@ -1,0 +1,20 @@
+{
+  "linkEnabled": true,
+  "max": 3,
+  "devices": [
+    {
+      "id": "0f8c2d6a-5b1e-4f3a-9c77-2e4d8a6b1c30",
+      "label": "Mein iPhone",
+      "pairedAt": "2026-11-06T09:18:30Z",
+      "expiresAt": null,
+      "lastSeenAt": "2026-10-12T07:00:00Z",
+      "stale": true,
+      "lastActionAt": null,
+      "env": "production",
+      "summary": {
+        "level": "unknown",
+        "code": "unknown"
+      }
+    }
+  ]
+}

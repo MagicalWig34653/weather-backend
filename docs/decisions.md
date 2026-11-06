@@ -227,3 +227,10 @@ Nutzerauftrag: ein `settings.sh` im Stil von `raspi-config`, das alle per ENV m�
 - **Beobachtung:** `update.sh` überschreibt bei jedem Lauf `.env.bak`; `settings.sh` nutzt deshalb Zeitstempel-Sicherungen. Eine Umstellung von `update.sh` ist nicht erfolgt.
 - **Nebenänderung:** `Config.secret(...)` meldet eine nicht lesbare `*_FILE` klar (`APNS_KEY_FILE nicht lesbar: Secret apns_key gemountet? Deploy mit stack.push.yaml`), ohne Pfad- oder Fehlertext.
 
+## Dashboard-Ausbau: Entscheidungen D1 bis D14 (6. November 2026)
+
+- Nutzer nimmt alle Empfehlungen des Plans ([dashboard-insights-plan.md](dashboard-insights-plan.md), Abschnitt 9) an, mit zwei Änderungen.
+- **D3 geändert:** Die Gerätekopplung des Betreibers ist **dauerhaft** (kein 14-Tage-Ablauf), jederzeit widerrufbar (App-Schalter, Dashboard, `DEVICE_LINK_ENABLED=false`, Löschen der Installation); höchstens 3 Geräte (`DASH_MAX_DEVICES`). Ablauf nur optional per `DASH_DEVICE_TTL_DAYS` (Standard `0` = aus). Restrisiken (weitergegebenes Gerät, keine Inaktivitätsprüfung) stehen im Plan 4.3 und 10; Anzeige „zuletzt gesehen“ (`DASH_DEVICE_STALE_DAYS`).
+- **Design:** orientiert sich an `timetrack-pwa` (Svelte 5, shadcn-svelte, Tailwind 4, Zinc-Tokens in OKLCH, Inter Variable lokal, eigene SVG-Charts); Plan Abschnitt 5.
+- **WP-V:** API-Verträge eingefroren (`docs-site/content/api.md`, `dashboard-api.md`), Fixtures `docs/fixtures/`; Änderungen nur additiv oder mit Vertragsversion.
+

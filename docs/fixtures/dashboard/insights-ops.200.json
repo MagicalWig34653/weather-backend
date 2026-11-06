@@ -1,0 +1,409 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "hour",
+  "partial": [],
+  "layers": [
+    {
+      "id": "radar",
+      "enabled": true,
+      "hasData": true,
+      "latestRun": "20261106T0910Z",
+      "publishedAt": "2026-11-06T09:13:40Z",
+      "ageSeconds": 80,
+      "cadenceSeconds": 300,
+      "level": "ok",
+      "runs": [
+        {
+          "slot": "2026-11-06T07:00:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:05:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:10:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:15:00Z",
+          "result": "missed"
+        },
+        {
+          "slot": "2026-11-06T07:20:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:25:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:30:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:35:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:40:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:45:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:50:00Z",
+          "result": "error"
+        },
+        {
+          "slot": "2026-11-06T07:55:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:00:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:05:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:10:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:15:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:20:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:25:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:30:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:35:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:40:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:45:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:50:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T08:55:00Z",
+          "result": "ok"
+        }
+      ],
+      "lag": {
+        "p50Seconds": 190,
+        "p95Seconds": 260,
+        "series": {
+          "resolution": "hour",
+          "points": [
+            {
+              "t": "2026-11-06T04:00:00Z",
+              "v": 185
+            },
+            {
+              "t": "2026-11-06T05:00:00Z",
+              "v": 190
+            },
+            {
+              "t": "2026-11-06T06:00:00Z",
+              "v": 195
+            },
+            {
+              "t": "2026-11-06T07:00:00Z",
+              "v": 200
+            },
+            {
+              "t": "2026-11-06T08:00:00Z",
+              "v": 190
+            },
+            {
+              "t": "2026-11-06T09:00:00Z",
+              "v": 188
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cloudmask_vis",
+      "enabled": true,
+      "hasData": true,
+      "latestRun": "20261106T0850Z",
+      "publishedAt": "2026-11-06T08:55:10Z",
+      "ageSeconds": 1190,
+      "cadenceSeconds": 600,
+      "level": "warning",
+      "runs": [
+        {
+          "slot": "2026-11-06T07:00:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:05:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:10:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:15:00Z",
+          "result": "missed"
+        },
+        {
+          "slot": "2026-11-06T07:20:00Z",
+          "result": "ok"
+        },
+        {
+          "slot": "2026-11-06T07:25:00Z",
+          "result": "ok"
+        }
+      ],
+      "lag": {
+        "p50Seconds": null,
+        "p95Seconds": null,
+        "series": null
+      }
+    },
+    {
+      "id": "lightning",
+      "enabled": false,
+      "hasData": false,
+      "latestRun": null,
+      "publishedAt": null,
+      "ageSeconds": null,
+      "cadenceSeconds": 300,
+      "level": "unknown",
+      "runs": [],
+      "lag": {
+        "p50Seconds": null,
+        "p95Seconds": null,
+        "series": null
+      }
+    }
+  ],
+  "errors": {
+    "status5xx": {
+      "series": {
+        "resolution": "hour",
+        "points": [
+          {
+            "t": "2026-11-06T04:00:00Z",
+            "v": 0
+          },
+          {
+            "t": "2026-11-06T05:00:00Z",
+            "v": 0
+          },
+          {
+            "t": "2026-11-06T06:00:00Z",
+            "v": 2
+          },
+          {
+            "t": "2026-11-06T07:00:00Z",
+            "v": 0
+          },
+          {
+            "t": "2026-11-06T08:00:00Z",
+            "v": 1
+          },
+          {
+            "t": "2026-11-06T09:00:00Z",
+            "v": 0
+          }
+        ]
+      },
+      "ratio1h": 0.0004,
+      "byRoute": [
+        {
+          "route": "radar_image",
+          "count": 3
+        }
+      ]
+    },
+    "ingestErrors": {
+      "resolution": "hour",
+      "points": [
+        {
+          "t": "2026-11-06T04:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T05:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T06:00:00Z",
+          "v": 1
+        },
+        {
+          "t": "2026-11-06T07:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T08:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T09:00:00Z",
+          "v": 0
+        }
+      ]
+    },
+    "statsDropped": 0
+  },
+  "cache": {
+    "hitRatio": 0.912,
+    "hitRatioRadar": 0.94,
+    "hitRatioLayer": 0.81,
+    "negativeShare": 0.03,
+    "joinedShare": 0.06,
+    "dbReads": 15890,
+    "series": {
+      "resolution": "hour",
+      "points": [
+        {
+          "t": "2026-11-06T04:00:00Z",
+          "v": 0.92
+        },
+        {
+          "t": "2026-11-06T05:00:00Z",
+          "v": 0.91
+        },
+        {
+          "t": "2026-11-06T06:00:00Z",
+          "v": 0.93
+        },
+        {
+          "t": "2026-11-06T07:00:00Z",
+          "v": 0.9
+        },
+        {
+          "t": "2026-11-06T08:00:00Z",
+          "v": 0.91
+        },
+        {
+          "t": "2026-11-06T09:00:00Z",
+          "v": 0.92
+        }
+      ]
+    },
+    "fill": {
+      "bytes": 48234496,
+      "maxBytes": 67108864,
+      "entries": 212,
+      "evictions": 14,
+      "scope": "maxOfReplicas"
+    }
+  },
+  "latency": [
+    {
+      "route": "radar_latest",
+      "buckets": [
+        {
+          "le": "10ms",
+          "count": 9200
+        },
+        {
+          "le": "50ms",
+          "count": 4100
+        },
+        {
+          "le": "200ms",
+          "count": 310
+        },
+        {
+          "le": "1s",
+          "count": 12
+        },
+        {
+          "le": "inf",
+          "count": 1
+        }
+      ],
+      "p50Ms": 10,
+      "p95Ms": 50,
+      "p99Ms": 200
+    },
+    {
+      "route": "radar_image",
+      "buckets": [
+        {
+          "le": "10ms",
+          "count": 9200
+        },
+        {
+          "le": "50ms",
+          "count": 4100
+        },
+        {
+          "le": "200ms",
+          "count": 310
+        },
+        {
+          "le": "1s",
+          "count": 12
+        },
+        {
+          "le": "inf",
+          "count": 1
+        }
+      ],
+      "p50Ms": 10,
+      "p95Ms": 50,
+      "p99Ms": 200
+    }
+  ],
+  "replicas": [
+    {
+      "id": "9f2a41c7",
+      "startedAt": "2026-11-05T21:02:11Z",
+      "ageSeconds": 43980,
+      "appliedGeneration": 4,
+      "revision": "abc1234",
+      "level": "ok",
+      "isLeader": true
+    },
+    {
+      "id": "3be7d0a2",
+      "startedAt": "2026-11-05T21:03:02Z",
+      "ageSeconds": 43930,
+      "appliedGeneration": 4,
+      "revision": "abc1234",
+      "level": "ok",
+      "isLeader": false
+    }
+  ],
+  "generation": 4,
+  "leader": {
+    "holder": "9f2a41c7",
+    "leaseSecondsLeft": 22,
+    "changes24h": 0
+  },
+  "db": {
+    "poolUsage": 0.18,
+    "errors24h": 0,
+    "migration": "010"
+  }
+}

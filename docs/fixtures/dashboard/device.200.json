@@ -1,0 +1,64 @@
+{
+  "device": {
+    "id": "0f8c2d6a-5b1e-4f3a-9c77-2e4d8a6b1c30",
+    "label": "Mein iPhone",
+    "pairedAt": "2026-11-06T09:18:30Z",
+    "expiresAt": null,
+    "lastSeenAt": "2026-11-06T09:14:02Z",
+    "stale": false,
+    "lastActionAt": "2026-11-06T09:21:02Z",
+    "env": "production",
+    "summary": {
+      "level": "critical",
+      "code": "no_start_token"
+    }
+  },
+  "installation": {
+    "env": "production",
+    "locale": "de",
+    "ageDays": 12,
+    "lastSeenAt": "2026-11-06T09:14:02Z",
+    "deviceToken": {
+      "present": true,
+      "ageDays": 2
+    },
+    "startToken": {
+      "present": false,
+      "ageDays": null
+    }
+  },
+  "subscriptions": [
+    {
+      "index": 0,
+      "kind": "point",
+      "enabled": true,
+      "liveActivity": true,
+      "thresholdClass": 5,
+      "leadMinutes": 20,
+      "timeSensitive": false,
+      "lockUntil": null,
+      "hysteresis": false
+    },
+    {
+      "index": 1,
+      "kind": "circle",
+      "enabled": true,
+      "liveActivity": false,
+      "thresholdClass": 3,
+      "leadMinutes": 30,
+      "timeSensitive": false,
+      "lockUntil": "2026-11-06T10:05:00Z",
+      "hysteresis": true
+    }
+  ],
+  "activity": {
+    "state": "none",
+    "startedAt": null,
+    "endsAt": null,
+    "tokenPresent": false
+  },
+  "reservation": {
+    "open": false,
+    "ageSeconds": null
+  }
+}

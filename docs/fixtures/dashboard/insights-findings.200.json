@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "level": "warning",
+  "findings": [
+    {
+      "code": "layer_stale",
+      "level": "warning",
+      "subject": "cloudmask_vis",
+      "value": 1500,
+      "threshold": 1200,
+      "unit": "seconds",
+      "since": "2026-11-06T08:50:00Z"
+    },
+    {
+      "code": "cache_hit_low",
+      "level": "warning",
+      "subject": null,
+      "value": 0.76,
+      "threshold": 0.8,
+      "unit": "ratio",
+      "since": null
+    }
+  ]
+}

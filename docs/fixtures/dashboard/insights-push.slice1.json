@@ -1,0 +1,97 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "hour",
+  "pushEnabled": true,
+  "pushPaused": false,
+  "partial": [],
+  "prerequisites": [
+    {
+      "key": "push_enabled",
+      "ok": true,
+      "detail": null
+    }
+  ],
+  "funnel": {
+    "installations": {
+      "total": 3,
+      "active1d": 2,
+      "active7d": 3,
+      "active30d": 3,
+      "byEnv": [
+        {
+          "key": "sandbox",
+          "count": null,
+          "suppressed": true
+        },
+        {
+          "key": "production",
+          "count": null,
+          "suppressed": true
+        }
+      ],
+      "byLocale": [
+        {
+          "key": "de",
+          "count": null,
+          "suppressed": true
+        },
+        {
+          "key": "en",
+          "count": null,
+          "suppressed": true
+        }
+      ]
+    },
+    "tokens": {
+      "withDeviceToken": 3,
+      "withStartToken": 2,
+      "startTokenAge": []
+    },
+    "subscriptions": {
+      "total": 4,
+      "enabled": 4,
+      "liveActivity": 2,
+      "liveActivityWithStartToken": 2,
+      "inconsistent": 0
+    }
+  },
+  "triggers": null,
+  "skipped": null,
+  "lifecycle": {
+    "events": [],
+    "activeNow": 0,
+    "reservationsOpen": 0,
+    "reservationsExpired": 0
+  },
+  "locks": {
+    "activeLocks": 0,
+    "activitySlots": {
+      "used": 0,
+      "max": 5000,
+      "ratio": 0.0
+    }
+  },
+  "apnsErrors": null,
+  "delivery": null,
+  "outbox": {
+    "waiting": 0,
+    "oldestAgeSeconds": null,
+    "retrying": 0,
+    "droppedOrExpired24h": 0
+  },
+  "tokenInvalidations": null,
+  "timing": null,
+  "registrations": null,
+  "rejects": null,
+  "caps": [
+    {
+      "key": "installations",
+      "gauge": {
+        "used": 3,
+        "max": 50000,
+        "ratio": 0.0001
+      }
+    }
+  ]
+}

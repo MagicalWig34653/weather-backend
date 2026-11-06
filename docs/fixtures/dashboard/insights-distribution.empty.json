@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "minGroup": 5,
+  "partial": [],
+  "subscriptionsPerInstallation": [],
+  "regionsPerInstallation": [],
+  "threshold": [],
+  "lead": [],
+  "locale": [],
+  "env": [],
+  "timeSensitiveShare": null,
+  "liveActivityShare": null,
+  "caps": [
+    {
+      "key": "installations",
+      "gauge": {
+        "used": 0,
+        "max": 50000,
+        "ratio": 0.0
+      }
+    }
+  ]
+}

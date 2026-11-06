@@ -1,0 +1,17 @@
+{
+  "entry": {
+    "key": "CACHE_MAX_MB",
+    "group": "Cache",
+    "type": "int",
+    "default": 64,
+    "min": 8,
+    "max": 1024,
+    "unit": "MB",
+    "description": "Obergrenze des Slot-Caches je Replikat",
+    "apply": "restart",
+    "source": "dashboard",
+    "locked": false,
+    "value": 128,
+    "restartPending": true
+  }
+}

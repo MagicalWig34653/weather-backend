@@ -1,0 +1,50 @@
+{
+  "revision": 12,
+  "entries": [
+    {
+      "key": "CACHE_MAX_MB",
+      "group": "Cache",
+      "type": "int",
+      "default": 64,
+      "min": 8,
+      "max": 1024,
+      "unit": "MB",
+      "description": "Obergrenze des Slot-Caches je Replikat",
+      "apply": "restart",
+      "source": "dashboard",
+      "locked": false,
+      "value": 128,
+      "restartPending": true
+    },
+    {
+      "key": "DASH_MIN_GROUP",
+      "group": "Dashboard-Schwellen",
+      "type": "int",
+      "default": 5,
+      "min": 3,
+      "max": 50,
+      "unit": null,
+      "description": "k-Schwelle fuer Verteilungen",
+      "apply": "live",
+      "source": "default",
+      "locked": false,
+      "value": 5,
+      "restartPending": false
+    },
+    {
+      "key": "APNS_KEY_FILE",
+      "group": "Push",
+      "type": "string",
+      "default": "",
+      "min": null,
+      "max": null,
+      "unit": null,
+      "description": "Pfad des APNs-Schluessels (Geheimnis)",
+      "apply": "restart",
+      "source": "env",
+      "locked": true,
+      "value": null,
+      "restartPending": false
+    }
+  ]
+}

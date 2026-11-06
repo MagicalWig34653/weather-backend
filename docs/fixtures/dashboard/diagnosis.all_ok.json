@@ -1,0 +1,80 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "verdict": null,
+  "checks": [
+    {
+      "order": 1,
+      "code": "server",
+      "level": "ok",
+      "reason": "ok",
+      "params": {}
+    },
+    {
+      "order": 2,
+      "code": "environment",
+      "level": "ok",
+      "reason": "ok",
+      "params": {
+        "env": "production"
+      }
+    },
+    {
+      "order": 3,
+      "code": "device_token",
+      "level": "ok",
+      "reason": "ok",
+      "params": {
+        "ageDays": 2
+      }
+    },
+    {
+      "order": 4,
+      "code": "start_token",
+      "level": "ok",
+      "reason": "ok",
+      "params": {
+        "ageDays": 1
+      }
+    },
+    {
+      "order": 5,
+      "code": "subscription",
+      "level": "ok",
+      "reason": "ok",
+      "params": {}
+    },
+    {
+      "order": 6,
+      "code": "slot",
+      "level": "ok",
+      "reason": "ok",
+      "params": {}
+    },
+    {
+      "order": 7,
+      "code": "lock",
+      "level": "ok",
+      "reason": "ok",
+      "params": {}
+    },
+    {
+      "order": 8,
+      "code": "trigger",
+      "level": "ok",
+      "reason": "below_threshold",
+      "params": {
+        "thresholdClass": 5,
+        "currentMaxClass": 0
+      }
+    },
+    {
+      "order": 9,
+      "code": "last_result",
+      "level": "ok",
+      "reason": "delivered",
+      "params": {
+        "apnsReason": null
+      }
+    }
+  ]
+}

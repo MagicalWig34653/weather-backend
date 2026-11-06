@@ -1,0 +1,50 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "hour",
+  "pushEnabled": false,
+  "pushPaused": false,
+  "status": {
+    "level": "unknown",
+    "findingCount": 0
+  },
+  "kpis": {
+    "requests": {
+      "value": 0,
+      "unit": "count",
+      "deltaPct": null,
+      "level": "unknown",
+      "series": null
+    },
+    "cacheHitRatio": {
+      "value": null,
+      "unit": "ratio",
+      "deltaPct": null,
+      "level": "unknown",
+      "series": null
+    },
+    "ingestAgeSeconds": {
+      "value": null,
+      "unit": "seconds",
+      "deltaPct": null,
+      "level": "unknown",
+      "series": null
+    },
+    "pushDeliveryRatio": {
+      "value": null,
+      "unit": "ratio",
+      "deltaPct": null,
+      "level": "unknown",
+      "series": null
+    },
+    "activeLiveActivities": {
+      "value": null,
+      "unit": "count",
+      "deltaPct": null,
+      "level": "unknown",
+      "series": null
+    }
+  },
+  "notable": [],
+  "partial": []
+}

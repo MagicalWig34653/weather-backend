@@ -1,0 +1,16 @@
+{
+  "commandId": "c7e8f1a2-0b4d-4a9e-8f33-6a2d9c1b5e70",
+  "createdAt": "2026-11-06T09:22:00Z",
+  "kind": "la_probe",
+  "status": "done",
+  "startedAt": "2026-11-06T09:21:01Z",
+  "finishedAt": "2026-11-06T09:21:02Z",
+  "dryRun": null,
+  "result": {
+    "outcome": "dropped",
+    "apnsStatus": null,
+    "reason": null,
+    "skipped": "no_start_token"
+  },
+  "error": null
+}

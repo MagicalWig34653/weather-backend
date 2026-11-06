@@ -1,0 +1,341 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "hour",
+  "pushEnabled": true,
+  "pushPaused": false,
+  "partial": [],
+  "prerequisites": [
+    {
+      "key": "push_enabled",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "key": "apns_env_match",
+      "ok": false,
+      "detail": "sandbox_installs_with_production_env"
+    },
+    {
+      "key": "apns_topic_set",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "key": "apns_key_present",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "key": "capability_live_activity",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "key": "push_not_paused",
+      "ok": true,
+      "detail": null
+    }
+  ],
+  "funnel": {
+    "installations": {
+      "total": 120,
+      "active1d": 61,
+      "active7d": 98,
+      "active30d": 117,
+      "byEnv": [
+        {
+          "key": "sandbox",
+          "count": null,
+          "suppressed": true
+        },
+        {
+          "key": "production",
+          "count": 118,
+          "suppressed": false
+        }
+      ],
+      "byLocale": [
+        {
+          "key": "de",
+          "count": 96,
+          "suppressed": false
+        },
+        {
+          "key": "en",
+          "count": 24,
+          "suppressed": false
+        }
+      ]
+    },
+    "tokens": {
+      "withDeviceToken": 119,
+      "withStartToken": 80,
+      "startTokenAge": [
+        {
+          "key": "lt1d",
+          "count": 41,
+          "suppressed": false
+        },
+        {
+          "key": "lt7d",
+          "count": 25,
+          "suppressed": false
+        },
+        {
+          "key": "lt30d",
+          "count": 11,
+          "suppressed": false
+        },
+        {
+          "key": "older",
+          "count": null,
+          "suppressed": true
+        }
+      ]
+    },
+    "subscriptions": {
+      "total": 203,
+      "enabled": 190,
+      "liveActivity": 64,
+      "liveActivityWithStartToken": 64,
+      "inconsistent": 0
+    }
+  },
+  "triggers": [
+    {
+      "trigger": "rain_start",
+      "count": 37
+    },
+    {
+      "trigger": "raining_now",
+      "count": 5
+    },
+    {
+      "trigger": "la_rain_start",
+      "count": 12
+    },
+    {
+      "trigger": "la_raining_now",
+      "count": 3
+    }
+  ],
+  "skipped": [
+    {
+      "trigger": "la_rain_start",
+      "reason": "lock_60min",
+      "count": 9
+    },
+    {
+      "trigger": "la_rain_start",
+      "reason": "no_start_token",
+      "count": 2
+    },
+    {
+      "trigger": "rain_start",
+      "reason": "hysteresis",
+      "count": 41
+    }
+  ],
+  "lifecycle": {
+    "events": [
+      {
+        "event": "start",
+        "outcome": "delivered",
+        "count": 14
+      },
+      {
+        "event": "start",
+        "outcome": "rejected",
+        "count": 1
+      },
+      {
+        "event": "update",
+        "outcome": "delivered",
+        "count": 88
+      },
+      {
+        "event": "end",
+        "outcome": "delivered",
+        "count": 13
+      }
+    ],
+    "activeNow": 2,
+    "reservationsOpen": 0,
+    "reservationsExpired": 1
+  },
+  "locks": {
+    "activeLocks": 7,
+    "activitySlots": {
+      "used": 2,
+      "max": 5000,
+      "ratio": 0.0004
+    }
+  },
+  "apnsErrors": [
+    {
+      "kind": "start",
+      "reason": "BadDeviceToken",
+      "env": "production",
+      "count": 1
+    },
+    {
+      "kind": "alert",
+      "reason": "Unregistered",
+      "env": "production",
+      "count": 4
+    }
+  ],
+  "delivery": {
+    "created": 54,
+    "sent": 54,
+    "delivered": 53,
+    "rejected": 1,
+    "dropped": 0,
+    "retry": 2,
+    "ratio": 0.981,
+    "avgAttempts": 1.04
+  },
+  "outbox": {
+    "waiting": 0,
+    "oldestAgeSeconds": null,
+    "retrying": 0,
+    "droppedOrExpired24h": 0
+  },
+  "tokenInvalidations": [
+    {
+      "kind": "device",
+      "cause": "410",
+      "count": 4
+    },
+    {
+      "kind": "start",
+      "cause": "bad_device_token",
+      "count": 1
+    }
+  ],
+  "timing": {
+    "apnsSendMs": [
+      {
+        "le": "50ms",
+        "count": 12
+      },
+      {
+        "le": "200ms",
+        "count": 60
+      },
+      {
+        "le": "1s",
+        "count": 3
+      }
+    ],
+    "evalMsP95": 420,
+    "cellsChecked": 912,
+    "cellsMax": 2000000
+  },
+  "registrations": {
+    "created": {
+      "resolution": "hour",
+      "points": [
+        {
+          "t": "2026-11-06T04:00:00Z",
+          "v": 1
+        },
+        {
+          "t": "2026-11-06T05:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T06:00:00Z",
+          "v": 2
+        },
+        {
+          "t": "2026-11-06T07:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T08:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T09:00:00Z",
+          "v": 1
+        }
+      ]
+    },
+    "deleted": {
+      "resolution": "hour",
+      "points": [
+        {
+          "t": "2026-11-06T04:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T05:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T06:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T07:00:00Z",
+          "v": 1
+        },
+        {
+          "t": "2026-11-06T08:00:00Z",
+          "v": 0
+        },
+        {
+          "t": "2026-11-06T09:00:00Z",
+          "v": 0
+        }
+      ]
+    },
+    "retained7dRatio": 0.82
+  },
+  "rejects": [
+    {
+      "code": "start_token_required",
+      "count": 3
+    },
+    {
+      "code": "unauthorized",
+      "count": 0
+    }
+  ],
+  "caps": [
+    {
+      "key": "installations",
+      "gauge": {
+        "used": 120,
+        "max": 50000,
+        "ratio": 0.0024
+      }
+    },
+    {
+      "key": "subscriptions",
+      "gauge": {
+        "used": 203,
+        "max": 100000,
+        "ratio": 0.002
+      }
+    },
+    {
+      "key": "region_cells",
+      "gauge": {
+        "used": 8200,
+        "max": 2000000,
+        "ratio": 0.0041
+      }
+    },
+    {
+      "key": "activity_subscriptions",
+      "gauge": {
+        "used": 64,
+        "max": 5000,
+        "ratio": 0.0128
+      }
+    }
+  ]
+}

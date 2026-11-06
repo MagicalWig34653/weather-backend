@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "level": "critical",
+  "findings": [
+    {
+      "code": "apns_rejection",
+      "level": "critical",
+      "subject": null,
+      "value": 0.31,
+      "threshold": 0.25,
+      "unit": "ratio",
+      "since": "2026-11-06T08:40:00Z"
+    },
+    {
+      "code": "outbox_age",
+      "level": "warning",
+      "subject": null,
+      "value": 240,
+      "threshold": 120,
+      "unit": "seconds",
+      "since": null
+    }
+  ]
+}

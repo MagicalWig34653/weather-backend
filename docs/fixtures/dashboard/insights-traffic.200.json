@@ -1,0 +1,126 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "72h",
+  "resolution": "hour",
+  "partial": [],
+  "requests": {
+    "total": 512004,
+    "series": {
+      "resolution": "hour",
+      "points": [
+        {
+          "t": "2026-11-06T04:00:00Z",
+          "v": 5100
+        },
+        {
+          "t": "2026-11-06T05:00:00Z",
+          "v": 4800
+        },
+        {
+          "t": "2026-11-06T06:00:00Z",
+          "v": 5300
+        },
+        {
+          "t": "2026-11-06T07:00:00Z",
+          "v": 6100
+        }
+      ]
+    },
+    "notModifiedShare": 0.41,
+    "byRoute": [
+      {
+        "route": "radar_image",
+        "count": 301120,
+        "bytes": 8123456789
+      },
+      {
+        "route": "radar_latest",
+        "count": 150233,
+        "bytes": 90123456
+      },
+      {
+        "route": "status",
+        "count": 20111,
+        "bytes": 8123456
+      },
+      {
+        "route": "push",
+        "count": 9300,
+        "bytes": 1203456
+      }
+    ],
+    "byStatusClass": [
+      {
+        "class": "2xx",
+        "count": 301000
+      },
+      {
+        "class": "3xx",
+        "count": 209000
+      },
+      {
+        "class": "4xx",
+        "count": 1990
+      },
+      {
+        "class": "5xx",
+        "count": 14
+      }
+    ]
+  },
+  "rateLimited": [
+    {
+      "kind": "push",
+      "count": 3
+    },
+    {
+      "kind": "dashboard",
+      "count": 0
+    },
+    {
+      "kind": "other",
+      "count": 0
+    }
+  ],
+  "pageViews": [
+    {
+      "page": "landing_de",
+      "count": 412
+    },
+    {
+      "page": "landing_en",
+      "count": 88
+    },
+    {
+      "page": "privacy",
+      "count": 31
+    },
+    {
+      "page": "marketing",
+      "count": 4
+    },
+    {
+      "page": "support",
+      "count": 9
+    }
+  ],
+  "hourly": {
+    "cells": [
+      {
+        "date": "2026-11-05",
+        "hour": 8,
+        "count": 7400
+      },
+      {
+        "date": "2026-11-05",
+        "hour": 9,
+        "count": 8200
+      },
+      {
+        "date": "2026-11-06",
+        "hour": 8,
+        "count": 8800
+      }
+    ]
+  }
+}

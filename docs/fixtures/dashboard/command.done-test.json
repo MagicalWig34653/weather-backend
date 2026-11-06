@@ -1,0 +1,15 @@
+{
+  "commandId": "a2b9c4d0-7e31-4c6f-9a10-5d8e3b7f2c64",
+  "createdAt": "2026-11-06T09:22:00Z",
+  "kind": "test",
+  "status": "done",
+  "startedAt": "2026-11-06T09:22:01Z",
+  "finishedAt": "2026-11-06T09:22:02Z",
+  "dryRun": null,
+  "result": {
+    "outcome": "delivered",
+    "apnsStatus": 200,
+    "reason": null
+  },
+  "error": null
+}

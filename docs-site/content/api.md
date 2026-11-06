@@ -88,7 +88,7 @@ Liveness für den Healthcheck (nur intern gedacht): `200` mit Body `ok`, `503` m
 
 ## `GET /v1/status`
 
-Datensparsame Betreiberdiagnose (additiv, `Cache-Control: no-store`). JSON: `schema` (1), `revision` (Commit des Images oder `null`), `push` (Boolean, kein Geheimnis), `capabilities` (Liste; aktuell `["regions", "live_activity"]` bei `PUSH_ENABLED=true`, sonst `[]`; `regions` steht für Umkreis-Abos, `live_activity` für den unten beschriebenen ActivityKit-Vertrag. Die App prüft die einzelne Fähigkeit vor dem Anbieten der Option; fehlt sie, darf die Option nicht angeboten werden, weil ältere Backends unbekannte Abo-Felder ignorieren können), `now`, `layers[]` mit `id` (`radar`, `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`), `enabled`, `has_data` und, falls Daten vorliegen, `latest_run` und `published_at`. Unterscheidet „Ebene nicht aktiviert“, „noch keine Daten“ und „Daten vorhanden“; bei Datenbankfehler `503`. Keine Nutzerdaten, keine Konfigurationswerte außer den genannten.
+Datensparsame Betreiberdiagnose (additiv, `Cache-Control: no-store`). JSON: `schema` (1), `revision` (Commit des Images oder `null`), `push` (Boolean, kein Geheimnis), `capabilities` (Liste; aktuell `["regions", "live_activity"]` bei `PUSH_ENABLED=true` (zusätzlich `"device_link"` bei `DEVICE_LINK_ENABLED=true`), sonst `[]`; `regions` steht für Umkreis-Abos, `live_activity` für den unten beschriebenen ActivityKit-Vertrag. Die App prüft die einzelne Fähigkeit vor dem Anbieten der Option; fehlt sie, darf die Option nicht angeboten werden, weil ältere Backends unbekannte Abo-Felder ignorieren können), `now`, `layers[]` mit `id` (`radar`, `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`), `enabled`, `has_data` und, falls Daten vorliegen, `latest_run` und `published_at`. Unterscheidet „Ebene nicht aktiviert“, „noch keine Daten“ und „Daten vorhanden“; bei Datenbankfehler `503`. Keine Nutzerdaten, keine Konfigurationswerte außer den genannten.
 
 ## Push-Registrierung `/v1/push/…` (optional, Standard aus)
 
@@ -165,6 +165,57 @@ Testmeldung (`POST /v1/push/installations/<uuid>/test`, ohne Body, Authentifizie
 Umgebung je Installation: Die App meldet bei `PUT` `env` (`sandbox` für Debug-Builds, `production` für TestFlight/App Store). Der Sender wählt je Meldung den Host der Installation (`api.sandbox.push.apple.com` oder `api.push.apple.com`); `APNS_ENV=both` erlaubt beide Umgebungen im selben Betrieb, `sandbox`/`production` nur die genannte (andere Meldungen werden verworfen, die Testmeldung antwortet `409`). Es gibt genau einen Schlüssel je Betrieb (`APNS_KEY_FILE`), er wird für beide Hosts verwendet. Ob ein Schlüssel für beide Umgebungen reicht, siehe Installation.
 
 Regel „Regen beginnt in N Minuten“: Nach jedem neuen Radarlauf wertet der Leader (`acquireLeader("push")`) die abonnierten Zellen aus. Pixelfarbe wird der nächsten Legendenfarbe (Toleranz) zugeordnet, transparente oder unbekannte Pixel zählen als trocken. Meldung nur, wenn die Zelle jetzt trocken ist, innerhalb von `lead_minutes` die Schwelle erreicht wird und dies in zwei aufeinanderfolgenden Läufen gilt (Hysterese). Danach höchstens eine Meldung je Abo und 60 Minuten; Wiederbewaffnung, wenn die Zelle für die nächsten 30 Minuten trocken ist. Läufe, die älter als 20 Minuten sind, lösen nichts aus. Umkreis-Abos: je Slot zählt der Server die Zellen der Kreisfläche mit Klasse ≥ `threshold`; die Region gilt in diesem Slot als nass, wenn mindestens `max(3, ceil(Zellen · min_share_percent / 100))` Zellen nass sind (bei Regionen unter 30 Zellen genügt 1 Zelle; am Bildrand zählen nur Zellen im Bild). Pro Slot entsteht damit ein Pseudo-Wert (`threshold` oder 0), auf den derselbe Automat unverändert angewendet wird (zwei Läufe, 60 Minuten Sperre, Wiederbewaffnung nach 30 trockenen Minuten in der ganzen Region); keine Meldung, wenn es in der Region schon regnet. Der Payload eines Umkreises nutzt `loc-key` `RAIN_REGION_STARTS_IN` (Text „Regen erreicht deine Region in N min“ / „Rain reaches your area in N min“, Strings liegen in der App) und `"region":true`, sonst unverändert (kein Ortsname, keine Koordinaten, keine Zellen). Der Payload enthält nur `loc-key` `RAIN_STARTS_IN`, die Minuten und `thread-id` (Abo-ID), keinen Ortsnamen. Löschung: 410 von Apple, `DELETE`, oder 60 Tage ohne Aktivität (`last_seen`); Outbox-Einträge werden nach 6 Stunden entfernt.
+
+## Betreiber-Diagnose: Gerätekopplung (nur TestFlight, Standard aus)
+
+Stand: **eingefroren 6. November 2026** (WP-V). Beispiele: `docs/fixtures/app/`. Freiwilliges Opt-in, mit dem der Betreiber sein **eigenes** Gerät im Dashboard zuordnet (Registrierungsstatus, Testpush, Live-Activity-Probe, Neuauswertung). Nur sichtbar und nutzbar, wenn alle Bedingungen gelten: Server `PUSH_ENABLED=true` **und** `DEVICE_LINK_ENABLED=true` (Standard `false`), `GET /v1/status` meldet in `capabilities` den Wert `device_link`, und die App kann nachweisen, dass sie aus TestFlight stammt (fail closed; App-Store-Installationen zeigen die Funktion nie). Ist der Schalter aus, antworten alle drei Routen mit `404` wie die übrigen Push-Routen bei `PUSH_ENABLED=false`.
+
+Authentifizierung wie alle Push-Routen (`X-Installation-Secret`, einheitlich `401 unauthorized`); Antworten `no-store`, Fehler `{"error":"<code>"}`. Zeitpunkte ISO 8601 UTC mit `Z`. Die Kopplung ist **dauerhaft** (kein automatischer Ablauf, Nutzerentscheidung 6.11.2026) und jederzeit widerrufbar (siehe `DELETE`).
+
+| Methode und Pfad | Body | Antwort |
+|---|---|---|
+| `POST /v1/push/installations/<uuid>/link-code` | `{"app_transaction":"<JWS>"}` | `201 {"code":"ABCD-EFGH","expires_at":"<ISO>","ttl_seconds":600}` |
+| `GET /v1/push/installations/<uuid>/link` | – | `200`, Zustand (unten) |
+| `DELETE /v1/push/installations/<uuid>/link` | – | `204`, idempotent |
+
+**`link-code`.** Erzeugt einen Koppelcode, der nur im Dashboard von einem angemeldeten Betreiber (Passkey) eingelöst werden kann. Der Code hat 8 Zeichen aus dem Crockford-Base32-Alphabet (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`, 40 Bit), Anzeige als `XXXX-XXXX`; der Server speichert nur den SHA-256-Hash, der Code gilt 10 Minuten und genau einmal, je Installation gibt es höchstens einen offenen Code (ein neuer ersetzt den alten). `app_transaction` ist das von StoreKit gelieferte `AppTransaction.jwsRepresentation` (kompaktes JWS, `ES256`, `x5c`-Kette). Das Backend verifiziert die Signaturkette gegen im Repo gebündelte Apple-Wurzelzertifikate, `bundleId` (= `DEVICE_LINK_BUNDLE_ID`, Standard Basis von `APNS_TOPIC`), `receiptType` (muss in `DEVICE_LINK_ALLOWED_ENVS` stehen, Standard `Sandbox`; `Xcode` nur bei `APNS_ENV` `sandbox`/`both` erlaubbar; `Production` nie) und das Alter von `receiptCreationDate` (höchstens `DEVICE_LINK_MAX_AGE_HOURS`, Standard 24; nach dem WP14-Spike gegebenenfalls anzupassen). Gespeichert wird nur das Prüfergebnis (`attested`), **nie** das JWS oder `appTransactionId`; das JWS darf in keinem Log erscheinen. Body höchstens 8 KB (diese Route; sonst gelten 2 KB).
+
+| Status | `error` | Bedeutung |
+|---|---|---|
+| `201` | – | Code erzeugt |
+| `400` | `invalid_request` | kein JSON, `app_transaction` fehlt oder ist kein String |
+| `401` | `unauthorized` | Geheimnis falsch oder Installation unbekannt |
+| `403` | `not_testflight` | Nachweis fehlt, ungültig, abgelaufen, falsche Bundle-ID oder Umgebung (einheitlich, ohne Grund) |
+| `404` | – | `DEVICE_LINK_ENABLED=false` oder Push aus |
+| `409` | `already_linked` | die Installation ist bereits gekoppelt (zuerst `DELETE …/link`) |
+| `409` | `link_full` | serverweit bereits `DASH_MAX_DEVICES` Geräte gekoppelt (Standard 3) |
+| `413` | `too_large` | Body größer als 8 KB |
+| `429` | `rate_limited` / `link_code_rate_limited` | allgemeine Grenze (60 pro Minute je Installation) bzw. mehr als 6 Codes pro Stunde je Installation (`Retry-After`) |
+
+Die Zähler der Ablehnungen (`device_link_reject`, feste Gründe `unverified`, `production`, `expired`, `bundle`) sind nur serverseitig sichtbar; die Antwort verrät den Grund nicht.
+
+**`link`** liefert alle Felder immer, nicht zutreffende als `null`:
+
+```json
+{ "state": "none", "code_expires_at": null, "linked_at": null, "expires_at": null, "last_action_at": null, "pending_commands": 0 }
+```
+
+`state`: `none` (nicht gekoppelt, kein offener Code), `code_open` (Code erzeugt, `code_expires_at` gesetzt), `linked` (`linked_at` gesetzt; `expires_at` ist `null`, solange der Betreiber kein `DASH_DEVICE_TTL_DAYS` eingestellt hat; `last_action_at` = letzte Dashboard-Aktion für dieses Gerät oder `null`; `pending_commands` = Anzahl noch nicht ausgeführter Dashboard-Aufträge, 0 bis 5). Die Bezeichnung, die der Betreiber vergibt, wird **nicht** zurückgegeben. Die App fragt nur, solange der Code-Bildschirm offen ist, alle 3 Sekunden, höchstens 10 Minuten (das Ratenlimit von 60 pro Minute je Installation reicht), und beim Öffnen des Info-Sheets einmal. `GET` ist unabhängig vom TestFlight-Nachweis möglich, damit die App eine Kopplung nach einem Wechsel zu App Store erkennen und entfernen kann.
+
+**`DELETE`** löscht Kopplung, offenen Code und alle Geräteereignisse und -befehle dieses Geräts sofort. Es verlangt keinen Nachweis (Aufräumen muss immer möglich sein) und ist idempotent. Wechselt eine Installation von TestFlight zu App Store (Update), muss die App beim nächsten Start `DELETE` senden und den Schalter entfernen.
+
+### Befehle und Ereignisse für gekoppelte Geräte
+
+Es gibt **keinen** Abruf- oder Befehlskanal zur App: Die App erhält keine Befehle und liefert keine Ereignisse. Aktionen des Betreibers (Testpush, Live-Activity-Probe, Ende, Neuauswertung, Slot-Reset) erzeugt das Dashboard serverseitig (Befehlstabelle `dashboard_command`, Vertrag in der Dashboard-API); der Leader führt sie über die bestehenden APNs-Wege aus. Für die App bedeutet das ausschließlich:
+
+- **Testpush:** normale Testmeldung (Payload wie `POST …/test`, Typ `test`); die App behandelt sie wie bisher.
+- **Live-Activity-Probe:** regulärer Push-to-Start nach Payload-Vertrag P8 (`aps.event: start`, `attributes-type: "RainActivityAttributes"`, echter `content-state`), mit Alert-Text `Live-Activity-Test` (`en`: `Live Activity test`). Die App muss ihn wie jeden Start verarbeiten und das Activity-Token wie gewohnt per `PUT …/activity` melden.
+- **Live Activity beenden:** `aps.event: end` an das Activity-Token wie im Normalbetrieb.
+- **Ereignisverlauf (48 h) und Diagnose** liegen nur im Dashboard; die App zeigt nichts davon außer dem Kopplungszustand (`link`).
+
+Datenschutz: gespeichert werden Zuordnung (Installation zu Kopplung), vom Betreiber vergebene Bezeichnung, Zeitpunkte und ein 48-Stunden-Verlauf technischer Versandergebnisse (Art, Ergebnis, APNs-Reason). Keine Gerätemodelle, OS-Versionen, IPs, Koordinaten oder Zellen, keine Token im Klartext in Dashboard-Antworten. Löschung: Ausschalten in der App, Trennen im Dashboard, Löschen der Installation (Cascade) oder `DEVICE_LINK_ENABLED=false`.
+
+Capability: `GET /v1/status` listet bei aktivem Schalter zusätzlich `device_link` in `capabilities` (additiv wie `regions` und `live_activity`; die App prüft sie vor dem Anbieten, zusätzlich zum TestFlight-Nachweis).
 
 ## Lauf- und Slot-ID
 

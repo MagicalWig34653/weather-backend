@@ -1,0 +1,22 @@
+{
+  "events": [
+    {
+      "at": "2026-11-06T09:21:02Z",
+      "kind": "probe",
+      "outcome": "skipped",
+      "reason": "no_start_token"
+    },
+    {
+      "at": "2026-11-06T09:19:40Z",
+      "kind": "test",
+      "outcome": "delivered",
+      "reason": null
+    },
+    {
+      "at": "2026-11-06T07:02:11Z",
+      "kind": "la_start",
+      "outcome": "rejected",
+      "reason": "BadDeviceToken"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "commandId": "6d1f0c52-3a8e-4e0b-8d5b-1c9a7f2e4b11",
+  "createdAt": "2026-11-06T09:22:00Z",
+  "kind": "reeval",
+  "status": "queued",
+  "startedAt": null,
+  "finishedAt": null,
+  "dryRun": true,
+  "result": null,
+  "error": null
+}

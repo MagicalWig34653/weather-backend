@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "day",
+  "partial": [],
+  "layers": [
+    {
+      "id": "radar",
+      "enabled": true,
+      "hasData": false,
+      "latestRun": null,
+      "publishedAt": null,
+      "ageSeconds": null,
+      "cadenceSeconds": 300,
+      "level": "unknown",
+      "runs": [],
+      "lag": {
+        "p50Seconds": null,
+        "p95Seconds": null,
+        "series": null
+      }
+    }
+  ],
+  "errors": {
+    "status5xx": {
+      "series": {
+        "resolution": "day",
+        "points": []
+      },
+      "ratio1h": null,
+      "byRoute": []
+    },
+    "ingestErrors": {
+      "resolution": "day",
+      "points": []
+    },
+    "statsDropped": 0
+  },
+  "cache": {
+    "hitRatio": null,
+    "hitRatioRadar": null,
+    "hitRatioLayer": null,
+    "negativeShare": null,
+    "joinedShare": null,
+    "dbReads": 0,
+    "series": {
+      "resolution": "day",
+      "points": []
+    },
+    "fill": null
+  },
+  "latency": null,
+  "replicas": [
+    {
+      "id": "9f2a41c7",
+      "startedAt": "2026-11-06T09:14:00Z",
+      "ageSeconds": 60,
+      "appliedGeneration": 4,
+      "revision": null,
+      "level": "unknown",
+      "isLeader": true
+    }
+  ],
+  "generation": 4,
+  "leader": {
+    "holder": "9f2a41c7",
+    "leaseSecondsLeft": 28,
+    "changes24h": 0
+  },
+  "db": null
+}

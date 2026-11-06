@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "day",
+  "partial": [],
+  "requests": {
+    "total": 0,
+    "series": {
+      "resolution": "day",
+      "points": []
+    },
+    "notModifiedShare": null,
+    "byRoute": [],
+    "byStatusClass": []
+  },
+  "rateLimited": [],
+  "pageViews": [],
+  "hourly": null
+}

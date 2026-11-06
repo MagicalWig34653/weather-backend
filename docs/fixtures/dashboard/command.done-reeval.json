@@ -1,0 +1,25 @@
+{
+  "commandId": "6d1f0c52-3a8e-4e0b-8d5b-1c9a7f2e4b11",
+  "createdAt": "2026-11-06T09:22:00Z",
+  "kind": "reeval",
+  "status": "done",
+  "startedAt": "2026-11-06T09:22:01Z",
+  "finishedAt": "2026-11-06T09:22:02Z",
+  "dryRun": true,
+  "result": {
+    "dryRun": true,
+    "subscriptions": [
+      {
+        "index": 0,
+        "decision": "below_threshold",
+        "sent": null
+      },
+      {
+        "index": 1,
+        "decision": "lock",
+        "sent": null
+      }
+    ]
+  },
+  "error": null
+}

@@ -4,7 +4,7 @@ Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team 
 
 ## Dashboard-Ausbau geplant (6. November 2026)
 
-Plan (nur Planung, nichts gebaut): [dashboard-insights-plan.md](dashboard-insights-plan.md) mit Insight-Katalog, Aktionen, Geräte-Opt-in per Koppelcode, Design und WP10 bis WP18. Offen: Nutzerentscheidungen D1 bis D13 (Abschnitt 9), TestFlight-Erkennung per Spike (Apple-Doku war per Werkzeug nicht lesbar). Nicht ausgeführt: Builds/Tests.
+Plan (nur Planung, nichts gebaut): [dashboard-insights-plan.md](dashboard-insights-plan.md) mit Insight-Katalog, Aktionen, Geräte-Opt-in per Koppelcode, Design und WP10 bis WP18. **6.11.2026: D1 bis D14 vom Nutzer angenommen** (D3 geändert: Kopplung dauerhaft, höchstens 3 Geräte; Design nach `timetrack-pwa`). **WP-V erledigt:** API-Verträge eingefroren in `docs-site/content/api.md` und `dashboard-api.md`, Fixtures unter `docs/fixtures/` (Manifest `manifest.json`), Übergabenotizen je Spur in Plan Abschnitt 11. Offen: TestFlight-Erkennung per Spike (WP14, Apple-Doku war per Werkzeug nicht lesbar), APNs-Reason-Liste abgleichen. Nicht ausgeführt: Builds/Tests (nur Dokumentation; Fixtures per Skript auf gültiges JSON und Manifest-Vollständigkeit geprüft).
 
 ## Härtung L1: kanonische Slot-IDs (6. November 2026)
 

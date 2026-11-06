@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "minGroup": 5,
+  "partial": [],
+  "subscriptionsPerInstallation": [
+    {
+      "key": "0",
+      "count": 9,
+      "suppressed": false
+    },
+    {
+      "key": "1",
+      "count": 71,
+      "suppressed": false
+    },
+    {
+      "key": "2",
+      "count": 30,
+      "suppressed": false
+    },
+    {
+      "key": "3+",
+      "count": 10,
+      "suppressed": false
+    }
+  ],
+  "regionsPerInstallation": [
+    {
+      "key": "0",
+      "count": 108,
+      "suppressed": false
+    },
+    {
+      "key": "1",
+      "count": null,
+      "suppressed": true
+    },
+    {
+      "key": "2",
+      "count": null,
+      "suppressed": true
+    },
+    {
+      "key": "3",
+      "count": 0,
+      "suppressed": false
+    }
+  ],
+  "threshold": [
+    {
+      "key": "3",
+      "count": 40,
+      "suppressed": false
+    },
+    {
+      "key": "5",
+      "count": 55,
+      "suppressed": false
+    },
+    {
+      "key": "8",
+      "count": null,
+      "suppressed": true
+    }
+  ],
+  "lead": [
+    {
+      "key": "10",
+      "count": 22,
+      "suppressed": false
+    },
+    {
+      "key": "20",
+      "count": 66,
+      "suppressed": false
+    },
+    {
+      "key": "30",
+      "count": 32,
+      "suppressed": false
+    }
+  ],
+  "locale": [
+    {
+      "key": "de",
+      "count": 96,
+      "suppressed": false
+    },
+    {
+      "key": "en",
+      "count": 24,
+      "suppressed": false
+    }
+  ],
+  "env": [
+    {
+      "key": "sandbox",
+      "count": null,
+      "suppressed": true
+    },
+    {
+      "key": "production",
+      "count": null,
+      "suppressed": true
+    }
+  ],
+  "timeSensitiveShare": 0.18,
+  "liveActivityShare": 0.32,
+  "caps": [
+    {
+      "key": "installations",
+      "gauge": {
+        "used": 120,
+        "max": 50000,
+        "ratio": 0.0024
+      }
+    }
+  ]
+}

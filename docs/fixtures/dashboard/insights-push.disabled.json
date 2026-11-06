@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-11-06T09:15:00Z",
+  "range": "24h",
+  "resolution": "hour",
+  "pushEnabled": false,
+  "pushPaused": false,
+  "partial": [],
+  "prerequisites": [
+    {
+      "key": "push_enabled",
+      "ok": false,
+      "detail": null
+    }
+  ],
+  "funnel": null,
+  "triggers": null,
+  "skipped": null,
+  "lifecycle": null,
+  "locks": null,
+  "apnsErrors": null,
+  "delivery": null,
+  "outbox": null,
+  "tokenInvalidations": null,
+  "timing": null,
+  "registrations": null,
+  "rejects": null,
+  "caps": null
+}

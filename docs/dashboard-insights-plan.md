@@ -1,6 +1,8 @@
 # Dashboard-Ausbau: tiefe Insights, Aktionen, Geräte-Kopplung, Design
 
-Stand: 6. November 2026. Status: **Plan, nichts gebaut.** Ergänzt [dashboard-plan.md](dashboard-plan.md) (WP1 bis WP9: Grundgerüst, Auth, Statistik-Zähler, Konfiguration, Neustart). Board: Todolino-Aufgabe „Dashboard-Insights und Geräte-Kopplung: Plan“. Neue Pakete heißen WP10 bis WP18 und setzen WP1 bis WP9 voraus oder erweitern sie (Abschnitt 7).
+Stand: 6. November 2026. Status: **Entscheidungen D1 bis D14 angenommen (6.11.2026, mit zwei Änderungen: D3 dauerhafte Kopplung, Design nach dem Projekt `timetrack-pwa`); API-Verträge eingefroren (WP-V, Abschnitt 11); nichts gebaut.** Ergänzt [dashboard-plan.md](dashboard-plan.md) (WP1 bis WP9: Grundgerüst, Auth, Statistik-Zähler, Konfiguration, Neustart). Board: Todolino-Aufgabe „Dashboard-Insights und Geräte-Kopplung: Plan“. Neue Pakete heißen WP10 bis WP18 und setzen WP1 bis WP9 voraus oder erweitern sie (Abschnitt 7).
+
+**Verträge:** [api.md](../docs-site/content/api.md) (App ↔ Backend, Abschnitt „Betreiber-Diagnose“), [dashboard-api.md](../docs-site/content/dashboard-api.md) (Dashboard ↔ Backend, ab „Vertrag Insights, Geräte, Aktionen“), Beispiele in [docs/fixtures/](fixtures/manifest.json). Wo dieser Plan und die Vertragsdateien voneinander abweichen, gilt der Vertrag.
 
 Nutzerwunsch (6.11.2026): richtig tiefe Insights und alle sinnvollen Funktionen im gesunden Rahmen, wirklich schönes und hochwertiges Aussehen; dazu ein freiwilliges Opt-in in der App, mit dem der Betreiber sein eigenes Gerät im Dashboard zuordnen und manuell Dinge auslösen kann (Testpush, Live-Activity-Start/-Ende, Neuauswertung, Zustand der Registrierung); eventuell an TestFlight gekoppelt. Anlass: Live Activity startet trotz Aktivierung nicht, es fehlt Sichtbarkeit.
 
@@ -130,9 +132,9 @@ Der Betreiber kann **sein eigenes** Gerät freiwillig mit dem Dashboard koppeln,
 ### 4.2 Ablauf
 
 1. App (nur wenn Server-Capability `device_link` gemeldet **und** Build nachweislich TestFlight, 4.6; sonst existiert der Abschnitt nicht): Info-Sheet, Abschnitt „Betreiber-Diagnose“, Schalter „Dieses Gerät für die Diagnose bereitstellen“ (Standard aus). Beim Einschalten ruft die App `POST /v1/push/installations/<id>/link-code` mit dem `AppTransaction`-JWS auf (Installations-Secret wie bei allen App-Aufrufen).
-2. Server erzeugt einen 8-stelligen Code (Crockford-Base32, 40 Bit, ohne 0/O/1/I/L), speichert **nur den Hash**, gültig 10 Minuten, einmalig verwendbar, höchstens ein offener Code je Installation. Antwort: Code und Ablaufzeit. App zeigt den Code groß mit Restzeit und „Abbrechen“.
+2. Server erzeugt einen 8-stelligen Code (Crockford-Base32, 32 Symbole `0-9A-Z` ohne `I L O U`, 40 Bit; Eingabe normalisiert `O`→`0`, `I`/`L`→`1`; Korrektur 6.11.2026: der frühere Zusatz „ohne 0/1“ ergäbe nur 28 Symbole und keine 40 Bit), speichert **nur den Hash**, gültig 10 Minuten, einmalig verwendbar, höchstens ein offener Code je Installation. Antwort: Code und Ablaufzeit. App zeigt den Code groß mit Restzeit und „Abbrechen“.
 3. Betreiber (Dashboard, Seite „Geräte“, angemeldet per Passkey): „Gerät koppeln“, gibt Code und eine **eigene Bezeichnung** (frei wählbar, höchstens 40 Zeichen, z. B. „Mein iPhone“) ein: `POST /dash/api/devices/pair`. Der Server prüft Hash/Ablauf, markiert den Code als verbraucht und legt die Kopplung an.
-4. App fragt kurz `GET /v1/push/installations/<id>/link` (Polling nur, solange der Code-Bildschirm offen ist, alle 3 s, höchstens 10 Minuten) und zeigt „Gekoppelt seit …, läuft ab am …“ mit „Trennen“.
+4. App fragt kurz `GET /v1/push/installations/<id>/link` (Polling nur, solange der Code-Bildschirm offen ist, alle 3 s, höchstens 10 Minuten) und zeigt „Gekoppelt seit …“ (und „läuft ab am …“ nur, wenn der Betreiber serverseitig einen Ablauf eingestellt hat) mit „Trennen“.
 5. Ab jetzt zeigt das Dashboard für dieses Gerät Diagnose und Aktionen (4.4).
 
 ### 4.3 Was gespeichert wird, wie lange, wie widerrufbar
@@ -140,7 +142,8 @@ Der Betreiber kann **sein eigenes** Gerät freiwillig mit dem Dashboard koppeln,
 | Tabelle (Migration `011_device_link.sql`) | Inhalt | Lebensdauer |
 |---|---|---|
 | `push_link_code` | `code_hash BINARY(32) PK`, `install_id` (FK, ON DELETE CASCADE), `expires_at`, `used_at NULL` | 10 Minuten; abgelaufene Zeilen beim Zugriff und stündlich gelöscht |
-| `dashboard_device` | `id CHAR(36) PK` (zufällige Kopplungs-ID), `install_id` UNIQUE (FK, ON DELETE CASCADE), `label VARCHAR(40)`, `paired_at`, `expires_at`, `last_action_at NULL` | 14 Tage (`DASH_DEVICE_TTL_DAYS`, 1 bis 30), danach automatisch gelöscht; erneute Kopplung nötig |
+| `dashboard_device` | `id CHAR(36) PK` (zufällige Kopplungs-ID), `install_id` UNIQUE (FK, ON DELETE CASCADE), `label VARCHAR(40)`, `paired_at`, `expires_at NULL`, `last_action_at NULL` | **dauerhaft** (Entscheidung D3, 6.11.2026): bis zum Widerruf oder zur Löschung der Installation. Ablauf nur optional: `DASH_DEVICE_TTL_DAYS` (Standard `0` = aus, 0 bis 365); dann ist `expires_at` gesetzt und der Janitor löscht abgelaufene Kopplungen. Anzeige „zuletzt gesehen“ aus `push_install.last_seen_at`, `stale` ab `DASH_DEVICE_STALE_DAYS` (Standard 14) |
+| `dashboard_command` (Befehlstabelle, D6) | `id`, `device_id` (FK, CASCADE), `kind`, `dry_run`, `status`, Zeitpunkte, `result` (nur feste Felder), `error`; Vertrag in dashboard-api.md | 48 Stunden, höchstens 50 je Gerät, Löschen mit der Kopplung |
 | `dashboard_device_event` | `id BIGINT PK`, `device_id` (FK, ON DELETE CASCADE), `at`, `kind` (`alert`,`la_start`,`la_update`,`la_end`,`test`,`probe`,`token`), `outcome` (`delivered`,`rejected`,`retry`,`dropped`,`skipped`), `reason VARCHAR(64) NULL` (feste Gründe: APNs-Reason oder Überspringgrund) | 48 Stunden, höchstens 200 Zeilen je Gerät (ältere werden beim Einfügen gelöscht) |
 | `config_audit` (bestehend, `action` erweitert um `device_pair`, `device_unpair`, `device_action`, `push_pause`, `cache_clear`) | Aktion, Geräte-Referenz = erste 8 Zeichen von `SHA-256(Kopplungs-ID)`, Ergebnis | 365 Tage wie die übrige Audit-Tabelle (Entscheidung D4 nennt 90 Tage als Alternative) |
 
@@ -149,7 +152,9 @@ Der Betreiber kann **sein eigenes** Gerät freiwillig mit dem Dashboard koppeln,
 **Widerruf (jederzeit, drei Wege, wirkt serverseitig sofort):**
 - App-Schalter aus oder „Trennen“: `DELETE /v1/push/installations/<id>/link` löscht Kopplung, offenen Code und alle Geräteereignisse.
 - Dashboard „Trennen“: `DELETE /dash/api/devices/<id>` mit demselben Löschumfang.
-- Automatisch: Ablauf (14 Tage), Löschen der Installation (CASCADE), `DEVICE_LINK_ENABLED=false` (Routen 404, Janitor löscht alle Kopplungen beim nächsten Lauf).
+- Automatisch: Löschen der Installation (CASCADE; auch durch die bestehende 60-Tage-Inaktivitätsfrist der Installation), `DEVICE_LINK_ENABLED=false` (Routen 404, Janitor löscht alle Kopplungen beim nächsten Lauf) und, **nur wenn der Betreiber es einstellt**, der Ablauf nach `DASH_DEVICE_TTL_DAYS`. Ohne diese Einstellung läuft eine Kopplung nie ab.
+
+**Ehrliche Risikobewertung der dauerhaften Kopplung (D3):** (1) Ein weitergegebenes, verkauftes oder verliehenes Gerät bleibt gekoppelt, bis jemand widerruft; Gegenmaßnahmen: Anzeige „zuletzt gesehen“ und `stale`-Markierung im Dashboard (kein automatisches Löschen), „Trennen“ ist jederzeit im Dashboard möglich, die App-Löschung der Installation räumt auf. (2) Es gibt keine Inaktivitätsprüfung mit Löschung; `last_seen_at` ist nur eine Anzeige und kein Beweis der Nutzung. (3) Ereignisse bleiben dennoch auf 48 Stunden und 200 Zeilen begrenzt, es entsteht also kein dauerhaftes Verlaufsprotokoll. (4) Datenschutztext und Datenschutzfolgen sprechen von „bis zum Widerruf“, nicht von einer festen Frist. (5) Wer den Ablauf wünscht, stellt `DASH_DEVICE_TTL_DAYS` ein (Server-Konfiguration, kein Code).
 
 **Begrenzungen:** höchstens 3 gekoppelte Geräte gleichzeitig (`DASH_MAX_DEVICES`, 1 bis 5); Code-Erzeugung höchstens 6 pro Stunde je Installation; Einlösen höchstens 5 Fehlversuche pro Minute global (Code-Raum 2^40, Gültigkeit 10 Minuten, daher nicht ratbar); Einlösen nur mit Passkey-Sitzung + CSRF. **Ein ausgespähter Code ist ohne Betreiber-Sitzung wertlos.**
 
@@ -234,6 +239,8 @@ Ausgang: genau ein „wahrscheinlichster Grund“ plus Liste der übrigen Prüfu
 
 ### 4.7 API-Entwurf
 
+**Eingefroren 6.11.2026 (WP-V): maßgeblich sind api.md und dashboard-api.md; die folgenden Tabellen sind der ursprüngliche Entwurf.** Abweichungen: Capability `device_link` steht in `GET /v1/status` (nicht `/v1/push/capabilities`); zusätzliche Fehler `already_linked`, `invalid_request`, `413`; `GET …/link` liefert alle Felder immer; Aktionen laufen über `dashboard_command` (D6) mit Ergebnis-Polling.
+
 App ↔ Backend (Auth wie übrige Push-Routen: Installations-ID + Secret; Rate-Limits wie dort; JSON; `404` bei `DEVICE_LINK_ENABLED=false`):
 
 | Methode, Pfad | Zweck | Antworten |
@@ -241,7 +248,7 @@ App ↔ Backend (Auth wie übrige Push-Routen: Installations-ID + Secret; Rate-L
 | POST `/v1/push/installations/<id>/link-code` | Body `{"app_transaction":"<JWS>"}`; Code erzeugen (ersetzt einen offenen Code) | `201 {"code":"ABCD-EFGH","expires_at":"…"}`; `403 not_testflight` (Nachweis fehlt/ungültig/Production); `409 link_full`; `429` |
 | GET `/v1/push/installations/<id>/link` | Zustand | `200 {"state":"none\|code_open\|linked","linked_at":"…","expires_at":"…","label_set":true}` (Bezeichnung nicht zurückgeben) |
 | DELETE `/v1/push/installations/<id>/link` | Trennen und Code verwerfen | `204` (idempotent) |
-| GET `/v1/push/capabilities` | + `device_link` | bestehend, additiv |
+| GET `/v1/status` | `capabilities` + `device_link` | bestehend, additiv |
 
 Dashboard ↔ Backend (nur Dashboard-Listener, Sitzung + CSRF bei Schreibzugriff):
 
@@ -259,21 +266,31 @@ Alle Fehler `{"error":"code"}`, kein Detail. Der Vertrag wird in `docs-site/cont
 
 ### 4.8 Datenschutz-Auswirkungen
 
-- **App-Datenschutztext (Info-Sheet)** und **Backend-Seite `/datenschutz` (`SitePages.swift`)**: neuer Absatz „Betreiber-Diagnose (freiwillig)“: standardmäßig aus; nur in Testversionen; Schalter; Code; Betreiber ordnet das Gerät einer eigenen Bezeichnung zu; gespeichert werden Zuordnung, Bezeichnung, Zeitpunkte und ein 48-Stunden-Verlauf technischer Versandergebnisse; Löschung durch Ausschalten, Ablauf nach 14 Tagen, Löschen der Registrierung; keine Standortverlaufsdaten, keine Gerätekennzeichen. Texte DE/EN, in `SitePages`-Tests auf Inhalt/Escaping prüfen.
+- **App-Datenschutztext (Info-Sheet)** und **Backend-Seite `/datenschutz` (`SitePages.swift`)**: neuer Absatz „Betreiber-Diagnose (freiwillig)“: standardmäßig aus; nur in Testversionen; Schalter; Code; Betreiber ordnet das Gerät einer eigenen Bezeichnung zu; gespeichert werden Zuordnung, Bezeichnung, Zeitpunkte und ein 48-Stunden-Verlauf technischer Versandergebnisse; Löschung durch Ausschalten in der App, Trennen im Dashboard oder Löschen der Registrierung (die Kopplung besteht dauerhaft bis zum Widerruf, ein Ablauf ist nur auf Betreiberwunsch eingestellt); keine Standortverlaufsdaten, keine Gerätekennzeichen. Texte DE/EN, in `SitePages`-Tests auf Inhalt/Escaping prüfen.
 - **`docs-site/content/api.md`**, **`datenschutz`-Abschnitt in `docs-site/content/seiten.md`** und **`docs/pages.md`** (Hinweis auf neue veröffentlichte Aussage; keine Domains/IPs/Pfade) nachziehen.
 - **Dashboard selbst** ist intern und nicht öffentlich dokumentiert, aber `docs-site/content/betrieb.md` beschreibt Aktivierung und Datenumfang.
 - **App-Store-Datenschutzangaben (Privacy Nutrition Label)** und App-Repo-Doku: Prüfen, ob die bestehenden Angaben (pseudonyme Installations-ID, Push-Token) die Kopplung abdecken; wird in WP14 im App-Repo bewertet (nicht hier entschieden). Rechtsbewertung ist keine Rechtsberatung; Betreiber prüft.
-- Rechtsgrundlage: Einwilligung (Schalter), Datenminimierung (kein Gerätebezug außer Pseudonym), Speicherbegrenzung (14 Tage/48 h), Widerruf jederzeit.
+- Rechtsgrundlage: Einwilligung (Schalter), Datenminimierung (kein Gerätebezug außer Pseudonym), Speicherbegrenzung (Ereignisse 48 h; Kopplung selbst dauerhaft bis zum Widerruf, Ablauf optional), Widerruf jederzeit und wirksam sofort.
 
 ## 5. Design-Leitlinien
 
-Ziel: hochwertiges, ruhiges, dichtes aber lesbares Betreiber-Dashboard; eine Handschrift, kein Baukasten-Look. Umsetzung als eigenes **Designsystem** in `dashboard/src/lib/design` (WP10) mit Tokens, Komponenten, Beispiel-/Vorschauseite (nur Dev-Build, `/dash/_design`, nicht im Produktionsbuild).
+Ziel: hochwertiges, ruhiges, dichtes aber lesbares Betreiber-Dashboard; eine Handschrift, kein Baukasten-Look. **Entscheidung 6.11.2026: Das Design orientiert sich an `timetrack-pwa` (Svelte 5 + shadcn-svelte, Tailwind 4); dessen Designsprache wird übernommen** (Quelle: `src/routes/layout.css`, `components.json`, `docs/STATUS.md` „Designsprache“, nur gelesen; die Doku `docs/DESIGN.md` und ADR-0014 liegen im dortigen Backend-Repo und wurden nicht gesichtet). Umsetzung als Designsystem in `dashboard/src/lib/design` (WP10) mit Beispiel-/Vorschauseite (nur Dev-Build, `/dash/_design`, nicht im Produktionsbuild).
 
-**Tokens und Theming.** Farben, Abstände, Radien, Schatten, Schriftgrößen und Zeiten als CSS-Variablen (Tailwind-4-Theme); hell und dunkel gleichberechtigt (`prefers-color-scheme` plus Umschalter, Voreinstellung System), Farben in OKLCH. Neutrale, leicht kühle Grauskala (Oberfläche, erhöhte Oberfläche, Rahmen, Text 1 bis 3), **ein** Akzent (am Appthema orientiert, mit AA-Kontrast auf beiden Flächen), dazu **semantische Statusfarben** (OK, Warnung, Fehler, Info), die nie allein Bedeutung tragen (immer Icon + Text). Dunkelmodus: Flächen nicht reines Schwarz, Diagrammfarben für Dunkel separat abgestimmt (nicht invertiert).
+**Übernommen aus `timetrack-pwa` (BESTÄTIGT, Dateien gelesen):**
+- **Stack:** shadcn-svelte (Stil `nova`, `baseColor: neutral`, Icons `@lucide/svelte`), Tailwind 4 mit `@theme inline`, `tw-animate-css`, `tailwind-variants`, bits-ui-basierte Primitive; Aliasse `#lib/...`; Komponenten in `lib/components/{ui,app,shell,...}`.
+- **Tokens:** Zinc-Grauskala in OKLCH als CSS-Variablen (`--background`, `--foreground`, `--card`, `--muted`, `--muted-foreground`, `--border`, `--ring`, `--destructive`, `--chart-1..5`, `--sidebar*`), hell und dunkel gleichberechtigt (`.dark`-Klasse, System-Voreinstellung plus Umschalter), `--radius: 0.625rem` mit abgeleiteten Radien, Schatten `--shadow-card`/`--shadow-pop`, Basisschrift 15 px mit Zeilenhöhe 1,6, `tabular-nums` für `time`/`.tabular`.
+- **Akzentsystem:** ein Akzent über `--ui-accent`, `--ui-accent-foreground`, `--ui-accent-ink`, `--ui-accent-soft` (Standard `#2563EB`), zur Laufzeit überschreibbar; semantische Statusfarben nie allein, immer mit Icon und Text. Für das Dashboard genügt die Voreinstellung (keine Konto-Synchronisierung, Auswahl nur lokal oder fest).
+- **Glas:** schwebende Flächen (Popover, Dialog, Toast, Seitenleiste, Kopfzeile) mit Blur über `--bf-*`/`--glass-*` und deckenden Rückfällen (reduzierte Transparenz, kein `backdrop-filter`); Daten selbst nie auf Glas, Text bleibt deckend. Leuchteffekt (`glow`) **nicht** übernommen (nicht nötig für ein Betreiberwerkzeug).
+- **Schrift:** Inter Variable lokal gebündelt über `@fontsource-variable/inter` (`--font-sans`), Systemschrift als Rückfall; entspricht D11, `font-src 'self'` bleibt gültig.
+- **Shell:** Seitenleiste 256 px, Kopfzeile 60 px, mobiles Off-Canvas-Menü, Befehlspalette/Einstellungssuche optional; Breakpoints `menu` 760 px und `wide` 1100 px.
+- **Musterkomponenten (Namen übernehmen, Inhalt für das Dashboard):** `PageHeader`, `Panel`, `KpiCard`, `SectionHeading`, `EmptyState`, `FilterBar`, `StatusChip`, `Banner`, `Segmented`, `ConfirmDialog`, `Toast`, `Field`, `CopyButton`, `Dur`; UI-Primitive `button`, `card`, `badge`, `input`, `select`, `switch`, `checkbox`, `alert`, `label`, `textarea`.
+- **Diagramme:** dort ein eigener SVG-`Chart.svelte` ohne Abhängigkeiten (Linie, gruppierte/gestapelte Balken, Tooltip bei Hover und Fokus mit Pfeiltasten, Textalternative als Tabelle) mit `niceTicks`/`labelIndexes` in `lib/stats/scale.ts`. Das bestätigt Entscheidung D7 (eigene SVG-Bausteine) und liefert das Muster für die Dashboard-Bausteine.
 
-**Typografie.** Eine variable Sans-Schrift **lokal gebündelt** (Empfehlung Inter Variable, OFL; `font-src 'self'` in der CSP bleibt gültig, kein CDN), Systemschrift als Rückfall; Monospace-Systemstapel für Schlüssel/IDs. `font-variant-numeric: tabular-nums` für alle Zahlen, de-DE-Format, konsistente Einheiten (ms, MB, %). Skala 12/13/14/16/20/28; große Kennzahlen 28 bis 36 mit Einheit klein daneben. Zeilenhöhe großzügig, Überschriften knapp.
+**Anpassungen für das Dashboard:** `components.json` des Dashboards zeigt auf `src/routes/layout.css` und `#lib`-Aliasse wie dort (WP10 legt es an bzw. gleicht es ab). Die weiter unten genannten Bausteine (Heat-Strip, Heatmap, Trichter, Histogramm, Sparkline) gibt es im Vorbild nicht und werden im selben Stil ergänzt. Der Akzent aus der App (Showers) wird **nicht** nachgebildet; es gilt das Vorbild (`#2563EB`), damit beide Betreiber-Oberflächen gleich wirken. Keine Konto-Einstellungen (Akzent je Konto, Transparenz) und keine i18n-Infrastruktur: Texte sind deutsch, aber in einer Textdatei gebündelt.
 
-**Diagramme (eigene SVG-Bausteine, keine Chartbibliothek; Empfehlung D7).** Gründe: CSP, Kontrolle über Stil und Barrierefreiheit, kleine Größe. Bausteine: Sparkline (in Kacheln), Linie/Fläche (Zeitreihe mit Stunden-/Tagesachse), gestapelte Balken (Status, Routen), horizontale Rangbalken, **Heat-Strip** (Ingest-Läufe), Heatmap Stunde × Wochentag (Traffic), Histogramm (Latenzbuckets), Trichter (Push-Pipeline). Regeln (Skill `dataviz` bei Umsetzung heranziehen): Direkte Beschriftung statt schwerer Legenden, wenige Rasterlinien, ruhige Achsen, Nullbasis bei Balken, ein Farbton je Bedeutung durchgängig, kein 3D, keine Tortendiagramme, Tooltips per Hover **und** Tastatur/Fokus, „Als Tabelle anzeigen“-Umschalter je Diagramm (Screenreader und Detail), `prefers-reduced-motion` respektiert (nur dezente Übergänge ≤ 150 ms), Farbpalette farbfehlsichtigkeits-verträglich (Prüfung per Simulation, nicht nur Auge).
+**Typografie und Zahlen (Ergänzung zum Vorbild).** Alle Zahlen `tabular-nums`, de-DE-Format, konsistente Einheiten (ms, MB, %), Kennzahlen 28 bis 36 px mit kleiner Einheit, Monospace-Systemstapel für Schlüssel/IDs. Dunkelmodus: Flächen nicht reines Schwarz (wie Vorbild), Diagrammfarben für Dunkel separat abgestimmt, nicht invertiert.
+
+**Diagrammbausteine (eigene SVG-Bausteine, keine Chartbibliothek; D7 angenommen).** Gründe: CSP, Kontrolle über Stil und Barrierefreiheit, kleine Größe. Bausteine: Sparkline (in Kacheln), Linie/Fläche (Zeitreihe mit Stunden-/Tagesachse), gestapelte Balken (Status, Routen), horizontale Rangbalken, **Heat-Strip** (Ingest-Läufe), Heatmap Stunde × Wochentag (Traffic), Histogramm (Latenzbuckets), Trichter (Push-Pipeline). Regeln (Skill `dataviz` bei Umsetzung heranziehen): Direkte Beschriftung statt schwerer Legenden, wenige Rasterlinien, ruhige Achsen, Nullbasis bei Balken, ein Farbton je Bedeutung durchgängig, kein 3D, keine Tortendiagramme, Tooltips per Hover **und** Tastatur/Fokus, „Als Tabelle anzeigen“-Umschalter je Diagramm (Screenreader und Detail), `prefers-reduced-motion` respektiert (nur dezente Übergänge ≤ 150 ms), Farbpalette farbfehlsichtigkeits-verträglich (Prüfung per Simulation, nicht nur Auge).
 
 **Kacheln und Dichte.** Kennzahl-Kachel: Titel, Wert, Delta/Trend (Pfeil + Text), Sparkline, Statuspunkt; Hinweis „Stand hh:mm:ss, Verzug bis 60 s“. Inhalte in Karten mit einheitlichem Rahmen/Radius; Abschnittsüberschriften mit kurzer Erklärung („Was zeigt das?“ als aufklappbares Info-Popover).
 
@@ -326,12 +343,12 @@ Dateibesitz exklusiv je Paket; `main.swift` gehört WP5, `PushService.swift` und
 
 **Parallelisierung (Präzisierung 6.11.2026): drei unabhängige Spuren, getrennter Dateibesitz, höchstens drei Worker.**
 
-Schritt 0 (vorab, ein Worker, klein, S): **WP-V „Verträge einfrieren“** schreibt die API-Verträge in `docs-site/content/api.md` (App-Routen inkl. `app_transaction`, `device_link`), `docs-site/content/dashboard-api.md` (Insights- und Geräte-Routen) und einen Fixture-Satz (`docs/fixtures/dashboard/*.json`, erfundene Beispieldaten) fest. Danach arbeiten die Spuren ohne gegenseitiges Warten:
+Schritt 0 (**erledigt 6.11.2026**, Todolino „WP-V API-Verträge“): **WP-V „Verträge einfrieren“** hat die API-Verträge in `docs-site/content/api.md` (App-Routen inkl. `app_transaction`, `device_link`), `docs-site/content/dashboard-api.md` (Insights-, Geräte-, Aktions- und Befehlsrouten) und einen Fixture-Satz (`docs/fixtures/app/*.json`, `docs/fixtures/dashboard/*.json`, Manifest `docs/fixtures/manifest.json`, erfundene Beispieldaten) festgeschrieben (Abschnitt 11). Danach arbeiten die Spuren ohne gegenseitiges Warten:
 
 | Spur | Worker | Pakete in Reihenfolge | Exklusive Verzeichnisse | Gegen was entwickelt |
 |---|---|---|---|---|
-| **Backend-API** (Repo Backend, `Sources/`, `Tests/`, `migrations/`) | 1 | WP5 (Router, Voraussetzung) → WP13a (Kopplung + JWS-Prüfung + Diagnose, **zuerst**, weil Nutzerschmerz) → WP11 (Metriken/Observer) → WP12 (Insight-API) | alle Swift-Dateien dieser Pakete, `migrations/010+`, `docs-site/content/{api,dashboard-api}.md` nach WP-V | Tests mit Memory/MariaDB, selbstsignierte Testkette für JWS |
-| **Dashboard-Frontend** (Repo Backend, nur `dashboard/**`) | 2 | WP10 (Designsystem) → WP15 (Seiten) → WP16 (Geräte, Konfiguration) | `dashboard/**` ausschließlich | Mock-Server mit den Fixtures aus WP-V |
+| **Backend-API** (Repo Backend, `Sources/`, `Tests/`, `migrations/`) | 1 | WP5 (Router, Voraussetzung) → WP13a (Kopplung + JWS-Prüfung + Diagnose, **zuerst**, weil Nutzerschmerz) → WP11 (Metriken/Observer) → WP12 (Insight-API) | alle Swift-Dateien dieser Pakete, `migrations/010+`, `docs-site/content/{api,dashboard-api}.md` und `docs/fixtures/**` nach WP-V (Änderungen nur additiv oder mit Vertragsversion) | Tests mit Memory/MariaDB, selbstsignierte Testkette für JWS |
+| **Dashboard-Frontend** (Repo Backend, nur `dashboard/**`) | 2 | WP10 (Designsystem) → WP15 (Seiten) → WP16 (Geräte, Konfiguration) | `dashboard/**` ausschließlich | Mock-Server mit `docs/fixtures/` (Manifest) |
 | **App-Opt-in** (Repo Apple, eigener Besitzer) | 3 | WP14: Spike TestFlight-Erkennung → `BuildChannel` → UI → Datenschutztext → Tests | nur App-Repo; dieses Repo unverändert | Mock-Server nach Vertrag, injizierte StoreKit-Antworten |
 
 Konflikte ausgeschlossen: Frontend schreibt nur unter `dashboard/`, App nur im App-Repo, Backend nur unter `Sources/`, `Tests/`, `migrations/`, Vertragsdateien (erst nach WP-V). `PushService.swift`/`PushApi.swift` hat im Backend nur ein Worker. Docker/Browser-Build: Frontend-Worker; Swift-Build/DB-Tests: Backend-Worker; Gerätetests: Nutzer/App-Worker. WP17 (Doku/Deploy, nach Klärung von `deploy/swarm/`) und WP18 (Review/E2E, Gerätetest TestFlight, App-Store-Stichprobe nach Veröffentlichung) folgen, sobald die Spuren fertig sind; auch sie als ein Worker je Paket, nie mehr als drei gleichzeitig.
@@ -350,28 +367,30 @@ Voraussetzung bleibt der Abschluss von WP5; WP7-Altumfang entfällt zugunsten WP
 
 `swift test` (Memory) und gegen Wegwerf-MariaDB; Frontend: `npm run check`, `lint`, `test`, `build`, Playwright-E2E; manuell: Gerätetest TestFlight mit echter Live Activity (Probe, Ende, Diagnose gegen reales Verhalten). Nicht ausgeführt, da reine Planung: Builds und Tests.
 
-## 9. Offene Nutzerentscheidungen (Empfehlung zuerst)
+## 9. Entscheidungen (alle angenommen am 6.11.2026)
 
-| # | Frage | Empfehlung | Alternativen |
+Der Nutzer hat am 6.11.2026 **alle Empfehlungen D1 bis D14 angenommen**, mit zwei Änderungen: **D3** (Kopplung dauerhaft, kein Ablauf) und **Design** (Vorbild `timetrack-pwa`, Abschnitt 5). Spalte „Entscheidung“ ist verbindlich.
+
+| # | Frage | Entscheidung | Verworfene Alternative |
 |---|---|---|---|
-| D1 | Stundenauflösung für ausgewählte Metriken (72 h, nur Zähler)? | **Ja**, 72 h; ohne sie sind Live-Activity-Probleme und Tagesmuster kaum sichtbar | Nur Tageswerte (einfacher, weniger Insight) |
-| D2 | Sichtbarkeit des App-Schalters | **ENTSCHIEDEN (6.11.2026, harte Anforderung H1): nie im App Store; nur nachweislich TestFlight (Debug zusätzlich), fail closed, App- und Serverprüfung**; Server-Schalter `DEVICE_LINK_ENABLED` Standard aus | – |
-| D3 | Kopplungsdauer und Anzahl | **14 Tage, höchstens 3 Geräte** | 7 oder 30 Tage; 1 Gerät |
-| D4 | Aufbewahrung: Geräteereignisse 48 h, Audit 365 Tage | **Ja** (Audit kurz halten) | Audit 90 Tage |
-| D5 | Geografische Verteilung der Abos | **Nein** (nur Verteilungen ohne Geografie) | grobe Sektoren, k ≥ 10 |
-| D6 | Wie erreichen Dashboard-Aktionen APNs? | **Befehlstabelle `dashboard_command`**, vom Leader abgearbeitet (kein APNs-Secret im Dashboard-Dienst, Verzug ≈ 2 s) | APNs-Secret zusätzlich im Dashboard-Dienst (direkter, größere Angriffsfläche) |
-| D7 | Chart-Technik | **Eigene SVG-Bausteine** | shadcn-svelte-Chart/LayerChart (Lizenz/Svelte-5-Verfügbarkeit offen) |
-| D8 | Benachrichtigung an gekoppeltes Gerät bei „rot“ | **Nicht jetzt** | Später als Kann |
-| D9 | Push-Pause-Schalter und Cache leeren aufnehmen | **Ja** | nur Konfiguration/Neustart |
+| D1 | Stundenauflösung für ausgewählte Metriken | **Ja**, 72 h, nur Zähler | nur Tageswerte |
+| D2 | Sichtbarkeit des App-Schalters | **Nie im App Store; nur nachweislich TestFlight (Debug zusätzlich), fail closed, App- und Serverprüfung**; Server-Schalter `DEVICE_LINK_ENABLED` Standard aus (harte Anforderung H1) | – |
+| D3 | Kopplungsdauer und Anzahl | **GEÄNDERT: dauerhaft (kein Ablauf), jederzeit widerrufbar** (App-Schalter, Dashboard, `DEVICE_LINK_ENABLED=false`, Löschen der Installation); **höchstens 3 Geräte** (`DASH_MAX_DEVICES`). Ablauf nur optional per `DASH_DEVICE_TTL_DAYS` (Standard `0` = aus); Anzeige „zuletzt gesehen“, Risiken in 4.3 | 14 Tage (Empfehlung des Plans, durch den Nutzer verworfen), 7/30 Tage, 1 Gerät |
+| D4 | Aufbewahrung | Geräteereignisse 48 h, Audit 365 Tage | Audit 90 Tage |
+| D5 | Geografische Verteilung der Abos | **Nein** | grobe Sektoren |
+| D6 | Wie erreichen Dashboard-Aktionen APNs? | **Befehlstabelle `dashboard_command`**, vom Leader abgearbeitet (kein APNs-Secret im Dashboard-Dienst, Verzug ≈ 2 s) | APNs-Secret im Dashboard-Dienst |
+| D7 | Chart-Technik | **Eigene SVG-Bausteine** (bestätigt durch das Vorbild `timetrack-pwa`) | shadcn-svelte-Chart/LayerChart |
+| D8 | Benachrichtigung an gekoppeltes Gerät bei „rot“ | **Nicht jetzt** | später als Kann |
+| D9 | Push-Pause-Schalter und Cache leeren | **Ja** | nur Konfiguration/Neustart |
 | D10 | Reihenfolge | **Zuerst Sofort-Slice (Push-Gauges, Diagnose, Ereignisse), dann Optik/Rest** | erst Designsystem |
-| D11 | Schrift | **Inter Variable lokal gebündelt** | Nur Systemschrift |
-| D12 | TestFlight-Erkennung | **`AppTransaction` (verifiziertes JWS, `Sandbox`) + `sandboxReceipt` als Gegenprobe, Spike-Abnahme** (WP14), bis zur Messung Schalter in Release-Builds aus | nur lokale Erkennung ohne Serverprüfung (nicht empfohlen) |
-| D14 | JWS-Prüfung im Backend | **Apples `app-store-server-library-swift` exakt gepinnt**, falls Lizenz/Abhängigkeiten tragbar (WP13 prüft); sonst eigene Minimalprüfung | Eigenprüfung von Anfang an |
-| D13 | Befund-Schwellen aus 2.6 | **Als Startwerte übernehmen**, nach 2 Wochen kalibrieren | andere Werte |
+| D11 | Schrift | **Inter Variable lokal gebündelt** (wie `timetrack-pwa`) | Systemschrift |
+| D12 | TestFlight-Erkennung | **`AppTransaction` (verifiziertes JWS, `Sandbox`) + `sandboxReceipt` als Gegenprobe, Spike-Abnahme** (WP14), bis zur Messung Schalter in Release-Builds aus | nur lokale Erkennung |
+| D13 | Befund-Schwellen aus 2.6 | **Startwerte übernehmen**, nach 2 Wochen kalibrieren | andere Werte |
+| D14 | JWS-Prüfung im Backend | **Apples `app-store-server-library-swift` exakt gepinnt**, falls Lizenz/Abhängigkeiten tragbar (WP13a prüft); sonst eigene Minimalprüfung | Eigenprüfung von Anfang an |
 
 ## 10. Risiken
 
-1. **Datenschutz/Vertrauen:** Gerätekopplung ist die einzige Funktion mit Gerätebezug; Gegenmaßnahmen 4.3. Restrisiko: Betreiber koppelt fremdes Gerät (Code nur über die App, Einwilligung des Gerätebesitzers; Betreiber-Hinweis in Doku).
+1. **Datenschutz/Vertrauen:** Gerätekopplung ist die einzige Funktion mit Gerätebezug und besteht dauerhaft bis zum Widerruf; Gegenmaßnahmen 4.3. Restrisiko: Betreiber koppelt fremdes Gerät (Code nur über die App, Einwilligung des Gerätebesitzers; Betreiber-Hinweis in Doku).
 2. **TestFlight=`Sandbox` unbelegt** (4.6): Spike zuerst, fail closed; Replay eines echten Sandbox-JWS bleibt möglich, wird durch Passkey-Einlösung entschärft; App-Store-Fall erst nach Veröffentlichung messbar.
 3. **Zähler-Overhead und Etikettenraum** bei neuen Metriken: Messung wie in WP2 (Mikrosekunden je Anfrage), feste Etiketten.
 4. **Gleichzeitige Änderungen an `PushService`/`PushApi`** (WP11, WP13): sequenziell, `PushObserver` als schmale Nahtstelle.
@@ -379,5 +398,32 @@ Voraussetzung bleibt der Abschluss von WP5; WP7-Altumfang entfällt zugunsten WP
 6. **Diagnose beantwortet nur, was das Backend weiß:** Fehlt der Start-Token, liegt die Ursache in der App/iOS (Live-Activities-Einstellung, Berechtigung); das Dashboard zeigt es, behebt es nicht.
 7. **Apple-Gründe (APNs):** Liste vor Umsetzung gegen die aktuelle Apple-Dokumentation abgleichen; unbekannte Gründe landen in `other`.
 8. **Umfangsrisiko:** Der Katalog ist groß. Schnitt: erst alle „M“ (WP10 bis WP13, WP15/16 für M-Seiten), „S“ nach Abnahme, „K“ nur auf Zuruf.
+9. **Dauerhafte Kopplung (D3, 6.11.2026):** Ein dauerhaft gekoppeltes Gerät kann in fremde Hände gelangen oder lange ungenutzt bleiben; es gibt nur Anzeige (`zuletzt gesehen`, `stale`), keine automatische Löschung; Gegenmaßnahmen und Restrisiko in 4.3. Der Betreiber kann einen Ablauf per Konfiguration erzwingen.
 
 Nicht ausgeführt: keine Builds/Tests; Primärquellen zu `AppTransaction` waren per Werkzeug nicht inhaltlich lesbar (nur Seitentitel), daher bleiben die Aussagen in 4.6 Annahmen.
+
+## 11. WP-V: Vertragsumfang und Übergabenotizen je Spur (6.11.2026)
+
+**Eingefroren** (Stand 6.11.2026; spätere Änderungen nur additiv oder mit Vertragsversion in dieser Datei, in api.md/dashboard-api.md und in `docs/fixtures/` zugleich):
+
+- App ↔ Backend (`api.md`): `POST/GET/DELETE /v1/push/installations/<id>/link-code|link`, `app_transaction` (JWS-Prüfung, `403 not_testflight`), Capability `device_link` in `GET /v1/status`, Fehlercodes, Ratenlimits, Hinweis „keine Befehle/Ereignisse zur App“.
+- Dashboard ↔ Backend (`dashboard-api.md`): `GET insights/{overview,ops,traffic,push,distribution,findings}` (Felder, Einheiten, k-Unterdrückung, Teilausfall), Push-Pause, Cache leeren, Geräte (`devices`, `pair`, Status, Diagnose, Ereignisse), Aktionen und Befehlstabelle mit Ergebnis-Polling, Konfiguration/Audit/Neustart (für den Mock), Fehlercodes.
+- Fixtures: `docs/fixtures/manifest.json` (Methode, Pfad, Status je Datei), `docs/fixtures/app/` (snake_case) und `docs/fixtures/dashboard/` (camelCase), mit Leer-, Fehler- und Teilausfallfällen.
+
+**Übergabe Spur Backend (Worker 1)**
+- Besitz: `Sources/**`, `Tests/**`, `migrations/**`, `Package.swift`/`Package.resolved`; Vertragsdateien `docs-site/content/{api,dashboard-api}.md` und `docs/fixtures/**` nur bei Vertragsänderung (additiv, mit Fixture-Anpassung).
+- Reihenfolge: WP5 → WP13a → WP11 → WP12. Antworten müssen den Fixtures strukturell entsprechen (Contract-Tests: Fixture laden, Schlüsselmenge und Typen vergleichen, Null-Semantik beachten).
+- Besonderheiten: Route-Gruppen aus `StatsRoute.groups`; k-Unterdrückung inkl. Komplementärunterdrückung; keine IDs/Token/Zellen in Antworten (Musterprüfung); Body-Grenze 8 KB nur für `link-code`; Code-Alphabet Crockford 32 Symbole; Kopplung dauerhaft (`expires_at` nur bei `DASH_DEVICE_TTL_DAYS > 0`).
+- Nicht anfassen: `dashboard/**`, App-Repo, `deploy/swarm/*` (Fremdbesitz bis zur Klärung; WP17).
+
+**Übergabe Spur Frontend (Worker 2)**
+- Besitz: ausschließlich `dashboard/**`. Mock-Server liest `docs/fixtures/manifest.json` (Repo-Pfad relativ zu `dashboard/`, nicht kopieren, damit Vertragsänderungen sofort wirken) und liefert je Pfad Standardfall; Leer-/Fehlerfälle über Szenario-Schalter.
+- Design: nach `timetrack-pwa` (Abschnitt 5). Unbekannte Aufzählungswerte tolerieren, `null` als „nicht erhoben“ darstellen (nicht als 0), `partial` je Widget als Teilausfall, Fehlertexte nach Code/Status wählen, keine Serverfreitexte.
+- Abhängigkeiten: Frontend-Typen (`dashboard/src/lib/api.ts`) aus dem Vertrag ableiten (camelCase), Abweichungstabelle in dashboard-api.md beachten.
+
+**Übergabe Spur App (Worker 3, App-Repo)**
+- Besitz: nur App-Repo (WP14); dieses Repo wird nicht geändert. Tests und Mock-Server nutzen `docs/fixtures/app/*.json` (snake_case) und `GET /v1/status`-Fixture.
+- Pflicht: `BuildChannel` fail closed (Abschnitt 4.6), Abschnitt nur bei `.testFlight` **und** Capability `device_link`; `app_transaction` nur im Speicher und nur mit `link-code`; bei Wechsel zu App Store beim Start `DELETE …/link`; Polling nur bei offenem Code-Bildschirm (3 s, höchstens 10 min); „läuft ab am“ nur anzeigen, wenn `expires_at` nicht `null` ist; Kopplung ist dauerhaft („bis zum Widerruf“ im Datenschutztext).
+- Nicht im Umfang: Befehlsempfang (es gibt keinen Kanal), Dashboard-Funktionen.
+
+**Offene Punkte nach WP-V** (nicht blockierend): Spike-Ergebnis zu `receiptType` (TestFlight = `Sandbox`?) und `receiptCreationDate`-Fenster (`DEVICE_LINK_MAX_AGE_HOURS`); APNs-Reason-Liste gegen aktuelle Apple-Doku abgleichen; Latenz-/Lag-Buckets nach WP11 kalibrieren; Heatmap Wochentag × Stunde ist durch die 72-h-Stundenaufbewahrung auf 3 Tage begrenzt; Dashboard-Frontend-Typen bis WP7-Umbau noch snake_case.
