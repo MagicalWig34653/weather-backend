@@ -81,6 +81,7 @@ public struct DashboardConfigState: Sendable, Equatable {
 public enum DashboardAuditAction: String, Sendable, Equatable, CaseIterable {
     case set, reset, restart, login, setup, resetCLI = "reset_cli"
     case devicePair = "device_pair", deviceUnpair = "device_unpair", deviceAction = "device_action", pushPause = "push_pause", cacheClear = "cache_clear"
+    case devicePairingOpen = "device_pairing_open", devicePairingClose = "device_pairing_close"
 }
 
 public struct DashboardAuditEntry: Sendable, Equatable {

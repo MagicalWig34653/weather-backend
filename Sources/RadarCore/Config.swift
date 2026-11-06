@@ -55,6 +55,10 @@ public struct DeviceLinkSettings: Sendable, Equatable {
     /// 0 = a link never expires (decision 6.11.2026).
     public var ttlDays = 0
     public var staleDays = 14
+    /// `DEVICE_LINK_REQUIRE_TESTFLIGHT` (default false): additionally demand the AppTransaction proof for link codes (old contract).
+    public var requireTestFlight = false
+    /// `DEVICE_LINK_WINDOW_MINUTES`: default length of the pairing window the operator opens in the dashboard (1 to 15).
+    public var windowMinutes = 5
     public init() {}
 }
 
@@ -246,6 +250,8 @@ public struct Config: Sendable {
         c.deviceLink.maxDevices = try ranged("DASH_MAX_DEVICES", c.deviceLink.maxDevices, 1...5)
         c.deviceLink.ttlDays = try ranged("DASH_DEVICE_TTL_DAYS", c.deviceLink.ttlDays, 0...365)
         c.deviceLink.staleDays = try ranged("DASH_DEVICE_STALE_DAYS", c.deviceLink.staleDays, 1...365)
+        c.deviceLink.requireTestFlight = (env["DEVICE_LINK_REQUIRE_TESTFLIGHT"] ?? "").lowercased() == "true"
+        c.deviceLink.windowMinutes = try ranged("DEVICE_LINK_WINDOW_MINUTES", c.deviceLink.windowMinutes, 1...15)
         return try c.validated()
     }
 

@@ -377,6 +377,7 @@ public final class PushApi: Sendable {
     static let linkCodeMaxBodyBytes = 8 * 1024
     static let linkCodeTTL: TimeInterval = 600
     static let linkCodesPerHour = 6
+    static let linkCodesPerWindow = 30
 
     private func handleLink(_ route: String, method: String, installID: String, secret: String?, body: [UInt8], now: Date) async throws -> ApiResponse {
         let settings = config.deviceLink
@@ -395,17 +396,29 @@ public final class PushApi: Sendable {
             }
         case ("link-code", "POST"):
             return try await authenticated(installID, secret, now) { _ in
+                // Codes are only handed out while the operator's pairing window is open (checked first, uniform answer).
+                // A database error counts as closed (fail closed).
+                guard let windowEnd = try? await self.repo.pairingWindowEnd(now: now) else { return Self.error(403, "pairing_closed") }
                 guard self.limiter.allow("lc:" + installID, limit: Self.linkCodesPerHour, window: 3600, now: now) else {
                     var response = Self.error(429, "link_code_rate_limited")
                     response.headers.append(("Retry-After", "3600"))
                     return response
                 }
-                guard let object = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any],
-                      let jws = object["app_transaction"] as? String else { return Self.error(400, "invalid_request") }
-                let verifier = self.verifierOverride ?? self.makeVerifier(settings)
-                if let reason = await verifier.verify(jws: jws) {
-                    self.stats.record("device_link_reject", label: reason.rawValue, by: 1)
-                    return Self.error(403, "not_testflight")
+                // Flood limit: a stranger must not fill the window with codes (per replica and window).
+                guard self.limiter.allow("lcw:" + TimeUtil.toISO(windowEnd), limit: Self.linkCodesPerWindow, window: 900, now: now) else {
+                    var response = Self.error(429, "link_code_rate_limited")
+                    response.headers.append(("Retry-After", String(max(1, Int(windowEnd.timeIntervalSince(now).rounded(.up))))))
+                    return response
+                }
+                let object = body.isEmpty ? [:] : (try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any])
+                guard let object else { return Self.error(400, "invalid_request") }
+                if settings.requireTestFlight {
+                    guard let jws = object["app_transaction"] as? String else { return Self.error(400, "invalid_request") }
+                    let verifier = self.verifierOverride ?? self.makeVerifier(settings)
+                    if let reason = await verifier.verify(jws: jws) {
+                        self.stats.record("device_link_reject", label: reason.rawValue, by: 1)
+                        return Self.error(403, "not_testflight")
+                    }
                 }
                 let code = LinkCode.generate()
                 guard let normalized = LinkCode.normalize(code) else { return Self.error(503, "unavailable") }

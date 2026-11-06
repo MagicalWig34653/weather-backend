@@ -214,8 +214,12 @@ public final class Api: Sendable {
             }
             layers.append(entry)
         }
-        let doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
+        var doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
                                   "capabilities": config.push.enabled ? ["regions", "live_activity"] + (config.deviceLink.enabled ? ["device_link"] : []) : [], "now": iso(clock()), "layers": layers]
+        // Pairing window (decision 6.11.2026): read fresh from the shared state with every rebuild (memo of 5 s at most).
+        if config.push.enabled, config.deviceLink.enabled, let end = try? await repo.pairingWindowEnd(now: clock()) {
+            doc["device_link_window"] = ["ends_at": iso(end)]
+        }
         return Array(try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys]))
     }
 

@@ -143,11 +143,11 @@ public enum SitePages {
         <h2>8. Betriebsstatistik des Radar-Dienstes</h2>
         <p>Der Radar-Dienst zählt für den Betrieb aggregierte, personenlose Werte: zum Beispiel Anfragen je Routengruppe und Statusklasse, Antwortzeiten in groben Klassen, Abruf- und Fehlerzähler der Datenquellen sowie Ergebnisse des Push-Versands. Es werden weder IP-Adressen noch Orte, Geräte- oder Installationskennungen gezählt. Die Zähler liegen tageweise (30 Tage) und als Stundenzähler (72 Stunden) in der Datenbank und werden danach gelöscht. Der Zugriff darauf ist nur dem Betreiber über ein geschütztes Dashboard möglich.</p>
 
-        <h2>9. Betreiber-Diagnose (nur Testversionen, freiwillig)</h2>
-        <p>In Testversionen (TestFlight) kann der Betreiber ein Gerät zur Fehlersuche bei Regenhinweisen und Live Activities koppeln. Das ist standardmäßig aus und nur in den Einstellungen der App einschaltbar. In Versionen aus dem App Store ist die Funktion nicht verfügbar.</p>
+        <h2>9. Betreiber-Diagnose (nur auf Freigabe des Betreibers, freiwillig)</h2>
+        <p>Der Betreiber kann ein Gerät zur Fehlersuche bei Regenhinweisen und Live Activities koppeln. Das ist standardmäßig aus, nur in den Einstellungen der App einschaltbar und nur möglich, solange der Betreiber dafür im Dashboard kurzzeitig (standardmäßig 5 Minuten) ein Kopplungsfenster geöffnet hat; außerhalb des Fensters zeigt die App die Funktion nicht an. Sie hängt nicht davon ab, ob die App aus dem App Store oder aus TestFlight stammt.</p>
         <ul>
         <li>Beim Einschalten zeigt die App einen kurzen Koppelcode (10 Minuten gültig, einmal verwendbar), den der Betreiber im Dashboard eingibt und dem Gerät dabei eine eigene Bezeichnung gibt.</li>
-        <li>Dafür sendet die App einmalig einen von Apple signierten Nachweis (App-Transaktion), dass sie aus einer Testversion stammt. Der Server prüft ihn und speichert ihn nicht.</li>
+        <li>Der Code wird nur im Kopplungsfenster ausgegeben und ist nur nutzbar, wenn sich der Betreiber im Dashboard mit seinem Passkey angemeldet hat. Es wird kein Beleg von Apple (StoreKit) übertragen oder gespeichert.</li>
         <li>Gespeichert werden die Zuordnung zur Push-Registrierung des Geräts, die Bezeichnung, Zeitpunkte (Kopplung, zuletzt gesehen) und ein Verlauf technischer Versandergebnisse der letzten 48 Stunden (zum Beispiel Testmitteilung zugestellt oder von Apple abgelehnt). Es werden keine Standortdaten gespeichert.</li>
         <li>Die Kopplung gilt bis zum Widerruf. Du kannst sie jederzeit durch Ausschalten in der App widerrufen; dabei wird sie auf dem Server gelöscht. Der Betreiber kann sie ebenfalls entfernen. Höchstens drei Geräte können gleichzeitig gekoppelt sein.</li>
         </ul>

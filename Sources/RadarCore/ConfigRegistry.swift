@@ -253,6 +253,8 @@ public enum ConfigRegistry {
         s("DEVICE_LINK_BUNDLE_ID", "Geräte-Kopplung", .text(maxLength: 155, rule: .bundleIdentifier), "", "Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.", .envOnly),
         s("DEVICE_LINK_ALLOWED_ENVS", "Geräte-Kopplung", any, "Sandbox", "Erlaubte receiptType-Werte (Sandbox, Xcode, LocalTesting; Production nie).", .envOnly),
         s("DEVICE_LINK_MAX_AGE_HOURS", "Geräte-Kopplung", .int(min: 0, max: 8760), "24", unit: "h", "Höchstalter des AppTransaction-Belegs.", .envOnly),
+        s("DEVICE_LINK_REQUIRE_TESTFLIGHT", "Geräte-Kopplung", .bool, "false", "Zusätzlich den TestFlight-Nachweis (AppTransaction) für Koppelcodes verlangen.", .envOnly),
+        s("DEVICE_LINK_WINDOW_MINUTES", "Geräte-Kopplung", .int(min: 1, max: 15), "5", unit: "min", "Standarddauer des Kopplungsfensters im Dashboard.", .envOnly),
         s("DASH_MAX_DEVICES", "Geräte-Kopplung", .int(min: 1, max: 5), "3", "Höchstzahl gekoppelter Geräte.", .envOnly),
         s("DASH_DEVICE_TTL_DAYS", "Geräte-Kopplung", .int(min: 0, max: 365), "0", unit: "Tage", "Ablauf einer Kopplung; 0 = kein Ablauf.", .envOnly),
         s("DASH_DEVICE_STALE_DAYS", "Geräte-Kopplung", .int(min: 1, max: 365), "14", unit: "Tage", "Anzeige „zuletzt gesehen“ als veraltet ab.", .envOnly),

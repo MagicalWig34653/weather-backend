@@ -1,0 +1,1 @@
+ALTER TABLE config_audit MODIFY action ENUM('set','reset','restart','login','setup','reset_cli','device_pair','device_unpair','device_action','push_pause','cache_clear','device_pairing_open','device_pairing_close') NOT NULL;

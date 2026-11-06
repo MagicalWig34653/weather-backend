@@ -43,7 +43,8 @@ import Testing
     }
 
     /// Register keys whose rows may be missing from the table (none since WP17: the table carries all of them).
-    static let pendingKeys: Set<String> = []
+    /// WP pairing window (6.11.2026): the tables under deploy/ belong to another owner; rows follow with the next deploy update.
+    static let pendingKeys: Set<String> = ["DEVICE_LINK_REQUIRE_TESTFLIGHT", "DEVICE_LINK_WINDOW_MINUTES"]
 
     private static func lines(_ text: String, dropping pending: Bool) -> [String] {
         text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).filter { line in

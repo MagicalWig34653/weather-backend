@@ -31,6 +31,9 @@ final class DashboardDevices: Sendable {
             guard limiter.allow("read", limit: 60, window: 60, now: now) else { return Self.error(429, "rate_limited", retryAfter: 60) }
             return try await list(settings: settings, now: now)
         }
+        if parts.count == 3, parts[2] == "pairing" {
+            return try await pairingWindow(req, settings: settings, now: now)
+        }
         if parts.count == 3, parts[2] == "pair" {
             guard m == "POST" else { return Self.error(405, "not_found") }
             return try await pair(req, settings: settings, now: now)
@@ -81,10 +84,46 @@ final class DashboardDevices: Sendable {
     }
 
     private func list(settings: DeviceLinkSettings, now: Date) async throws -> ApiResponse {
-        guard settings.enabled else { return DashboardApi.object(200, ["linkEnabled": false, "max": settings.maxDevices, "devices": [Any]()]) }
+        guard settings.enabled else {
+            return DashboardApi.object(200, ["linkEnabled": false, "max": settings.maxDevices, "devices": [Any](), "pairing": pairingJSON(nil, settings: settings)])
+        }
         var rows: [[String: Any]] = []
         for device in try await repo.devices() { let row = try await deviceJSON(device, settings: settings, now: now); if !row.isEmpty { rows.append(row) } }
-        return DashboardApi.object(200, ["linkEnabled": true, "max": settings.maxDevices, "devices": rows])
+        let end = try await repo.pairingWindowEnd(now: now)
+        return DashboardApi.object(200, ["linkEnabled": true, "max": settings.maxDevices, "devices": rows, "pairing": pairingJSON(end, settings: settings)])
+    }
+
+    // MARK: pairing window
+
+    static let maxWindowMinutes = 15
+
+    private func pairingJSON(_ end: Date?, settings: DeviceLinkSettings) -> [String: Any] {
+        ["open": end != nil, "endsAt": Self.iso(end), "defaultMinutes": settings.windowMinutes, "maxMinutes": Self.maxWindowMinutes]
+    }
+
+    private func pairingWindow(_ req: DashboardHTTPRequest, settings: DeviceLinkSettings, now: Date) async throws -> ApiResponse {
+        guard req.method == "POST" || req.method == "DELETE" else { return Self.error(405, "not_found") }
+        guard limiter.allow("pairing", limit: 6, window: 60, now: now) else { return Self.error(429, "rate_limited", retryAfter: 60) }
+        if req.method == "DELETE" {
+            if try await repo.closePairingWindow(now: now) {
+                try await repo.appendDeviceAudit(action: .devicePairingClose, deviceRef: nil, outcome: "manual", now: now)
+            }
+            return DashboardApi.object(200, ["open": false, "endsAt": NSNull()])
+        }
+        guard settings.enabled else { return Self.error(409, "link_disabled") }
+        var minutes = settings.windowMinutes
+        if !req.body.isEmpty {
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(req.body))) as? [String: Any] else { return Self.error(400, "validation") }
+            if let raw = object["minutes"], !(raw is NSNull) {
+                guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue == number.doubleValue.rounded(),
+                      (1...Self.maxWindowMinutes).contains(number.intValue) else { return Self.error(400, "validation") }
+                minutes = number.intValue
+            }
+        }
+        let end = now.addingTimeInterval(Double(minutes) * 60)
+        try await repo.openPairingWindow(until: end)
+        try await repo.appendDeviceAudit(action: .devicePairingOpen, deviceRef: nil, outcome: "minutes:\(minutes)", now: now)
+        return DashboardApi.object(200, ["open": true, "endsAt": TimeUtil.toISO(end)])
     }
 
     private func detail(_ id: String, settings: DeviceLinkSettings, now: Date) async throws -> ApiResponse {
@@ -169,6 +208,10 @@ final class DashboardDevices: Sendable {
         case .paired(let device):
             limiter.refund("pair-fail", window: 60, now: now)
             try await repo.appendDeviceAudit(action: .devicePair, deviceRef: DashboardValidation.deviceRef(device.id), outcome: nil, now: now)
+            // The window closes after the first successful redemption (the operator can open it again at any time).
+            if (try? await repo.closePairingWindow(now: now)) == true {
+                try await repo.appendDeviceAudit(action: .devicePairingClose, deviceRef: nil, outcome: "redeemed", now: now)
+            }
             return DashboardApi.object(201, try await deviceJSON(device, settings: settings, now: now))
         }
     }

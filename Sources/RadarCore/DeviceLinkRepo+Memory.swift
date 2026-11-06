@@ -4,6 +4,7 @@ struct MemoryDeviceStore {
     struct Code { var installID: String; var attested: Bool; var expiresAt: Date; var usedAt: Date? }
     var codes: [[UInt8]: Code] = [:]
     var devices: [String: LinkedDevice] = [:]
+    var pairingUntil: Date?
 }
 
 extension MemoryRepo: DeviceLinkRepo {

@@ -165,8 +165,8 @@ struct DeviceLinkTests {
 
     // MARK: app routes
 
-    private func api(_ repo: MemoryRepo, enabled: Bool = true, chain: TestChain, stats: StatsCollector = StatsCollector()) -> PushApi {
-        var c = smallConfig { $0.push.enabled = true; $0.push.topic = "de.example.app"; $0.deviceLink.enabled = enabled }
+    private func api(_ repo: MemoryRepo, enabled: Bool = true, chain: TestChain, stats: StatsCollector = StatsCollector(), requireTestFlight: Bool = true) -> PushApi {
+        var c = smallConfig { $0.push.enabled = true; $0.push.topic = "de.example.app"; $0.deviceLink.enabled = enabled; $0.deviceLink.requireTestFlight = requireTestFlight }
         c.width = 64
         let verifier = AppTransactionVerifier(roots: [chain.root], bundleID: "de.example.app")
         return PushApi(repo: repo, configProvider: ConfigProvider(c), clock: { Date() }, stats: stats, appTransactionVerifier: verifier)
@@ -182,6 +182,7 @@ struct DeviceLinkTests {
         let repo = MemoryRepo(); try await register(repo, installA)
         let chain = try TestChain(); let stats = StatsCollector()
         let api = api(repo, chain: chain, stats: stats)
+        try await repo.openPairingWindow(until: Date().addingTimeInterval(600))   // REQUIRE_TESTFLIGHT keeps the proof on top of the window
         let none = try await call(api, "GET", "link")
         #expect(none.0 == 200 && none.1["state"] as? String == "none" && none.1["linked_at"] is NSNull && none.1["pending_commands"] as? Int == 0)
         #expect(try await call(api, "GET", "link", secret: String(repeating: "b", count: 40)).0 == 401)
