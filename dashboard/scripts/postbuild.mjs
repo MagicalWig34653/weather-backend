@@ -57,6 +57,7 @@ const forbidden = [
 	'mock-csrf-token',
 	'db.example.internal',
 	'createMockFetch',
+	'fill="#1d3557"',
 	'Vorschau der Tokens und Bausteine'
 ];
 const leaks = [];

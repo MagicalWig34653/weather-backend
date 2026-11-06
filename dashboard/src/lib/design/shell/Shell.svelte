@@ -46,11 +46,24 @@
 
 	onMount(() => {
 		const clock = setInterval(() => (ctx.now = Date.now()), 15_000);
-		return () => clearInterval(clock);
+		// Tab im Hintergrund: Browser drosseln Zeitgeber; beim Zurueckkehren Uhr stellen und sofort neu laden.
+		const onVisible = () => {
+			if (document.visibilityState !== 'visible') return;
+			ctx.now = Date.now();
+			if (ctx.auto) ctx.refresh();
+		};
+		document.addEventListener('visibilitychange', onVisible);
+		return () => {
+			clearInterval(clock);
+			document.removeEventListener('visibilitychange', onVisible);
+		};
 	});
 	$effect(() => {
 		if (!ctx.auto) return;
-		const id = setInterval(() => ctx.refresh(), REFRESH_MS);
+		// Im Hintergrund nicht abfragen (spart Last, vermeidet gedrosselte Zeitgeber-Fehler).
+		const id = setInterval(() => {
+			if (document.visibilityState === 'visible') ctx.refresh();
+		}, REFRESH_MS);
 		return () => clearInterval(id);
 	});
 

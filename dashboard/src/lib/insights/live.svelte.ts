@@ -12,6 +12,7 @@ export function live<T>(loader: (range: Range) => Promise<T>): Resource<T> {
 		void ctx.range;
 		void ctx.tick;
 		untrack(() => void res.load());
+		return () => res.cancel();
 	});
 	return res;
 }
@@ -22,6 +23,7 @@ export function liveStatic<T>(loader: () => Promise<T>): Resource<T> {
 	$effect(() => {
 		void ctx.tick;
 		untrack(() => void res.load());
+		return () => res.cancel();
 	});
 	return res;
 }

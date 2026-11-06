@@ -17,6 +17,7 @@ export const actionLabel: Record<string, string> = {
 	device_action: 'Geräteaktion',
 	push_pause: 'Push-Pause',
 	cache_clear: 'Cache geleert',
+	cache_refresh: 'Ebene neu abgerufen',
 	device_pairing_open: 'Kopplung freigegeben',
 	device_pairing_close: 'Kopplungsfenster geschlossen'
 };
@@ -127,7 +128,8 @@ export function subject(e: AuditEntry): string {
 			: e.newValue === 'false'
 				? 'Versand fortgesetzt'
 				: '–';
-	if (e.action === 'cache_clear') return e.outcome ? `Ebene ${e.outcome}` : '–';
+	if (e.action === 'cache_clear' || e.action === 'cache_refresh')
+		return e.outcome ? `Ebene ${e.outcome}` : '–';
 	return '–';
 }
 

@@ -301,3 +301,33 @@ test('Dialog-Fokus bleibt im Dialog (Fokusfalle)', async ({ page }) => {
 		expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true);
 	}
 });
+
+test.describe('Aktualisierung', () => {
+	test('ein einzelner Fehlschlag wird still wiederholt und nicht angezeigt', async ({ page }) => {
+		await page.goto('/dash/?mock=auth&mockstate=flaky');
+		await expect(
+			page.getByRole('heading', { name: /Alles unauffällig|Befund/ }).first()
+		).toBeVisible();
+		await expect(page.getByText('Veraltet')).toHaveCount(0);
+		await page.getByRole('button', { name: 'Aktualisieren' }).click();
+		await expect(page.getByText('Veraltet')).toHaveCount(0);
+		await expect(page.getByText('Daten konnten nicht geladen werden')).toHaveCount(0);
+	});
+
+	test('wiederholte Fehlschläge zeigen Veraltet mit konkretem Grund', async ({ page }) => {
+		await page.goto('/dash/?mock=auth&mockstate=refreshfail');
+		await expect(
+			page.getByRole('heading', { name: /Alles unauffällig|Befund/ }).first()
+		).toBeVisible();
+		const refresh = page.getByRole('button', { name: 'Aktualisieren' });
+		await refresh.click();
+		await page.waitForTimeout(800);
+		// Erster fehlgeschlagener Ladevorgang: noch kein Hinweis.
+		await expect(page.getByText('Veraltet')).toHaveCount(0);
+		await refresh.click();
+		const notice = page.getByRole('status').filter({ hasText: 'Veraltet' });
+		await expect(notice).toContainText('wiederholt fehlgeschlagen');
+		await expect(notice).toContainText('nicht verfügbar (504)');
+		expect(await axe(page)).toEqual([]);
+	});
+});

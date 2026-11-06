@@ -391,3 +391,134 @@ export function commandResultText(kind: string, r: Record<string, unknown> | nul
 			return 'Erledigt.';
 	}
 }
+
+// ---------------------------------------------------------------- Abos eines Geraets
+
+export const subscriptionKind: Record<string, string> = {
+	point: 'Punkt (Live Activity oder Ort)',
+	circle: 'Umkreis'
+};
+export const kindLabel = (k: string): string => subscriptionKind[k] ?? k;
+
+/** Automat des Regenbeginns. */
+export const subscriptionState: Record<string, { label: string; detail: string }> = {
+	dry: {
+		label: 'Trocken',
+		detail: 'Es wird kein Regen erwartet; der nächste Regenbeginn löst aus.'
+	},
+	pending: {
+		label: 'Regen erwartet',
+		detail: 'Regen ist im Vorlauf erkannt, die Benachrichtigung ist vorbereitet.'
+	},
+	notified: {
+		label: 'Benachrichtigt',
+		detail: 'Für den aktuellen Regen wurde bereits gesendet; neue Sendung erst nach Trockenphase.'
+	}
+};
+export const subscriptionStateLabel = (s: string): string => subscriptionState[s]?.label ?? s;
+export const subscriptionStateDetail = (s: string): string => subscriptionState[s]?.detail ?? '';
+
+export const cellText: Record<string, string> = {
+	wet: 'Regen',
+	dry: 'trocken',
+	unknown: 'unbekannt'
+};
+export const cellLabel = (c: string): string => cellText[c] ?? c;
+
+export const activityText: Record<string, string> = {
+	none: 'Kein Platz belegt',
+	reserved: 'Platz reserviert (Start steht aus)',
+	active: 'Live Activity läuft'
+};
+export const activityLabel = (a: string): string => activityText[a] ?? a;
+
+export const radarStatusText: Record<string, string> = {
+	ok: 'Radar aktuell',
+	no_slot: 'Kein passendes Radarbild vorhanden',
+	stale_run: 'Radarlauf veraltet'
+};
+export const radarStatusLabel = (s: string): string => radarStatusText[s] ?? s;
+
+/** Intensitaetsklassen 1 bis 15 (Radarskala), nur als Zahl benannt: die Zuordnung zu mm/h ist Sache der App. */
+export const thresholdText = (c: number): string => `Klasse ${c}`;
+
+// ---------------------------------------------------------------- Cache
+
+export const cacheStateText: Record<
+	string,
+	{ label: string; tone: 'ok' | 'warn' | 'err' | 'neutral' }
+> = {
+	current: { label: 'Aktuell', tone: 'ok' },
+	stale: { label: 'Veraltet', tone: 'warn' },
+	failed: { label: 'Ausgefallen', tone: 'err' },
+	empty: { label: 'Leer', tone: 'neutral' },
+	disabled: { label: 'Abgeschaltet', tone: 'neutral' }
+};
+export const cacheKindText: Record<string, string> = {
+	radar: 'Radar',
+	forecast: 'Vorhersage',
+	observation: 'Beobachtung'
+};
+export const attemptText: Record<string, string> = {
+	ok: 'veröffentlicht',
+	error: 'fehlgeschlagen',
+	missed: 'Slot nicht verfügbar',
+	running: 'läuft gerade'
+};
+
+export const refreshStatusText: Record<string, string> = {
+	queued: 'wartet auf Übernahme',
+	running: 'läuft',
+	ok: 'abgeschlossen',
+	failed: 'fehlgeschlagen',
+	expired: 'abgelaufen'
+};
+export const refreshErrorText: Record<string, string> = {
+	source_unavailable: 'Die Quelle (DWD/EUMETSAT) antwortet nicht oder liefert ungültige Bilder.',
+	incomplete: 'Die abgerufenen Bilder sind unvollständig.',
+	layer_disabled: 'Die Ebene wurde zwischenzeitlich abgeschaltet.',
+	no_ingest_replica: 'Kein Replikat hat den Auftrag innerhalb von 2 Minuten übernommen.',
+	timeout: 'Der Auftrag lief länger als 5 Minuten ohne Ergebnis.',
+	internal: 'Interner Fehler beim Abruf.'
+};
+export const refreshErrorName = (c: string | null): string =>
+	c ? (refreshErrorText[c] ?? c) : 'Unbekannter Fehler.';
+
+/** Ergebniszeile eines abgeschlossenen Auftrags. */
+export function refreshResultText(j: {
+	result: { stored: number; failed: number; published: boolean } | null;
+}): string {
+	const r = j.result;
+	if (!r) return 'Abgeschlossen.';
+	if (r.stored === 0 && r.failed === 0) return 'Es fehlte nichts, nichts Neues geholt.';
+	return `${r.stored} ${r.stored === 1 ? 'Bild' : 'Bilder'} gespeichert${r.failed ? `, ${r.failed} fehlgeschlagen` : ''}${r.published ? ', veröffentlicht' : ''}.`;
+}
+
+/**
+ * Verstaendliche Erklaerung, warum eine Ebene als veraltet oder ausgefallen gilt.
+ * `cadenceSeconds` = Erwartung: alle so viele Sekunden ein neuer Lauf.
+ */
+export function layerReason(l: {
+	state: string;
+	ageSeconds: number | null;
+	cadenceSeconds: number;
+	lastAttemptResult: string | null;
+	errors24h: number | null;
+	newestNominal: string | null;
+}): string {
+	const expect = `Erwartet wird alle ${formatDuration(l.cadenceSeconds)} ein neuer Lauf.`;
+	const age =
+		l.ageSeconds === null
+			? 'Es wurden noch keine Daten veröffentlicht.'
+			: `Seit ${formatDuration(l.ageSeconds)} wurde nichts Neues veröffentlicht.`;
+	const attempt =
+		l.lastAttemptResult === 'error'
+			? ' Der jüngste Abruf ist fehlgeschlagen.'
+			: l.lastAttemptResult === 'missed'
+				? ' Der jüngste Abruf fand das erwartete Bild nicht (Quelle liefert noch nichts).'
+				: l.lastAttemptResult === 'running'
+					? ' Ein Abruf läuft gerade.'
+					: '';
+	const errors = l.errors24h ? ` ${formatNumber(l.errors24h)} Fehlversuche in 24 Stunden.` : '';
+	return `${age}${attempt}${errors} ${expect}`;
+}

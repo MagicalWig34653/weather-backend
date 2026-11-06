@@ -330,3 +330,94 @@ export interface DeviceBundle {
 	/** Letzte Auftraege, neueste zuerst (leer, wenn der Abruf scheiterte). */
 	commands: DeviceCommand[];
 }
+
+// ---------------------------------------------------------------- Erweiterung 6.11.2026: Abos, Cache
+
+/** Gemeinsame additive Felder der Insights-Antworten (stale-while-error). */
+export interface StaleInfo {
+	stale?: boolean;
+	staleSeconds?: number;
+}
+
+export type RadarStatus = 'ok' | 'no_slot' | 'stale_run' | (string & {});
+export type CellState = 'wet' | 'dry' | 'unknown' | (string & {});
+
+export interface DeviceSubscription {
+	index: number;
+	kind: 'point' | 'circle' | (string & {});
+	enabled: boolean;
+	liveActivity: boolean;
+	timeSensitive: boolean;
+	thresholdClass: number;
+	leadMinutes: number;
+	radiusCells: number | null;
+	minSharePercent: number | null;
+	state: 'dry' | 'pending' | 'notified' | (string & {});
+	hysteresis: boolean;
+	lastSentAt: string | null;
+	lockUntil: string | null;
+	cell: CellState;
+	leadCell: CellState;
+	activity: 'none' | 'reserved' | 'active' | (string & {});
+}
+export interface DeviceSubscriptions extends StaleInfo {
+	generatedAt: string;
+	radar: { status: RadarStatus; runAgeSeconds: number | null };
+	subscriptions: DeviceSubscription[];
+}
+
+export type CacheLayerState = 'current' | 'stale' | 'failed' | 'empty' | 'disabled' | (string & {});
+export interface CacheLayer {
+	id: string;
+	kind: 'radar' | 'forecast' | 'observation' | (string & {});
+	enabled: boolean;
+	state: CacheLayerState;
+	runs: number;
+	slots: number;
+	bytes: number | null;
+	oldestNominal: string | null;
+	newestNominal: string | null;
+	spanSeconds: number | null;
+	latestPublishedAt: string | null;
+	ageSeconds: number | null;
+	cadenceSeconds: number;
+	lastAttemptAt: string | null;
+	lastAttemptResult: 'ok' | 'error' | 'missed' | 'running' | null;
+	errors24h: number | null;
+}
+export interface CacheInventory extends StaleInfo {
+	generatedAt: string;
+	partial: string[];
+	layers: CacheLayer[];
+	process: { scope: string; bytes: number; maxBytes: number; entries: number } | null;
+	replicas: {
+		id: string;
+		cacheBytes: number | null;
+		cacheEntries: number | null;
+		cacheMaxBytes: number | null;
+	}[];
+}
+export interface CacheSlot {
+	slot: string;
+	run: string;
+	index: number;
+	bytes: number;
+	contentType: string;
+	published: boolean;
+	publishedAt: string | null;
+}
+export interface CacheSlotPage {
+	layer: string;
+	slots: CacheSlot[];
+	next: string | null;
+}
+export interface RefreshJob {
+	id: string;
+	layer: string;
+	status: 'queued' | 'running' | 'ok' | 'failed' | 'expired';
+	createdAt: string;
+	startedAt: string | null;
+	finishedAt: string | null;
+	result: { stored: number; failed: number; published: boolean } | null;
+	error: string | null;
+}

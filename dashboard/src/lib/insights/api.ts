@@ -4,10 +4,13 @@
  */
 import { api } from '#lib/client.js';
 import { ApiError } from '#lib/api.js';
-import { pollCommand, type PollOutcome } from './poll.js';
+import { pollCommand, pollRefresh, type PollOutcome } from './poll.js';
+import { mockPreviewUrl } from './mock-preview.js';
 import { formatDuration } from '#lib/format.js';
 import { errorText, pairingErrorText } from './text.js';
 import type {
+	CacheInventory,
+	CacheSlotPage,
 	Device,
 	DeviceAction,
 	DeviceBundle,
@@ -15,6 +18,7 @@ import type {
 	DeviceDetail,
 	DeviceEvent,
 	DeviceList,
+	DeviceSubscriptions,
 	Diagnosis,
 	DistributionInsights,
 	Finding,
@@ -24,6 +28,7 @@ import type {
 	PairingState,
 	PushInsights,
 	Range,
+	RefreshJob,
 	TrafficInsights
 } from './types.js';
 
@@ -65,7 +70,34 @@ export const insights = {
 	clearCache: (layer: string) =>
 		api.post<{ generation: number; layer: string }>('/cache/clear', { layer }),
 
+	cache: () => api.get<CacheInventory>('/cache'),
+	/** Seiten absteigend nach Slot-Zeit; `before` = `next` der Vorseite. */
+	cacheSlots: (layer: string, before?: string, limit = 200) =>
+		api.get<CacheSlotPage>(
+			`/cache/${enc(layer)}/slots?limit=${limit}${before ? `&before=${enc(before)}` : ''}`
+		),
+	/** URL fuer <img src> (CSP img-src 'self'); im Mock ein erzeugtes Platzhalterbild. */
+	cachePreviewUrl: (layer: string, slot: string, run?: string): string =>
+		__MOCK__
+			? mockPreviewUrl(layer, slot)
+			: `/dash/api/cache/${enc(layer)}/preview?slot=${enc(slot)}${run ? `&run=${enc(run)}` : ''}`,
+	/** Ausserplanmaessiger Ingest-Lauf: `all`, `radar` oder eine Ebenen-ID. */
+	refreshCache: (layer: string) =>
+		api.post<{ jobs: { id: string; layer: string; status: string; createdAt: string }[] }>(
+			'/cache/refresh',
+			{ layer }
+		),
+	refreshJob: (id: string) => api.get<RefreshJob>(`/cache/refresh/${enc(id)}`),
+	refreshJobs: (limit = 10) => api.get<{ jobs: RefreshJob[] }>(`/cache/refresh?limit=${limit}`),
+	pollRefresh: (id: string, onUpdate?: (j: RefreshJob) => void): Promise<PollOutcome<RefreshJob>> =>
+		pollRefresh(() => insights.refreshJob(id), {
+			onUpdate,
+			fatal: (e) => e instanceof ApiError && (e.code === 'unauthorized' || e.code === 'not_found')
+		}),
+
 	devices: () => api.get<DeviceList>('/devices'),
+	deviceSubscriptions: (id: string) =>
+		api.get<DeviceSubscriptions>(`/devices/${enc(id)}/subscriptions`),
 	/** Detail, Diagnose und Ereignisse eines Geraets in einem Zug. */
 	async deviceBundle(id: string): Promise<DeviceBundle> {
 		const [detail, diagnosis, events, commands] = await Promise.all([

@@ -120,6 +120,7 @@ export const AUDIT_ACTIONS = [
 	'device_action',
 	'push_pause',
 	'cache_clear',
+	'cache_refresh',
 	'device_pairing_open',
 	'device_pairing_close'
 ] as const;
@@ -169,6 +170,7 @@ export type ApiErrorCode =
 	| 'rate_limited'
 	| 'unavailable'
 	| 'network'
+	| 'timeout'
 	| 'unknown';
 
 export class ApiError extends Error {
@@ -276,7 +278,9 @@ export class ApiClient {
 						? AbortSignal.timeout(this.timeoutMs)
 						: undefined
 			});
-		} catch {
+		} catch (e) {
+			if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError'))
+				throw new ApiError(0, 'timeout', errorText.timeout);
 			throw new ApiError(0, 'network', errorText.network);
 		}
 		if (!res.ok) {

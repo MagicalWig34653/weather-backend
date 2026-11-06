@@ -21,8 +21,15 @@ export const errorText: Record<string, string> = {
 	rate_limited: 'Zu viele Anfragen. Später erneut versuchen.',
 	data_unavailable: 'Die Datenbank ist nicht erreichbar.',
 	unavailable: 'Der Dienst ist vorübergehend nicht verfügbar.',
+	layer_disabled: 'Diese Ebene ist nicht aktiviert (Konfiguration LAYERS).',
+	refresh_pending: 'Für diese Ebene läuft bereits ein Abruf.',
+	ingest_unavailable:
+		'Kein Radar-Replikat mit laufendem Abruf erreichbar. Später erneut versuchen.',
+	unsupported_media: 'Das gespeicherte Bild hat ein nicht unterstütztes Format.',
+	too_large: 'Das gespeicherte Bild ist zu groß für die Vorschau.',
 	conflict: 'Konflikt: Der Zustand hat sich geändert.',
 	locked_by_env: 'Durch Umgebungsvariable festgelegt, im Dashboard nicht änderbar.',
+	timeout: 'Der Server hat nicht rechtzeitig geantwortet (Zeitüberschreitung).',
 	network: 'Der Server ist nicht erreichbar.',
 	bad_response: 'Unerwartete Antwort des Servers.',
 	unknown: 'Unbekannter Fehler.'

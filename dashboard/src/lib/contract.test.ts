@@ -49,10 +49,12 @@ const fill = (p: string) =>
 		.replace('{id}', ID)
 		.replace('{commandId}', CMD)
 		.replace('{key}', 'CACHE_MAX_MB')
-		.replace('{action}', 'test');
+		.replace('{action}', 'test')
+		.replace('{layer}', 'radar');
 
 /** Aufruf der Datenschicht je Route; fehlt eine Route hier, schlaegt der Test fehl (neue Fixture, keine Abdeckung). */
 const calls: Record<string, () => Promise<unknown>> = {
+	'GET /dash/api/insights/overview': () => insights.overview('24h'),
 	'GET /dash/api/insights/overview?range=24h': () => insights.overview('24h'),
 	'GET /dash/api/insights/overview?range=7d': () => insights.overview('7d'),
 	'GET /dash/api/insights/overview?range=1y': () => api.get('/insights/overview?range=1y'),
@@ -65,6 +67,12 @@ const calls: Record<string, () => Promise<unknown>> = {
 	'PUT /dash/api/push/pause': () => insights.setPaused(true),
 	'POST /dash/api/cache/clear': () => insights.clearCache('all'),
 	'GET /dash/api/devices': () => insights.devices(),
+	'GET /dash/api/devices/{id}/subscriptions': () => insights.deviceSubscriptions(ID),
+	'GET /dash/api/cache': () => insights.cache(),
+	'GET /dash/api/cache/{layer}/slots': () => api.get('/cache/radar/slots?limit=200'),
+	'POST /dash/api/cache/refresh': () => insights.refreshCache('radar'),
+	'GET /dash/api/cache/refresh/{id}': () => insights.refreshJob(ID),
+	'GET /dash/api/cache/refresh': () => insights.refreshJobs(10),
 	'POST /dash/api/devices/pairing': () => insights.openPairing(5),
 	'DELETE /dash/api/devices/pairing': () => insights.closePairing(),
 	'POST /dash/api/devices/pair': () => insights.pairDevice('7KQ2-M9XD', 'Mein iPhone'),
@@ -119,7 +127,8 @@ describe.skipIf(!present)('Datenschicht liefert jede Erfolgs-Fixture unveraender
 			const out = await call();
 			expect(out).toEqual(f.status === 204 ? undefined : read(f.file));
 			// Pfad und Methode wie im Manifest
-			expect(last?.url).toBe(fill(f.path).replace('/dash/api', '/dash/api'));
+			// Manifest-Pfade ohne Query vergleichen nur den Pfad (Parameter wie limit/range sind Zusatz).
+			expect(f.path.includes('?') ? last?.url : last?.url.split('?')[0]).toBe(fill(f.path));
 			expect(last?.init?.method ?? 'GET').toBe(f.method);
 		});
 	}

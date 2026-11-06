@@ -21,7 +21,18 @@
 		compact?: boolean;
 	} = $props();
 
-	const stale = $derived(res.data !== null && (res.error !== null || ctx.stale(res.loadedAt)));
+	// Altersbasiert nur bei laufendem Auto-Refresh (sonst ist "alt" gewollt) und nicht waehrend eines Ladevorgangs.
+	// Der Server liefert bei Berechnungsfehlern die letzte gute Antwort mit stale: true (Vertrag 6.11.2026).
+	const serverStale = $derived.by(() => {
+		const d = res.data as { stale?: boolean; staleSeconds?: number } | null;
+		return d?.stale === true ? (d.staleSeconds ?? 0) : null;
+	});
+	const stale = $derived(
+		res.data !== null &&
+			(res.error !== null ||
+				serverStale !== null ||
+				(ctx.auto && !res.loading && ctx.stale(res.loadedAt)))
+	);
 </script>
 
 {#if res.data === null && res.error === null}
@@ -32,7 +43,14 @@
 	<ErrorState message={res.error ?? ''} onretry={() => void res.load()} {compact} />
 {:else}
 	{#if stale}
-		<div class="mb-3"><StaleNotice since={res.loadedAt} error={res.error} /></div>
+		<div class="mb-3">
+			<StaleNotice
+				since={res.loadedAt}
+				error={res.error}
+				serverStaleSeconds={serverStale}
+				onretry={() => void res.load()}
+			/>
+		</div>
 	{/if}
 	<div class="space-y-6 transition-opacity {res.loading ? 'opacity-70' : ''}">
 		{@render children(res.data)}

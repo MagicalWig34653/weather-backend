@@ -3,7 +3,7 @@
  * Enthaelt ausschliesslich erfundene Platzhalterdaten im Wire-Format des Vertrags
  * (docs-site/content/dashboard-api.md). Wird im Produktionsbuild nicht eingebunden.
  *
- * URL-Schalter: ?mock=setup|closed|login|auth (Sitzung), ?mockstate=empty|slice1|error|slow|limited|pairopen|pairending.
+ * URL-Schalter: ?mock=setup|closed|login|auth (Sitzung), ?mockstate=empty|slice1|error|slow|limited|pairopen|pairending|flaky|refreshfail.
  */
 import type { AuditEntry, ConfigEntry, ConfigValue, RestartState, SessionState } from './api';
 import { validateValue } from './config/form';
@@ -254,6 +254,7 @@ export function createMockFetch() {
 	let generation = 4;
 	let restartedAt = 0;
 	let paused = false;
+	const seen = new Map<string, number>();
 	const audit = sampleAudit();
 	const log = (e: Omit<AuditEntry, 'id' | 'at'>) =>
 		audit.unshift({
@@ -327,6 +328,18 @@ export function createMockFetch() {
 		}
 		if (state === 'slow') await new Promise((r) => setTimeout(r, 4000));
 		if (state === 'error') return err(503, 'data_unavailable');
+		// flaky: jede GET-Anfrage scheitert beim ersten Versuch (stille Wiederholung muss tragen);
+		// refreshfail: erster Abruf je Pfad gelingt, jeder weitere GET antwortet 504 (Hinweis "Veraltet" mit Grund).
+		if (state === 'flaky' && method === 'GET' && !path.startsWith('/session')) {
+			const n = (seen.get(path) ?? 0) + 1;
+			seen.set(path, n);
+			if (n % 2 === 1) return err(504, 'unavailable');
+		}
+		if (state === 'refreshfail' && method === 'GET' && !path.startsWith('/session')) {
+			const n = (seen.get(path) ?? 0) + 1;
+			seen.set(path, n);
+			if (n > 1) return err(504, 'unavailable');
+		}
 		if (state === 'limited' && method !== 'GET')
 			return err(429, path.includes('/actions/') ? 'action_rate_limited' : 'rate_limited', {
 				'Retry-After': '42'

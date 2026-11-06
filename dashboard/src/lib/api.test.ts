@@ -162,11 +162,11 @@ describe('ApiClient: Fehler', () => {
 		expect(parseRetryAfter(v)).toBe(expected);
 	});
 
-	it('meldet Netzwerkfehler und Zeitueberschreitung als network', async () => {
+	it('meldet Netzwerkfehler als network und Zeitueberschreitung als timeout', async () => {
 		const { api } = setup(() => Promise.reject(new TypeError('offline')));
 		await expect(api.config()).rejects.toMatchObject({ code: 'network', status: 0 });
 		const t = setup(() => Promise.reject(new DOMException('timeout', 'TimeoutError')));
-		await expect(t.api.config()).rejects.toMatchObject({ code: 'network' });
+		await expect(t.api.config()).rejects.toMatchObject({ code: 'timeout', status: 0 });
 	});
 
 	it('meldet kaputtes JSON in einer 200-Antwort als Fehler', async () => {
