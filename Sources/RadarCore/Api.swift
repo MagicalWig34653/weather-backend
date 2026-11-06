@@ -120,7 +120,7 @@ public final class Api: Sendable {
                 clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
         self.repo = repo; self.configProvider = configProvider; self.alive = alive; self.clock = clock
         cache = SlotCache(maxBytes: configProvider().cacheMaxBytes, clock: clock, stats: stats)
-        push = PushApi(repo: repo, configProvider: configProvider, sender: sender, clock: clock)
+        push = PushApi(repo: repo, configProvider: configProvider, sender: sender, clock: clock, stats: stats)
     }
 
     static func etagMatches(_ header: String?, _ etag: String) -> Bool {
@@ -191,7 +191,7 @@ public final class Api: Sendable {
             layers.append(entry)
         }
         let doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
-                                  "capabilities": config.push.enabled ? ["regions", "live_activity"] : [], "now": iso(clock()), "layers": layers]
+                                  "capabilities": config.push.enabled ? ["regions", "live_activity"] + (config.deviceLink.enabled ? ["device_link"] : []) : [], "now": iso(clock()), "layers": layers]
         return Array(try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys]))
     }
 

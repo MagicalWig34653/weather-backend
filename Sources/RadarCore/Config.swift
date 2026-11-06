@@ -40,6 +40,22 @@ public struct PushRateLimits: Sendable, Equatable {
     public init() {}
 }
 
+/// Operator device linking (docs/dashboard-insights-plan.md 4). Environment only for now (not in the dashboard register: the deploy
+/// tables are checked against it). Off by default; needs push.
+public struct DeviceLinkSettings: Sendable, Equatable {
+    public var enabled = false
+    /// `DEVICE_LINK_BUNDLE_ID`; empty = base of `APNS_TOPIC`.
+    public var bundleID = ""
+    /// `DEVICE_LINK_ALLOWED_ENVS`: AppTransaction `receiptType` values accepted (default `Sandbox` = TestFlight). `Production` is never accepted.
+    public var allowedEnvironments: Set<String> = ["Sandbox"]
+    public var maxAgeHours = 24
+    public var maxDevices = 3
+    /// 0 = a link never expires (decision 6.11.2026).
+    public var ttlDays = 0
+    public var staleDays = 14
+    public init() {}
+}
+
 /// Optional server push (rain-start notifications). Disabled by default; the radar service does not need it.
 public struct PushSettings: Sendable {
     public var enabled = false
@@ -102,6 +118,7 @@ public struct Config: Sendable {
     /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
     public var layerPauseSeconds = 2.0
     public var push = PushSettings()
+    public var deviceLink = DeviceLinkSettings()
     /// Commit the image was built from (`BUILD_REVISION`, hex, at most 40 characters); shown by `/v1/status` only.
     public var buildRevision: String?
 
@@ -212,6 +229,19 @@ public struct Config: Sendable {
         c.push.regionLimits.maxRegionsPerInstallation = try ranged("PUSH_MAX_REGIONS_PER_INSTALLATION", c.push.regionLimits.maxRegionsPerInstallation, 1...10)
         c.push.regionLimits.maxCellsPerInstallation = try ranged("PUSH_MAX_CELLS_PER_INSTALLATION", c.push.regionLimits.maxCellsPerInstallation, 500...50000)
         if c.push.enabled { c.push.keyPEM = try secret(env, "APNS_KEY", "") }
+        c.deviceLink.enabled = (env["DEVICE_LINK_ENABLED"] ?? "").lowercased() == "true"
+        c.deviceLink.bundleID = text("DEVICE_LINK_BUNDLE_ID")
+        if let raw = env["DEVICE_LINK_ALLOWED_ENVS"] {
+            let values = Set(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+            guard !values.isEmpty, values.isSubset(of: ["Sandbox", "Xcode", "LocalTesting"]) else {
+                throw ConfigError(description: "DEVICE_LINK_ALLOWED_ENVS must list Sandbox, Xcode or LocalTesting (Production is never accepted)")
+            }
+            c.deviceLink.allowedEnvironments = values
+        }
+        c.deviceLink.maxAgeHours = try ranged("DEVICE_LINK_MAX_AGE_HOURS", c.deviceLink.maxAgeHours, 0...8760)
+        c.deviceLink.maxDevices = try ranged("DASH_MAX_DEVICES", c.deviceLink.maxDevices, 1...5)
+        c.deviceLink.ttlDays = try ranged("DASH_DEVICE_TTL_DAYS", c.deviceLink.ttlDays, 0...365)
+        c.deviceLink.staleDays = try ranged("DASH_DEVICE_STALE_DAYS", c.deviceLink.staleDays, 1...365)
         return try c.validated()
     }
 

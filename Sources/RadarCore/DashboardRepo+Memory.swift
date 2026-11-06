@@ -16,9 +16,11 @@ struct MemoryDashboardStore {
     var requestedAt: Date?
     var replicas: [String: ReplicaRecord] = [:]
 
-    mutating func appendAudit(_ action: DashboardAuditAction, key: String?, old: String?, new: String?, now: Date) {
+    mutating func appendAudit(_ action: DashboardAuditAction, key: String?, old: String?, new: String?, now: Date,
+                              deviceRef: String? = nil, outcome: String? = nil) {
         audit.append(DashboardAuditEntry(id: nextAuditID, at: now, action: action, key: key,
-                                      oldValue: DashboardValidation.clip(old), newValue: DashboardValidation.clip(new)))
+                                      oldValue: DashboardValidation.clip(old), newValue: DashboardValidation.clip(new),
+                                      deviceRef: deviceRef, outcome: DashboardValidation.clip(outcome, to: 32)))
         nextAuditID += 1
     }
 }
@@ -125,6 +127,10 @@ extension MemoryRepo: DashboardRepo {
 
     public func appendAudit(action: DashboardAuditAction, key: String?, oldValue: String?, newValue: String?, now: Date) async throws {
         dashboard.appendAudit(action, key: key, old: oldValue, new: newValue, now: now)
+    }
+
+    public func appendDeviceAudit(action: DashboardAuditAction, deviceRef: String?, outcome: String?, now: Date) async throws {
+        dashboard.appendAudit(action, key: nil, old: nil, new: nil, now: now, deviceRef: deviceRef, outcome: outcome)
     }
 
     public func auditEntries(limit: Int) async throws -> [DashboardAuditEntry] {

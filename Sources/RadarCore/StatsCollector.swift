@@ -114,6 +114,7 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             "push_failed": .fixed(["unregistered", "rejected", "retry", "dropped"]),
             "rate_limited": .fixed(["push", "dashboard", "other"]),
             "page_view": .fixed(Set(StatsRoute.pages)),
+            "device_link_reject": .fixed(Set(AppTransactionReject.allCases.map(\.rawValue))),
             "stats_dropped": .fixed([""]),
         ]
     }

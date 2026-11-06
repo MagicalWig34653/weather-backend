@@ -234,15 +234,23 @@ extension MariaRepo: DashboardRepo {
         try await connection { conn in try await audit(conn, action, key: key, old: oldValue, new: newValue, now: now) }
     }
 
+    public func appendDeviceAudit(action: DashboardAuditAction, deviceRef: String?, outcome: String?, now: Date) async throws {
+        try await connection { conn in
+            _ = try await query(conn, "INSERT INTO config_audit (at, action, device_ref, outcome) VALUES (?, ?, ?, ?)",
+                                [ts(now), str(action.rawValue), opt(deviceRef), opt(DashboardValidation.clip(outcome, to: 32))])
+        }
+    }
+
     public func auditEntries(limit: Int) async throws -> [DashboardAuditEntry] {
         try await connection { conn in
             try await query(conn,
-                "SELECT id, DATE_FORMAT(at, \(Self.dateOut)) AS at_s, action, config_key, old_value, new_value FROM config_audit ORDER BY id DESC LIMIT ?",
+                "SELECT id, DATE_FORMAT(at, \(Self.dateOut)) AS at_s, action, config_key, old_value, new_value, device_ref, outcome FROM config_audit ORDER BY id DESC LIMIT ?",
                 [MySQLData(int: max(0, limit))]).rows.map {
                 DashboardAuditEntry(id: $0.column("id")?.int ?? 0, at: Self.time($0, "at_s"),
                                  action: DashboardAuditAction(rawValue: $0.column("action")?.string ?? "") ?? .set,
                                  key: $0.column("config_key")?.string, oldValue: $0.column("old_value")?.string,
-                                 newValue: $0.column("new_value")?.string)
+                                 newValue: $0.column("new_value")?.string, deviceRef: $0.column("device_ref")?.string,
+                                 outcome: $0.column("outcome")?.string)
             }
         }
     }

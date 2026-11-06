@@ -69,6 +69,8 @@ public final class PushService: Sendable {
             result.purged = try await repo.purgePush(
                 inactiveBefore: now.addingTimeInterval(-Double(Self.inactivityDays) * 86400),
                 outboxBefore: now.addingTimeInterval(-Self.outboxKeepSeconds), now: now)
+            // Janitor for device links: used/expired codes, links past an optional TTL; all links while the switch is off.
+            _ = try? await repo.purgeLinks(now: now, removeAll: !config.deviceLink.enabled)
         }
         return result
     }

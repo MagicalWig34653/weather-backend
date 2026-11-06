@@ -13,6 +13,8 @@ public actor MemoryRepo: Repo {
     }
     var push = MemoryPushStore()
     var dashboard = MemoryDashboardStore()
+    var deviceStore = MemoryDeviceStore()
+    var commandStore = MemoryCommandStore()
     /// Repository calls by name (tests assert that the activity work needs a constant number of calls, review A1).
     var callCounts: [String: Int] = [:]
     func note(_ name: String) { callCounts[name, default: 0] += 1 }

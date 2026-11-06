@@ -77,6 +77,9 @@ public final class PushApi: Sendable {
     /// nil when the APNs key could not be loaded: the test route then answers `503 apns_unavailable`.
     let sender: (any ApnsSender)?
     private let limiter = RateLimiter()
+    let stats: any StatsSink
+    /// Test override; nil = built from `config.deviceLink` with the bundled Apple root.
+    private let verifierOverride: AppTransactionVerifier?
     /// Test override of the global request limit; nil = `config.push.rateLimits.globalRequest`.
     private let globalRequestLimitOverride: Int?
     private var globalRequestLimit: Int { globalRequestLimitOverride ?? config.push.rateLimits.globalRequest }
@@ -92,7 +95,9 @@ public final class PushApi: Sendable {
     }
 
     public init(repo: any Repo, configProvider: ConfigProvider, sender: (any ApnsSender)? = nil, globalRequestLimit: Int? = nil,
-                clock: @escaping @Sendable () -> Date = { Date() }) {
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(),
+                appTransactionVerifier: AppTransactionVerifier? = nil) {
+        self.stats = stats; self.verifierOverride = appTransactionVerifier
         self.repo = repo; self.configProvider = configProvider; self.sender = sender; self.clock = clock; self.globalRequestLimitOverride = globalRequestLimit
     }
 
@@ -180,8 +185,11 @@ public final class PushApi: Sendable {
                 parts = ["installations", owner, "subscriptions", sub, "activity"]
             } catch { return Self.error(503, "unavailable") }
         }
-        guard parts.count >= 2, parts[0] == "installations", parts.count <= 5, (parts.count != 5 || parts[2] == "subscriptions" && parts[4] == "activity"), parts.count != 3 || parts[2] == "subscriptions" || parts[2] == "test" else { return nil }
-        guard body.count <= PushGrid.maxBodyBytes else { return Self.error(413, "too_large") }
+        guard parts.count >= 2, parts[0] == "installations", parts.count <= 5, (parts.count != 5 || parts[2] == "subscriptions" && parts[4] == "activity"), parts.count != 3 || ["subscriptions", "test", "link-code", "link"].contains(parts[2]) else { return nil }
+        let isLinkRoute = parts.count == 3 && (parts[2] == "link-code" || parts[2] == "link")
+        // Device link routes answer 404 like disabled push when the switch is off.
+        if isLinkRoute, !config.deviceLink.enabled { return nil }
+        guard body.count <= (parts.count == 3 && parts[2] == "link-code" ? Self.linkCodeMaxBodyBytes : PushGrid.maxBodyBytes) else { return Self.error(413, "too_large") }
         let now = clock()
         guard countedGlobal || limiter.allow("global:any", limit: globalRequestLimit, window: Self.window, now: now) else { return Self.error(429, "rate_limited") }
         guard let installID = Self.canonicalUUID(parts[1]) else { return Self.error(400, "invalid_id") }
@@ -199,6 +207,7 @@ public final class PushApi: Sendable {
                 default: return Self.error(405, "method_not_allowed")
                 }
             }
+            if isLinkRoute { return try await handleLink(parts[2], method: method, installID: installID, secret: secret, body: body, now: now) }
             if parts.count == 3, parts[2] == "test" {
                 guard method == "POST" else { return Self.error(405, "method_not_allowed") }
                 return try await authenticated(installID, secret, now) { _ in try await self.sendTest(installID, now: now) }
@@ -340,6 +349,64 @@ public final class PushApi: Sendable {
             return Self.error(401, "unauthorized")
         }
         return try await body(installID)
+    }
+
+    // MARK: device link (docs-site/content/api.md, "Geräte-Kopplung")
+
+    static let linkCodeMaxBodyBytes = 8 * 1024
+    static let linkCodeTTL: TimeInterval = 600
+    static let linkCodesPerHour = 6
+
+    private func handleLink(_ route: String, method: String, installID: String, secret: String?, body: [UInt8], now: Date) async throws -> ApiResponse {
+        let settings = config.deviceLink
+        switch (route, method) {
+        case ("link", "GET"):
+            return try await authenticated(installID, secret, now) { _ in
+                let state = try await self.repo.linkState(installationID: installID, now: now)
+                func iso(_ d: Date?) -> Any { d.map { TimeUtil.toISO($0) } ?? NSNull() }
+                return Self.json(200, ["state": state.kind.rawValue, "code_expires_at": iso(state.codeExpiresAt), "linked_at": iso(state.linkedAt),
+                                       "expires_at": iso(state.expiresAt), "last_action_at": iso(state.lastActionAt), "pending_commands": state.pendingCommands])
+            }
+        case ("link", "DELETE"):
+            return try await authenticated(installID, secret, now) { _ in
+                try await self.repo.unlink(installationID: installID)
+                return Self.json(204)
+            }
+        case ("link-code", "POST"):
+            return try await authenticated(installID, secret, now) { _ in
+                guard self.limiter.allow("lc:" + installID, limit: Self.linkCodesPerHour, window: 3600, now: now) else {
+                    var response = Self.error(429, "link_code_rate_limited")
+                    response.headers.append(("Retry-After", "3600"))
+                    return response
+                }
+                guard let object = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any],
+                      let jws = object["app_transaction"] as? String else { return Self.error(400, "invalid_request") }
+                let verifier = self.verifierOverride ?? self.makeVerifier(settings)
+                if let reason = await verifier.verify(jws: jws) {
+                    self.stats.record("device_link_reject", label: reason.rawValue, by: 1)
+                    return Self.error(403, "not_testflight")
+                }
+                let code = LinkCode.generate()
+                guard let normalized = LinkCode.normalize(code) else { return Self.error(503, "unavailable") }
+                switch try await self.repo.createLinkCode(installationID: installID, codeHash: LinkCode.hash(normalized), attested: true,
+                                                          now: now, ttl: Self.linkCodeTTL, maxDevices: settings.maxDevices) {
+                case .created:
+                    return Self.json(201, ["code": code, "expires_at": TimeUtil.toISO(now.addingTimeInterval(Self.linkCodeTTL)), "ttl_seconds": Int(Self.linkCodeTTL)])
+                case .alreadyLinked: return Self.error(409, "already_linked")
+                case .linkFull: return Self.error(409, "link_full")
+                case .unknownInstallation: return Self.error(401, "unauthorized")
+                }
+            }
+        default:
+            return Self.error(405, "method_not_allowed")
+        }
+    }
+
+    private func makeVerifier(_ settings: DeviceLinkSettings) -> AppTransactionVerifier {
+        var bundle = settings.bundleID.isEmpty ? config.push.topic : settings.bundleID
+        if let range = bundle.range(of: ".push-type.") { bundle = String(bundle[..<range.lowerBound]) }
+        return AppTransactionVerifier(roots: AppleRoots.rootG3().map { [$0] } ?? [], bundleID: bundle,
+                                      allowedEnvironments: settings.allowedEnvironments, maxAgeHours: settings.maxAgeHours, clock: clock)
     }
 
     private func blockedByFailures(_ installID: String, _ now: Date) -> Bool {

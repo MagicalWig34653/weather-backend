@@ -68,6 +68,7 @@ public struct DashboardConfigState: Sendable, Equatable {
 
 public enum DashboardAuditAction: String, Sendable, Equatable, CaseIterable {
     case set, reset, restart, login, setup, resetCLI = "reset_cli"
+    case devicePair = "device_pair", deviceUnpair = "device_unpair", deviceAction = "device_action", pushPause = "push_pause", cacheClear = "cache_clear"
 }
 
 public struct DashboardAuditEntry: Sendable, Equatable {
@@ -77,8 +78,13 @@ public struct DashboardAuditEntry: Sendable, Equatable {
     public let key: String?
     public let oldValue: String?
     public let newValue: String?
-    public init(id: Int, at: Date, action: DashboardAuditAction, key: String?, oldValue: String?, newValue: String?) {
+    /// First 8 hex characters of SHA-256(linking ID); device audit entries only.
+    public let deviceRef: String?
+    public let outcome: String?
+    public init(id: Int, at: Date, action: DashboardAuditAction, key: String?, oldValue: String?, newValue: String?,
+                deviceRef: String? = nil, outcome: String? = nil) {
         self.id = id; self.at = at; self.action = action; self.key = key; self.oldValue = oldValue; self.newValue = newValue
+        self.deviceRef = deviceRef; self.outcome = outcome
     }
 }
 
@@ -163,6 +169,8 @@ public protocol DashboardRepo: Sendable {
     /// Deletes the override plus audit entry (`reset`) in one transaction; nil when there was none (no audit, no revision change).
     func resetConfigOverride(key: String, audit: ConfigAuditMode, now: Date) async throws -> Int?
     func appendAudit(action: DashboardAuditAction, key: String?, oldValue: String?, newValue: String?, now: Date) async throws
+    /// Audit entry of a device or global action (`deviceRef` may be nil for global actions such as `push_pause`).
+    func appendDeviceAudit(action: DashboardAuditAction, deviceRef: String?, outcome: String?, now: Date) async throws
     /// Newest first.
     func auditEntries(limit: Int) async throws -> [DashboardAuditEntry]
     func purgeAudit(now: Date) async throws -> Int
@@ -184,6 +192,9 @@ public protocol DashboardRepo: Sendable {
 }
 
 enum DashboardValidation {
+    /// Reference shown in the audit log: first 8 hex characters of SHA-256(linking ID).
+    static func deviceRef(_ deviceID: String) -> String { String(Hashing.sha256Hex(Array(deviceID.utf8)).prefix(8)) }
+
     static func isValid(_ delta: StatDelta) -> Bool {
         guard delta.value >= 0, (1...32).contains(delta.metric.utf8.count), delta.label.utf8.count <= 48 else { return false }
         let metric = Array(delta.metric.utf8)

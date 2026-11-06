@@ -6,7 +6,7 @@ import X509
 @testable import RadarCore
 
 // StoreKit AppTransaction JWS verification with self-signed test chains (no Apple keys involved).
-private struct TestChain {
+struct TestChain {
     let root: Certificate
     let intermediate: Certificate
     let leaf: Certificate
