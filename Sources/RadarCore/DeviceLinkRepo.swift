@@ -55,9 +55,17 @@ public protocol DeviceLinkRepo: Sendable {
 }
 
 public struct DeviceInstallInfo: Sendable, Equatable {
+    public var installID: String
     public var env: PushEnvironment
+    public var locale: String
+    public var createdAt: Date
     public var lastSeenAt: Date?
-    public init(env: PushEnvironment, lastSeenAt: Date?) { self.env = env; self.lastSeenAt = lastSeenAt }
+    public var tokenUpdatedAt: Date?
+    public var hasStartToken: Bool
+    public init(installID: String, env: PushEnvironment, locale: String, createdAt: Date, lastSeenAt: Date?, tokenUpdatedAt: Date?, hasStartToken: Bool) {
+        self.installID = installID; self.env = env; self.locale = locale; self.createdAt = createdAt
+        self.lastSeenAt = lastSeenAt; self.tokenUpdatedAt = tokenUpdatedAt; self.hasStartToken = hasStartToken
+    }
 }
 
 /// Code alphabet and normalisation (Crockford Base32: 32 symbols, no I L O U; 8 symbols = 40 bits).

@@ -135,9 +135,12 @@ extension MariaRepo: DeviceLinkRepo {
     public func deviceInstallInfo(id: String) async throws -> DeviceInstallInfo? {
         try await connection { conn in
             guard let row = try await query(conn,
-                "SELECT i.env AS env, DATE_FORMAT(i.last_seen_at, \(Self.dateOut)) AS seen_s FROM dashboard_device d JOIN push_install i ON i.id=d.install_id WHERE d.id=?",
+                "SELECT i.id AS iid, i.env AS env, i.locale AS locale, i.la_start_token IS NOT NULL AS has_start, DATE_FORMAT(i.created_at, \(Self.dateOut)) AS created_s, "
+                + "DATE_FORMAT(i.last_seen_at, \(Self.dateOut)) AS seen_s, DATE_FORMAT(i.token_updated_at, \(Self.dateOut)) AS token_s FROM dashboard_device d JOIN push_install i ON i.id=d.install_id WHERE d.id=?",
                 [str(id)]).rows.first, let env = row.column("env")?.string.flatMap(PushEnvironment.init(rawValue:)) else { return nil }
-            return DeviceInstallInfo(env: env, lastSeenAt: row.column("seen_s")?.string.flatMap(TimeUtil.fromSQL))
+            return DeviceInstallInfo(installID: row.column("iid")?.string ?? "", env: env, locale: row.column("locale")?.string ?? "de", createdAt: Self.time(row, "created_s"),
+                                     lastSeenAt: row.column("seen_s")?.string.flatMap(TimeUtil.fromSQL),
+                                     tokenUpdatedAt: row.column("token_s")?.string.flatMap(TimeUtil.fromSQL), hasStartToken: (row.column("has_start")?.int ?? 0) != 0)
         }
     }
 }

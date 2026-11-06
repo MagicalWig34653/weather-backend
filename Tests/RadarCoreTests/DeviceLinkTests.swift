@@ -117,6 +117,52 @@ struct DeviceLinkTests {
         #expect(try await repo.devices().count == 2)
     }
 
+    @Test(arguments: RepoKind.allCases) func commandsAndEventsContract(kind: RepoKind) async throws {
+        let repo = try await kind.make(); let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        try await register(repo, installA, now: now)
+        let hash = LinkCode.hash("CMD00000")
+        _ = try await repo.createLinkCode(installationID: installA, codeHash: hash, attested: true, now: now, ttl: 600, maxDevices: 3)
+        let id = UUID().uuidString.lowercased()
+        guard case .paired = try await repo.pairDevice(codeHash: hash, label: "d", deviceID: id, now: now, maxDevices: 3, ttlDays: 0) else { Issue.record("pair"); return }
+        // Unknown device, duplicates of one kind, other kinds in parallel.
+        #expect(try await repo.createCommand(deviceID: UUID().uuidString.lowercased(), kind: .test, dryRun: nil, now: now) == .deviceGone)
+        guard case .created(let first) = try await repo.createCommand(deviceID: id, kind: .test, dryRun: nil, now: now) else { Issue.record("create"); return }
+        #expect(try await repo.createCommand(deviceID: id, kind: .test, dryRun: nil, now: now) == .pending)
+        guard case .created = try await repo.createCommand(deviceID: id, kind: .reeval, dryRun: true, now: now.addingTimeInterval(1)) else { Issue.record("reeval"); return }
+        #expect(try await repo.linkState(installationID: installA, now: now).pendingCommands == 2)
+        #expect(try await repo.device(id: id)?.lastActionAt != nil)
+        // Claim: oldest first, queued -> running, finish stores the result.
+        let claimed = try #require(try await repo.claimNextCommand(now: now.addingTimeInterval(2)))
+        #expect(claimed.id == first.id && claimed.status == .running)
+        try await repo.finishCommand(id: first.id, status: .done, result: #"{"outcome":"delivered"}"#, error: nil, now: now.addingTimeInterval(3))
+        let loaded = try #require(try await repo.command(id: first.id, deviceID: id))
+        #expect(loaded.status == .done && loaded.result == #"{"outcome":"delivered"}"# && loaded.finishedAt != nil)
+        #expect(try await repo.command(id: first.id, deviceID: UUID().uuidString.lowercased()) == nil)
+        // Expiry after 120 s.
+        #expect(try await repo.claimNextCommand(now: now.addingTimeInterval(200)) == nil)
+        let all = try await repo.commands(deviceID: id, limit: 10)
+        #expect(all.count == 2 && all.first?.kind == .reeval && all.first?.status == .expired)
+        // Events only for linked devices, newest first, capped at 200.
+        try await repo.appendDeviceEvent(installationID: installB, kind: "test", outcome: "delivered", reason: nil, now: now)
+        for i in 0..<205 { try await repo.appendDeviceEvent(installationID: installA, kind: i == 204 ? "probe" : "test", outcome: "delivered", reason: i == 204 ? "x" : nil, now: now.addingTimeInterval(Double(i))) }
+        let events = try await repo.deviceEvents(deviceID: id, limit: 500)
+        #expect(events.count == 200 && events.first?.kind == "probe" && events.first?.reason == "x")
+        // Retention.
+        try await repo.purgeDeviceOps(now: now.addingTimeInterval(49 * 3600))
+        let purgedEvents = try await repo.deviceEvents(deviceID: id, limit: 5)
+        let purgedCommands = try await repo.commands(deviceID: id, limit: 5)
+        #expect(purgedEvents.isEmpty && purgedCommands.isEmpty)
+        // Cascade with the device.
+        _ = try await repo.createCommand(deviceID: id, kind: .laEnd, dryRun: nil, now: now)
+        #expect(try await repo.deleteDevice(id: id))
+        let afterDelete = try await repo.commands(deviceID: id, limit: 5)
+        #expect(afterDelete.isEmpty)
+        // Audit columns.
+        try await repo.appendDeviceAudit(action: .deviceAction, deviceRef: "abcd1234", outcome: "test:delivered", now: now)
+        let audit = try #require(try await repo.auditEntries(limit: 1).first)
+        #expect(audit.action == .deviceAction && audit.deviceRef == "abcd1234" && audit.outcome == "test:delivered")
+    }
+
     // MARK: app routes
 
     private func api(_ repo: MemoryRepo, enabled: Bool = true, chain: TestChain, stats: StatsCollector = StatsCollector()) -> PushApi {

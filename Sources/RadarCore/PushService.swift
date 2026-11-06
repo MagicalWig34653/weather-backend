@@ -40,10 +40,13 @@ public final class PushService: Sendable {
     let activityQueue = PushGuarded<[ActivityWork]>([])
     public static let reservationTimeout: TimeInterval = 15 * 60
     let stats: any StatsSink
+    /// Dashboard probe: the start alert reads "Live-Activity-Test" (docs-site dashboard-api.md).
+    let probeAlert: Bool
 
     public init(config: Config, repo: any Repo, sender: any ApnsSender, owner: String, evaluationPageSize: Int = 2000,
                 activitySendsPerTick: Int = 200, activitySecondsPerTick: Double = 8,
-                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), probeAlert: Bool = false) {
+        self.probeAlert = probeAlert
         self.config = config; self.repo = repo; self.sender = sender; self.owner = owner; self.clock = clock; self.stats = stats
         self.evaluationPageSize = max(1, evaluationPageSize)
         self.activitySendsPerTick = max(1, activitySendsPerTick); self.activitySecondsPerTick = max(0.1, activitySecondsPerTick)
@@ -71,6 +74,7 @@ public final class PushService: Sendable {
                 outboxBefore: now.addingTimeInterval(-Self.outboxKeepSeconds), now: now)
             // Janitor for device links: used/expired codes, links past an optional TTL; all links while the switch is off.
             _ = try? await repo.purgeLinks(now: now, removeAll: !config.deviceLink.enabled)
+            try? await repo.purgeDeviceOps(now: now)
         }
         return result
     }

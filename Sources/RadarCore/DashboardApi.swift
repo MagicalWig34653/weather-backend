@@ -21,7 +21,8 @@ public final class DashboardApi: Sendable {
     public static let maxBodyBytes = 32 * 1024
 
     public let auth: DashboardAuth
-    let repo: any DashboardRepo
+    let repo: any Repo
+    let devices: DashboardDevices
     let store: ConfigStore
     let env: [String: String]
     let site: StaticSite
@@ -30,12 +31,13 @@ public final class DashboardApi: Sendable {
     /// Extension point for further route families (WP11 to WP13): returns nil when the path is not theirs.
     let extra: (@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?)?
 
-    public init(auth: DashboardAuth, repo: any DashboardRepo, store: ConfigStore,
+    public init(auth: DashboardAuth, repo: any Repo, store: ConfigStore,
                 env: [String: String] = ProcessInfo.processInfo.environment, staticRoot: String = "/app/dashboard",
                 restartPolicy: RestartPolicy = RestartPolicy(), clock: @escaping @Sendable () -> Date = { Date() },
                 extra: (@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?)? = nil) {
         self.auth = auth; self.repo = repo; self.store = store; self.env = env; self.site = StaticSite(root: staticRoot)
         self.restartPolicy = restartPolicy; self.clock = clock; self.extra = extra
+        devices = DashboardDevices(repo: repo, config: { store.snapshot() }, clock: clock)
     }
 
     private var sessions: DashboardSessions { auth.sessions }
@@ -120,6 +122,7 @@ public final class DashboardApi: Sendable {
             try auth.limits.check(.configWrite, now: now)
             return try await writeConfig(key: key, put: m == "PUT", body: req.body, now: now)
         }
+        if let response = try await devices.handle(req, sub, now: now, audit: repo) { return response }
         if let extra, let response = try await extra(req, session) { return response }
         return Self.error(404, "not_found")
     }
@@ -212,7 +215,7 @@ public final class DashboardApi: Sendable {
         let entries: [[String: Any]] = rows.map { r in
             ["id": r.id, "at": TimeUtil.toISO(r.at), "action": r.action.rawValue, "configKey": r.key as Any? ?? NSNull(),
              "oldValue": r.oldValue as Any? ?? NSNull(), "newValue": r.newValue as Any? ?? NSNull(),
-             "deviceRef": NSNull(), "outcome": NSNull()]
+             "deviceRef": r.deviceRef as Any? ?? NSNull(), "outcome": r.outcome as Any? ?? NSNull()]
         }
         return Self.object(200, ["entries": entries])
     }

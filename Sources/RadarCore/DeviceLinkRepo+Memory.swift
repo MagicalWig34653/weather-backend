@@ -76,18 +76,12 @@ extension MemoryRepo: DeviceLinkRepo {
 
     public func deviceInstallInfo(id: String) async throws -> DeviceInstallInfo? {
         guard let device = deviceStore.devices[id], let install = push.installs[device.installID] else { return nil }
-        return DeviceInstallInfo(env: install.env, lastSeenAt: install.lastSeenAt)
+        return DeviceInstallInfo(installID: device.installID, env: install.env, locale: install.locale, createdAt: install.createdAt,
+                                 lastSeenAt: install.lastSeenAt, tokenUpdatedAt: install.lastSeenAt, hasStartToken: install.liveActivityStartToken != nil)
     }
 
     func removeDeviceData(_ deviceID: String) {
         deviceStore.devices[deviceID] = nil
         commandStore.removeAll(deviceID: deviceID)
     }
-}
-
-/// Placeholder for the command table (filled in with the command slice); only what link state needs.
-struct MemoryCommandStore {
-    var pending: [String: Int] = [:]
-    func pendingCount(deviceID: String) -> Int { pending[deviceID] ?? 0 }
-    mutating func removeAll(deviceID: String) { pending[deviceID] = nil }
 }

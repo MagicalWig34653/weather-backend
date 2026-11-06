@@ -143,6 +143,14 @@ func makeApnsSender(config: Config, client: HTTPClient, logger: Logger) -> (any 
 func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (any ApnsSender)?, logger: Logger) async {
     guard config.push.enabled, let sender else { return }
     let service = PushService(config: config, repo: repo, sender: sender, owner: replicaID(), stats: stats)
+    // Dashboard commands of linked devices (leader only, queue polled about every 2 seconds).
+    let commands = Task {
+        while !Task.isCancelled {
+            await service.processCommands()
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+    defer { commands.cancel() }
     while !Task.isCancelled {
         do {
             let tick = try await service.tick()

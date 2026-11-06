@@ -20,7 +20,7 @@ public enum PushActivityPayload {
                 "staleDate": reference.addingTimeInterval(PushEvaluator.maxRunAge).timeIntervalSinceReferenceDate]
     }
 
-    public static func encode(event: PushActivityEvent, subscriptionID: String, content: [String: Any], now: Date, locale: String = "de") throws -> [UInt8] {
+    public static func encode(event: PushActivityEvent, subscriptionID: String, content: [String: Any], now: Date, locale: String = "de", probe: Bool = false) throws -> [UInt8] {
         let state = try JSONSerialization.data(withJSONObject: content, options: [.sortedKeys])
         guard state.count <= 4096 else { throw PayloadError.tooLarge }
         var aps: [String: Any] = ["timestamp": Int(now.timeIntervalSince1970), "event": event.rawValue, "content-state": content,
@@ -35,8 +35,12 @@ public enum PushActivityPayload {
             let phase = content["phase"] as? String
             let rainingNow = phase == "endsIn" || phase == "raining"
             let en = locale == "en"
+            if probe {
+                aps["alert"] = ["title": "Showers", "body": en ? "Live Activity test" : "Live-Activity-Test"]
+            } else {
             aps["alert"] = ["title": "Showers", "body": rainingNow ? (en ? "It is raining right now" : "Es regnet gerade")
                                                                     : (en ? "Rain starting soon" : "Regen beginnt bald")]
+            }
         }
         if event == .end { aps["dismissal-date"] = Int(now.timeIntervalSince1970) }
         return Array(try JSONSerialization.data(withJSONObject: ["aps": aps], options: [.sortedKeys]))
@@ -136,7 +140,7 @@ extension PushService {
         }
         guard try await repo.acquireLeader(name: Self.leaderName, owner: owner, leaseSeconds: Self.leaseSeconds) else { result.isLeader = false; return }
         let request = ApnsRequest(tokenHex: token, env: target.installation.env, topic: config.push.topic,
-                                  payload: try PushActivityPayload.encode(event: event, subscriptionID: subID, content: content, now: now, locale: target.installation.locale == "en" ? "en" : "de"),
+                                  payload: try PushActivityPayload.encode(event: event, subscriptionID: subID, content: content, now: now, locale: target.installation.locale == "en" ? "en" : "de", probe: probeAlert),
                                   collapseID: "activity-" + subID,
                                   expiration: Int(now.addingTimeInterval(PushEvaluator.maxRunAge).timeIntervalSince1970), activityEvent: event)
         switch await sender.send(request) {
