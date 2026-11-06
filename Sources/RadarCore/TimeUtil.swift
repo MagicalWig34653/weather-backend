@@ -45,7 +45,9 @@ public enum TimeUtil {
         else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))
+        guard let date = calendar.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi)) else { return nil }
+        // Only the canonical spelling counts: no sign characters, no normalised out-of-range values (review L1).
+        return toID(date) == id ? date : nil
     }
 
     /// WMS time with milliseconds; the DWD answers without them with an XML error.

@@ -4,6 +4,16 @@ import Testing
 @testable import RadarCore
 
 @Suite struct UnitTests {
+    @Test func fromIDRejectsNonCanonicalIDs() {
+        #expect(TimeUtil.fromID("+0261030T1105Z") == nil)
+        #expect(TimeUtil.fromID("20261030T+105Z") == nil)
+        #expect(TimeUtil.fromID("20261030T-105Z") == nil)
+        #expect(TimeUtil.fromID("20261332T1105Z") == nil)
+        #expect(TimeUtil.fromID("20261030T2561Z") == nil)
+        #expect(TimeUtil.fromID("20260231T1105Z") == nil)
+        #expect(TimeUtil.fromID("20261030T1105Z") == run0)
+    }
+
     @Test func lruEvictsByBytes() async {
         let cache = SlotCache(maxBytes: 10)
         @Sendable func blob(_ n: Int) -> SlotBlob { SlotBlob(contentType: "t", sha256: "s", data: [UInt8](repeating: 1, count: n)) }
