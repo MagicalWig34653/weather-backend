@@ -159,7 +159,7 @@ Ein Einbruch zwischen zwei Stufen zeigt die Stelle. Viele Auslöser, kaum Starts
 | Grund | Bedeutung und Konsequenz |
 |---|---|
 | `lock_60min` | 60-Minuten-Sperre aktiv: seit dem letzten Alert oder Start für dieses Abo sind weniger als 60 Minuten vergangen (Alert und Live Activity teilen die Sperre). Normal. |
-| `hysteresis` | „Es regnet gerade“ wird erst nach zwei aufeinanderfolgenden vollständigen Läufen mit nassem Slot 0 ausgelöst (Schutz gegen Schauer und Bildrauschen); ein trockener oder unbekannter Slot setzt die Bestätigung zurück. Normal. |
+| `hysteresis` | „Es regnet gerade“ wird erst nach zwei aufeinanderfolgenden vollständigen Läufen mit nassem Slot 0 ausgelöst (Schutz gegen Schauer und Bildrauschen); ein trockener oder unbekannter Slot setzt die Bestätigung zurück. Normal. **Ausnahme seit 6.11.2026:** Direkt nach dem Einschalten der Live Activity (oder einem neuen Start-Token) genügt ein Lauf, und Hysterese sowie `lock_60min` werden einmalig ignoriert; `hysteresis` tritt dort nicht auf. |
 | `no_start_token` | Das Gerät hat keinen Start-Token gemeldet (Live Activities in iOS aus, App noch nicht geöffnet, Token fehlt). Serverseitig nicht behebbar. |
 | `activity_slot_busy` | Für das Abo läuft bereits eine Live Activity (bis 8 Stunden). Kein zweiter Start. |
 | `reservation_pending` | Ein früherer Start wurde reserviert und noch nicht bestätigt (bis 15 Minuten). Fällt ein Start aus, kann die Reservierung so lange blockieren. |
@@ -171,7 +171,9 @@ Ein Einbruch zwischen zwei Stufen zeigt die Stelle. Viele Auslöser, kaum Starts
 
 **2. Geräte-Seite, Diagnose.** Für ein gekoppeltes Gerät (nächster Abschnitt) prüft die Diagnose in fester Reihenfolge: Server und Capability, Push-Pause, erlaubte Umgebung, Gerätetoken, Start-Token, Abo aktiv mit Live Activity, freier Platz, Sperre und Hysterese, Auslösebedingung, letztes Versandergebnis. Angezeigt werden der wahrscheinlichste Grund und die übrigen Prüfungen. Der Ereignisverlauf (48 Stunden) zeigt Alert-, Start-, Update- und Ende-Versuche mit APNs-Ergebnis. Ein `apns_error` wie `BadDeviceToken` oder `DeviceTokenNotForTopic` zeigt meist eine falsche Umgebung oder einen falschen Schlüssel/Topic; `Unregistered` ist ein ungültig gewordener Token.
 
-**Verlorener Start (bekannte Abwägung):** Endet ein Start mit Wiederholung (5xx, 429, Transportfehler) oder Ablehnung, gilt die 60-Minuten-Sperre trotzdem, und die Reservierung bleibt bis zu 15 Minuten. Der Start wird nicht wiederholt, weil Apple ihn trotz Fehler zugestellt haben kann. Sichtbar ist das als `la_event start:retry` beziehungsweise `apns_error start:<Grund>`. Eine Änderung (Start bei Wiederholung nicht verbrauchen) wartet auf eine Entscheidung.
+**Verlorener Start (seit 6.11.2026 behoben):** Endet ein „Es regnet gerade“-Start mit Wiederholung (5xx, 429, Transportfehler), gibt der Server die Reservierung frei und versucht es beim nächsten Lauf ohne Sperre erneut, höchstens dreimal; danach gilt die 60-Minuten-Sperre. Eine Ablehnung (`apns_error start:<Grund>`) wird nicht wiederholt. Sichtbar ist jeder Versuch als `la_event start:retry` beziehungsweise `start:delivered`. Restrisiko: Hat Apple einen Start trotz Fehler zugestellt, kann ein zweiter folgen. Starts nach einem Regenbeginn-Alert (`la_rain_start`) werden nicht wiederholt.
+
+**Sofortiger Start bei Aktivierung (6.11.2026):** Wer die Live Activity für einen Ort einschaltet, an dem es gerade regnet (oder einen neuen Start-Token registriert), bekommt den Start beim nächsten Auswertungslauf (alle fünf Minuten); ein früherer Regenalarm sperrt das nicht. Gibt es danach keinen Start, steht der Grund in den Überspringgründen (`no_start_token`, `unknown_pixel`, `env_not_allowed`, `activity_slot_busy`). Die Geräte-Diagnose zeigt in dieser Phase weder Sperre noch Hysterese.
 
 ## Geräte koppeln (Kopplungsfenster)
 

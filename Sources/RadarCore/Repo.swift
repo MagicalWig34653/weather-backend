@@ -109,7 +109,10 @@ public protocol PushRepo: Sendable {
     /// One page (ascending id, ids greater than `after`) of the enabled subscriptions of a raster version, for the evaluation after a radar run.
     func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription]
     /// Missing start-token input is handled by the API: this explicitly sets or clears the current token.
+    /// A changed non-nil token also arms the immediate start of the installation's Live Activity subscriptions.
     func setLiveActivityStartToken(installationID: String, token: String?) async throws
+    /// Sets or clears the immediate-start bit and the failed-attempt counter (0...3) without touching the automaton state.
+    func setStartRetry(subscriptionID: String, armed: Bool, attempts: Int) async throws
     /// Rotation-safe invalidation: an old APNs response cannot erase a newly registered token.
     func clearLiveActivityStartToken(installationID: String, matchingToken: String) async throws
     func activityTarget(subscriptionID: String) async throws -> PushActivityTarget?

@@ -41,6 +41,8 @@ public final class PushService: Sendable {
     /// Work of the last committed run that has not been sent yet; replaced by the next run, drained within each tick's budget.
     let activityQueue = PushGuarded<[ActivityWork]>([])
     public static let reservationTimeout: TimeInterval = 15 * 60
+    /// Rain-now start attempts (first try included) before the 60-minute lock takes over for good.
+    public static let maxStartAttempts = 3
     let stats: any StatsSink
     /// Dashboard probe: the start alert reads "Live-Activity-Test" (docs-site dashboard-api.md).
     let probeAlert: Bool
@@ -180,12 +182,14 @@ public final class PushService: Sendable {
                         // Rain already running: a known wet slot 0 in two consecutive complete runs starts the activity
                         // (unknown pixels reset the streak). The 60-minute repeat lock is shared with the rain-start alert
                         // via `lastSentAt`, so both start paths can never fire twice.
+                        // Decision 6 Nov 2026: an armed immediate start (activation, or a start still in flight) needs only this
+                        // one wet run and ignores the 60-minute lock; failed attempts are counted in `startAttempts`.
                         let wetNow = entry.classes.first.map { $0 >= sub.threshold } ?? false
                         var wetStart = false
                         if let target = targets[sub.id] {
                             let hasToken = target.installation.liveActivityStartToken != nil
-                            let unlocked = sentAt.map({ now.timeIntervalSince($0) >= PushEvaluator.repeatLock }) ?? true
-                            if wetNow, sub.wetSeen, !entry.notify, sub.enabled, target.activity == nil, hasToken, unlocked {
+                            let unlocked = sub.instantStart || (sentAt.map({ now.timeIntervalSince($0) >= PushEvaluator.repeatLock }) ?? true)
+                            if wetNow, sub.wetSeen || sub.instantStart, !entry.notify, sub.enabled, target.activity == nil, hasToken, unlocked {
                                 wetStart = true
                                 sentAt = now
                                 events.trigger(.laRainingNow)
@@ -206,8 +210,11 @@ public final class PushService: Sendable {
                                                                  reference: run.nominal, trigger: wetStart ? .laRainingNow : .laRainStart))
                             }
                         }
-                        if entry.state != sub.state || sentAt != sub.lastSentAt || wetNow != sub.wetSeen {
-                            updates.append(SubscriptionUpdate(id: sub.id, state: entry.state, lastSentAt: sentAt, wetSeen: wetNow))
+                        // The bit stays set while a start is in flight (cleared by the send outcome); any run without a start clears it.
+                        if entry.state != sub.state || sentAt != sub.lastSentAt || wetNow != sub.wetSeen || wetStart != sub.instantStart
+                            || (!wetStart && sub.startAttempts != 0) {
+                            updates.append(SubscriptionUpdate(id: sub.id, state: entry.state, lastSentAt: sentAt, wetSeen: wetNow,
+                                                              instantStart: wetStart, startAttempts: wetStart ? sub.startAttempts : 0))
                         }
                     }
                 }

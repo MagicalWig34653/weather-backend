@@ -53,6 +53,11 @@ public struct PushSubscription: Sendable, Equatable {
     public var minSharePercent: Int?
     /// Live Activity hysteresis: the previous complete run showed a known wet slot 0 (persisted as bit 4 of `state`).
     public var wetSeen: Bool = false
+    /// Immediate Live Activity start (decision 6 Nov 2026, persisted as bit 5 of `state`): armed by activation (subscription with
+    /// Live Activity, new start token) or while a rain-now start is in flight; a single wet run then starts, without the 60-minute lock.
+    public var instantStart: Bool = false
+    /// Failed start attempts of the current immediate start (bits 6-7 of `state`, 0...3).
+    public var startAttempts: Int = 0
     public init(id: String, gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int,
                 enabled: Bool, state: PushState = .dry, lastSentAt: Date? = nil, timeSensitive: Bool = false,
                 kind: PushKind = .point, radiusCells: Int? = nil, minSharePercent: Int? = nil, liveActivity: Bool = false) {
@@ -105,8 +110,11 @@ public struct SubscriptionUpdate: Sendable, Equatable {
     public var state: PushState
     public var lastSentAt: Date?
     public var wetSeen: Bool
-    public init(id: String, state: PushState, lastSentAt: Date?, wetSeen: Bool = false) {
+    public var instantStart: Bool
+    public var startAttempts: Int
+    public init(id: String, state: PushState, lastSentAt: Date?, wetSeen: Bool = false, instantStart: Bool = false, startAttempts: Int = 0) {
         self.id = id; self.state = state; self.lastSentAt = lastSentAt; self.wetSeen = wetSeen
+        self.instantStart = instantStart; self.startAttempts = startAttempts
     }
 }
 

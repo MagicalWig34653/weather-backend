@@ -106,6 +106,7 @@ extension MemoryRepo {
             id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY, threshold: input.threshold,
             leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive,
             kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity), createdAt: now)
+        push.subs[id]?.value.instantStart = input.liveActivity && input.enabled && input.kind == .point
         return .created
     }
 
@@ -121,6 +122,7 @@ extension MemoryRepo {
                                      threshold: input.threshold, leadMinutes: input.leadMinutes, enabled: input.enabled,
                                      state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive,
                                      kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity)
+        sub.value.instantStart = input.liveActivity && input.enabled && input.kind == .point
         push.subs[id] = sub
         return true
     }
@@ -155,6 +157,8 @@ extension MemoryRepo {
             guard var sub = push.subs[update.id] else { continue }
             sub.value.state = update.state
             sub.value.wetSeen = update.wetSeen
+            sub.value.instantStart = update.instantStart
+            sub.value.startAttempts = update.startAttempts & 3
             sub.value.lastSentAt = update.lastSentAt
             push.subs[update.id] = sub
         }
@@ -206,7 +210,16 @@ extension MemoryRepo {
 
 extension MemoryRepo {
     public func setLiveActivityStartToken(installationID: String, token: String?) async throws {
+        let old = push.installs[installationID]?.liveActivityStartToken
         push.installs[installationID]?.liveActivityStartToken = token
+        if token != nil, token != old {
+            for (id, sub) in push.subs where sub.installID == installationID && sub.value.liveActivity { push.subs[id]?.value.instantStart = true; push.subs[id]?.value.startAttempts = 0 }
+        }
+    }
+
+    public func setStartRetry(subscriptionID: String, armed: Bool, attempts: Int) async throws {
+        push.subs[subscriptionID]?.value.instantStart = armed
+        push.subs[subscriptionID]?.value.startAttempts = attempts & 3
     }
 
     public func clearLiveActivityStartToken(installationID: String, matchingToken: String) async throws {

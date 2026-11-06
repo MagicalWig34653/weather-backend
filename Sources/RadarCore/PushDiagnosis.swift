@@ -114,9 +114,9 @@ public enum PushDiagnosis {
         } else if !running.isEmpty { add("slot", .warning, "activity_running") }
         else { add("slot", .ok, "ok") }
         // 7 lock and hysteresis (first live subscription that shows one)
-        let lockUntil = live.compactMap { s in s.lastSentAt.map { $0.addingTimeInterval(PushEvaluator.repeatLock) } }.filter { $0 > now }.max()
+        let lockUntil = live.filter { !$0.instantStart }.compactMap { s in s.lastSentAt.map { $0.addingTimeInterval(PushEvaluator.repeatLock) } }.filter { $0 > now }.max()
         if let lockUntil { add("lock", .warning, "lock_active", ["lockUntil": .string(TimeUtil.toISO(lockUntil))]) }
-        else if live.contains(where: { s in !s.wetSeen && (input.radar.classes[s.id]?.first ?? -1) >= s.threshold }) { add("lock", .warning, "hysteresis") }
+        else if live.contains(where: { s in !s.wetSeen && !s.instantStart && (input.radar.classes[s.id]?.first ?? -1) >= s.threshold }) { add("lock", .warning, "hysteresis") }
         else { add("lock", .ok, "ok") }
         // 8 trigger: the first enabled live subscription, else the first enabled one
         let subject = live.first(where: \.enabled) ?? input.subs.first(where: \.enabled)

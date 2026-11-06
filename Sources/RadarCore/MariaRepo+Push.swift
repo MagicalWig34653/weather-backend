@@ -8,6 +8,10 @@ extension MariaRepo {
 
     /// `state` column: bits 0-3 = `PushState`, bit 4 = Live Activity wet hysteresis (no schema change).
     static let wetSeenBit = 0x10
+    /// Bit 5: immediate Live Activity start armed; bits 6-7: failed start attempts (0...3).
+    static let instantBit = 0x20
+    static let attemptShift = 6
+    static let automatonMask = 0x1F
     private static func subscription(_ row: MySQLRow) -> PushSubscription {
         var sub = PushSubscription(
             id: row.column("id")?.string ?? "", gridVersion: row.column("grid_version")?.int ?? 0,
@@ -18,7 +22,10 @@ extension MariaRepo {
             timeSensitive: (row.column("time_sensitive")?.int ?? 0) == 1,
             kind: PushKind(rawValue: row.column("kind")?.int ?? 0) ?? .point,
             radiusCells: row.column("radius_cells")?.int, minSharePercent: row.column("min_share")?.int, liveActivity: row.column("live_activity")?.int == 1)
-        sub.wetSeen = ((row.column("state")?.int ?? 0) & wetSeenBit) != 0
+        let raw = row.column("state")?.int ?? 0
+        sub.wetSeen = (raw & wetSeenBit) != 0
+        sub.instantStart = (raw & instantBit) != 0
+        sub.startAttempts = (raw >> attemptShift) & 3
         return sub
     }
 
@@ -121,9 +128,10 @@ extension MariaRepo {
             }
             _ = try await query(conn,
                 "INSERT INTO push_sub (id, install_id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, live_activity, kind, radius_cells, min_share, created_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)",
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [str(id), str(installationID), MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY),
                  MySQLData(int: input.threshold), MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0),
+                 MySQLData(int: Self.armedState(input)),
                  MySQLData(int: input.timeSensitive ? 1 : 0), MySQLData(int: input.liveActivity ? 1 : 0), MySQLData(int: input.kind.rawValue), optional(input.radiusCells),
                  optional(input.minSharePercent), ts(now)])
             if input.kind == .circle, let radius = input.radiusCells {
@@ -148,10 +156,11 @@ extension MariaRepo {
                 throw violation
             }
             _ = try await query(conn,
-                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, live_activity=?, kind=?, radius_cells=?, min_share=?, state=0 WHERE id=? AND install_id=?",
+                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, live_activity=?, kind=?, radius_cells=?, min_share=?, state=? WHERE id=? AND install_id=?",
                 [MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY), MySQLData(int: input.threshold),
                  MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0),
-                 MySQLData(int: input.liveActivity ? 1 : 0), MySQLData(int: input.kind.rawValue), optional(input.radiusCells), optional(input.minSharePercent), str(id), str(installationID)])
+                 MySQLData(int: input.liveActivity ? 1 : 0), MySQLData(int: input.kind.rawValue), optional(input.radiusCells), optional(input.minSharePercent),
+                 MySQLData(int: Self.armedState(input)), str(id), str(installationID)])
             regionCellsMemo.withLock { $0 = nil }
             return true
         }
@@ -201,7 +210,8 @@ extension MariaRepo {
             _ = try await query(conn, "UPDATE push_state SET value=? WHERE name='last_run'", [str(runID)])
             for update in updates {
                 _ = try await query(conn, "UPDATE push_sub SET state=?, last_sent_at=? WHERE id=?",
-                                    [MySQLData(int: update.state.rawValue | (update.wetSeen ? Self.wetSeenBit : 0)), update.lastSentAt.map { ts($0) } ?? .null, str(update.id)])
+                                    [MySQLData(int: update.state.rawValue | (update.wetSeen ? Self.wetSeenBit : 0)
+                                              | (update.instantStart ? Self.instantBit : 0) | ((update.startAttempts & 3) << Self.attemptShift)), update.lastSentAt.map { ts($0) } ?? .null, str(update.id)])
             }
             for item in outbox {
                 // INSERT ... SELECT skips subscriptions that were deleted meanwhile; the unique key ignores duplicates.
@@ -263,9 +273,26 @@ extension MariaRepo {
 }
 
 extension MariaRepo {
+    /// State of a subscription after activation: a point subscription with Live Activity arms the immediate start.
+    static func armedState(_ input: PushSubscriptionInput) -> Int {
+        input.liveActivity && input.enabled && input.kind == .point ? instantBit : 0
+    }
+
     public func setLiveActivityStartToken(installationID: String, token: String?) async throws {
-        try await connection { conn in
+        try await transaction { conn in
+            let old = try await query(conn, "SELECT la_start_token FROM push_install WHERE id=? FOR UPDATE", [str(installationID)]).rows.first?.column("la_start_token")?.string
             _ = try await query(conn, "UPDATE push_install SET la_start_token=? WHERE id=?", [token.map(str) ?? .null, str(installationID)])
+            // A new start token is an activation as well: arm the immediate start of the installation's Live Activity subscriptions.
+            if token != nil, token != old {
+                _ = try await query(conn, "UPDATE push_sub SET state=((state & \(Self.automatonMask)) | \(Self.instantBit)) WHERE install_id=? AND live_activity=1", [str(installationID)])
+            }
+        }
+    }
+
+    public func setStartRetry(subscriptionID: String, armed: Bool, attempts: Int) async throws {
+        try await connection { conn in
+            _ = try await query(conn, "UPDATE push_sub SET state=((state & \(Self.automatonMask)) | ?) WHERE id=?",
+                                [MySQLData(int: (armed ? Self.instantBit : 0) | ((attempts & 3) << Self.attemptShift)), str(subscriptionID)])
         }
     }
     public func clearLiveActivityStartToken(installationID: String, matchingToken: String) async throws {

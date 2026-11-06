@@ -40,13 +40,15 @@ private enum ActivityFixture {
         value.merge(extra) { _, new in new }
         return try json(value)
     }
-    static func prepared(env: PushEnvironment = .sandbox, live: Bool = true) async throws -> MemoryRepo {
+    /// `armed: false` simulates a subscription that was activated long ago (no immediate start pending).
+    static func prepared(env: PushEnvironment = .sandbox, live: Bool = true, armed: Bool = false) async throws -> MemoryRepo {
         let repo = MemoryRepo(clock: { run0 })
         _ = try await repo.upsertInstallation(id: installation, secretHash: Hashing.sha256Hex(Array(secret.utf8)),
                                              token: device, env: env, locale: "de", now: run0)
         try await repo.setLiveActivityStartToken(installationID: installation, token: start)
         #expect(try await repo.addSubscription(installationID: installation, id: subscription, input(live: live),
                                               maxPerInstallation: 10, now: run0) == .created)
+        if !armed { try await repo.setStartRetry(subscriptionID: subscription, armed: false, attempts: 0) }
         return repo
     }
     static func target(_ repo: MemoryRepo) async throws -> PushActivityTarget {
@@ -1112,4 +1114,137 @@ struct PushActivityConcurrencyTests {
         }
     }
 }
+}
+
+
+@Suite("Live Activity immediate start on activation (decision 6 Nov 2026)")
+struct PushImmediateStartTests {
+    private typealias F = ActivityFixture
+    private static func raining(until end: Int) -> [Int] { (0..<TimeUtil.forecastSlots).map { $0 < end ? 3 : 0 } }
+
+    private final class Harness: @unchecked Sendable {
+        let repo: MemoryRepo, sender: FakeApnsSender, config = F.config(), now = Locked(run0)
+        let service: PushService
+        init(repo: MemoryRepo, script: [ApnsResult] = []) {
+            self.repo = repo
+            sender = FakeApnsSender(script: script)
+            let now = self.now
+            service = PushService(config: config, repo: repo, sender: sender, owner: "instant-test", clock: { now.withLock { $0 } })
+        }
+        func tick(_ index: Int, _ classes: [Int]) async throws {
+            let date = run0.addingTimeInterval(Double(index * 300))
+            now.withLock { $0 = date }
+            try await F.publish(repo, config: config, at: date, classes: classes)
+            _ = try await service.tick()
+        }
+        func starts() async -> Int { await sender.requests.filter { $0.activityEvent == .start }.count }
+        func stored() async throws -> PushSubscription { try await F.target(repo).subscription }
+    }
+
+    @Test func activationWhileRainingStartsWithTheFirstWetRun() async throws {
+        let h = Harness(repo: try await F.prepared(armed: true))
+        #expect(try await h.stored().instantStart)
+        try await h.tick(0, Self.raining(until: 4))
+        #expect(await h.starts() == 1)
+        let row = try await h.stored()
+        #expect(!row.instantStart && row.startAttempts == 0 && row.wetSeen)
+    }
+
+    @Test func activationIgnoresTheAlertLockAndAnEarlierAlert() async throws {
+        let repo = try await F.prepared()
+        // An alert was sent 5 minutes before the activation: the 60-minute lock would hold the start back for 55 minutes.
+        #expect(try await repo.commitEvaluation(runID: "20200101T0000Z", updates: [.init(id: F.subscription, state: .notified, lastSentAt: run0.addingTimeInterval(-300))], outbox: [], now: run0))
+        #expect(try await repo.updateSubscription(installationID: F.installation, id: F.subscription, F.input()))
+        let h = Harness(repo: repo)
+        try await h.tick(0, Self.raining(until: 4))
+        #expect(await h.starts() == 1)
+    }
+
+    @Test func withoutActivationTwoRunsAndTheLockStillApply() async throws {
+        let h = Harness(repo: try await F.prepared())
+        try await h.tick(0, Self.raining(until: 4))
+        #expect(await h.starts() == 0)
+        try await h.tick(1, Self.raining(until: 4))
+        #expect(await h.starts() == 1)
+    }
+
+    @Test func dryOrUnknownRunDisarmsSoALaterRainNeedsTwoRuns() async throws {
+        let h = Harness(repo: try await F.prepared(armed: true))
+        try await h.tick(0, Self.raining(until: 0))
+        #expect(try await !h.stored().instantStart)
+        try await h.tick(1, Self.raining(until: 4))
+        #expect(await h.starts() == 0)
+        try await h.tick(2, Self.raining(until: 4))
+        #expect(await h.starts() == 1)
+    }
+
+    @Test func newStartTokenArmsTheImmediateStart() async throws {
+        let repo = try await F.prepared()
+        try await repo.setLiveActivityStartToken(installationID: F.installation, token: F.start) // unchanged
+        #expect(try await !F.target(repo).subscription.instantStart)
+        try await repo.setLiveActivityStartToken(installationID: F.installation, token: F.rotated)
+        #expect(try await F.target(repo).subscription.instantStart)
+    }
+
+    @Test func transientFailureRetriesWithoutLockAndStopsAfterThreeAttempts() async throws {
+        let h = Harness(repo: try await F.prepared(armed: true), script: [.retry("transport"), .retry("503"), .retry("503"), .delivered])
+        try await h.tick(0, Self.raining(until: 4))
+        #expect(await h.starts() == 1)
+        var row = try await h.stored()
+        #expect(row.instantStart && row.startAttempts == 1)
+        #expect(try await F.target(h.repo).activity == nil) // reservation freed for the retry
+        try await h.tick(1, Self.raining(until: 4))
+        #expect(await h.starts() == 2)
+        try await h.tick(2, Self.raining(until: 4))
+        #expect(await h.starts() == 3)
+        row = try await h.stored()
+        #expect(!row.instantStart && row.startAttempts == 0) // third failure: give up, the 60-minute lock holds
+        try await h.tick(3, Self.raining(until: 4))
+        try await h.tick(4, Self.raining(until: 4))
+        #expect(await h.starts() == 3)
+    }
+
+    @Test func retryThenSuccessClearsTheBitAndNeverStartsTwice() async throws {
+        let h = Harness(repo: try await F.prepared(armed: true), script: [.retry("transport"), .delivered])
+        try await h.tick(0, Self.raining(until: 4))
+        try await h.tick(1, Self.raining(until: 4))
+        try await h.tick(2, Self.raining(until: 4))
+        #expect(await h.starts() == 2) // failed + delivered
+        #expect(try await !h.stored().instantStart)
+    }
+
+    @Test func rejectedStartIsNotRetried() async throws {
+        let h = Harness(repo: try await F.prepared(armed: true), script: [.rejected("PayloadTooLarge")])
+        try await h.tick(0, Self.raining(until: 4))
+        try await h.tick(1, Self.raining(until: 4))
+        #expect(await h.starts() == 1)
+        #expect(try await !h.stored().instantStart)
+    }
+
+    @Test func runningActivityBlocksAnImmediateStart() async throws {
+        let h = Harness(repo: try await F.prepared(armed: true))
+        _ = try await h.repo.setActivityToken(subscriptionID: F.subscription, token: F.activity, now: run0)
+        try await h.tick(0, Self.raining(until: 4))
+        #expect(await h.starts() == 0)
+    }
+
+    @Test(arguments: RepoKind.allCases) func instantBitAndAttemptsPersistAndKeepTheAutomaton(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let install = UUID().uuidString.lowercased(), sub = UUID().uuidString.lowercased()
+        _ = try await repo.upsertInstallation(id: install, secretHash: Hashing.sha256Hex(Array(F.secret.utf8)), token: F.device, env: .sandbox, locale: "de", now: run0)
+        #expect(try await repo.addSubscription(installationID: install, id: sub, F.input(), maxPerInstallation: 10, now: run0) == .created)
+        func stored() async throws -> PushSubscription { try #require(try await repo.activityTargets(subscriptionIDs: [sub]).first?.subscription) }
+        #expect(try await stored().instantStart)
+        #expect(try await repo.commitEvaluation(runID: "20261103T1000Z", updates: [.init(id: sub, state: .notified, lastSentAt: run0, wetSeen: true, instantStart: true, startAttempts: 2)], outbox: [], now: run0))
+        var row = try await stored()
+        #expect(row.state == .notified && row.wetSeen && row.instantStart && row.startAttempts == 2)
+        try await repo.setStartRetry(subscriptionID: sub, armed: false, attempts: 0)
+        row = try await stored()
+        #expect(row.state == .notified && row.wetSeen && !row.instantStart && row.startAttempts == 0)
+        try await repo.setLiveActivityStartToken(installationID: install, token: F.start)
+        row = try await stored()
+        #expect(row.instantStart && row.state == .notified && row.wetSeen)
+        #expect(try await repo.updateSubscription(installationID: install, id: sub, F.input(live: false)))
+        #expect(try await !stored().instantStart)
+    }
 }

@@ -93,6 +93,7 @@ extension PushService {
         let sub = target.subscription
         guard config.push.environments.contains(target.installation.env) else {
             if notify { observer.skipped(trigger, .envNotAllowed, by: 1) }
+            if trigger == .laRainingNow, notify { try await repo.setStartRetry(subscriptionID: sub.id, armed: false, attempts: 0) }
             return
         }
         let content = PushActivityPayload.content(classes: classes, threshold: sub.threshold, reference: reference)
@@ -104,10 +105,12 @@ extension PushService {
             try await sendActivity(target: target, event: event, content: content, now: now, result: &result)
         } else if notify, sub.enabled, sub.liveActivity, sub.kind == .point, target.installation.liveActivityStartToken != nil {
             if try await repo.reserveActivity(subscriptionID: sub.id, now: now) {
-                try await sendActivity(target: target, event: .start, content: content, now: now, result: &result)
+                try await sendActivity(target: target, event: .start, content: content, now: now, result: &result,
+                                       retryable: trigger == .laRainingNow)
             } else {
                 // Another subscription of the same installation holds the one activity slot; the start is lost (lock stays).
                 observer.skipped(trigger, .activitySlotBusy, by: 1)
+                if trigger == .laRainingNow { try await repo.setStartRetry(subscriptionID: sub.id, armed: false, attempts: 0) }
             }
         }
     }
@@ -131,7 +134,7 @@ extension PushService {
     }
 
     func sendActivity(target: PushActivityTarget, event: PushActivityEvent, content: [String: Any], now: Date,
-                      result: inout PushTick, expire: Bool = false) async throws {
+                      result: inout PushTick, expire: Bool = false, retryable: Bool = false) async throws {
         guard config.push.environments.contains(target.installation.env) else { return }
         let subID = target.subscription.id
         let token = event == .start ? target.installation.liveActivityStartToken : target.activity?.activityToken
@@ -152,7 +155,19 @@ extension PushService {
                                   expiration: Int(now.addingTimeInterval(PushEvaluator.maxRunAge).timeIntervalSince1970), activityEvent: event)
         let env = target.installation.env
         let kind: PushSendKind = event == .start ? .start : (event == .update ? .update : .end)
-        switch await sender.send(request) {
+        let outcome = await sender.send(request)
+        // A rain-now start in flight (bit set at commit) is settled here: success and final failures clear it, `retry` re-arms it.
+        if event == .start, retryable {
+            var again = false
+            if case .retry = outcome { again = target.subscription.startAttempts + 1 < Self.maxStartAttempts }
+            if again {
+                // Transient failure: free the reservation so the next run may start again without the lock (small duplicate risk,
+                // bounded by `maxStartAttempts`). Final failure keeps the old behaviour (reservation stays, lock holds).
+                _ = try await repo.deleteReservation(subscriptionID: subID)
+            }
+            try await repo.setStartRetry(subscriptionID: subID, armed: again, attempts: again ? target.subscription.startAttempts + 1 : 0)
+        }
+        switch outcome {
         case .delivered:
             result.sent += 1
             observer.sent(kind: kind, env: env, outcome: .delivered, reason: nil, expire: expire)
@@ -169,7 +184,7 @@ extension PushService {
             // Keep the reservation on ambiguous start failure: never accidentally create a second activity.
             // Updates retry with the next run; end retries on the next tick. A reservation without token expires after
             // `reservationTimeout` (review A7), so a transient failure cannot block the slot for hours.
-            // NOTE (WP11b finding): the 60-minute lock was already set when the run was committed, so a failed start is not retried.
+            // Rain-now starts are retried (see `retryable`, at most `maxStartAttempts` attempts); other starts are not.
             result.retried += 1
             observer.sent(kind: kind, env: env, outcome: .retry, reason: reason, expire: expire)
         case .badToken(let reason):

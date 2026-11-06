@@ -174,8 +174,8 @@ extension PushService {
         let wetNow = classes[0] >= sub.threshold
         let lead = max(1, min(sub.leadMinutes / 5, classes.count - 1))
         let beginning = !wetNow && classes[1...lead].contains { $0 >= sub.threshold }
-        let wetStart = live && wetNow && sub.wetSeen
-        guard beginning || wetStart else { return live && wetNow && !sub.wetSeen ? "hysteresis" : "below_threshold" }
+        let wetStart = live && wetNow && (sub.wetSeen || sub.instantStart)
+        guard beginning || wetStart else { return live && wetNow && !sub.wetSeen && !sub.instantStart ? "hysteresis" : "below_threshold" }
         if live {
             if !hasStartToken { return "no_start_token" }
             if let activity { return activity.activityToken == nil ? "reservation_pending" : "activity_slot_busy" }
