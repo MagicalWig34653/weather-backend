@@ -196,6 +196,8 @@ Ausgang: genau ein „wahrscheinlichster Grund“ plus Liste der übrigen Prüfu
 
 ### 4.6 TestFlight-Kopplung und Erkennung (harte Anforderung, Präzisierung 6.11.2026)
 
+> **Ersetzt am 6.11.2026** durch das Kopplungsfenster (decisions.md, Abschnitt „Kopplungsfenster statt TestFlight-Gating“): Die Kopplung ist unabhängig von der Installationsquelle, aber nur in einem vom Betreiber im Dashboard geöffneten Fenster möglich. Der StoreKit-Nachweis ist nur noch optional (`DEVICE_LINK_REQUIRE_TESTFLIGHT=true`). Die folgenden Anforderungen H1 und Befunde sind historisch.
+
 **Anforderung H1:** Das Geräte-Opt-in darf in App-Store-Installationen **weder sichtbar noch aktivierbar** sein; es erscheint nur, wenn die App nachweislich aus TestFlight stammt. Gilt zweifach: App-seitig (UI und Code-Pfad) **und** serverseitig (Backend lehnt die Kopplung ohne gültigen Umgebungsnachweis ab). Im Zweifel (offline, nicht verifizierbar, unbekannter Wert) gilt „kein TestFlight“ (fail closed).
 
 **Belegte Befunde (Primärquelle: Apples Bibliothek `app-store-server-library-swift`, `main`, abgerufen 6.11.2026, Dateien `SignedDataVerifier.swift`, `Models/AppTransaction.swift`, `Models/AppStoreEnvironment.swift`):**

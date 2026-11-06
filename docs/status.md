@@ -309,3 +309,9 @@ Umgesetzt: Kommentar und Warnbox mit exakter Deploy-Zeile (stack.yaml, installat
 Geprüft (macOS, Docker 29.9.2): `docker stack config` mit und ohne Overlay (Secrets-Merge belegt), `docker compose config`, `bash -n`, `shellcheck`, `test-swarm-deploy.sh`. Nicht geprüft: echter Swarm (Verhalten bei fehlendem Secret, Rollout mit Overlay, `BUILD_REVISION`-Wirkung im laufenden Dienst).
 
 Offen: (1) Fehlermeldung des Servers bei `PUSH_ENABLED=true` ohne lesbare `APNS_KEY_FILE` ist eine rohe Foundation-Fehlermeldung (`Config.secret`, Datei gehört dem WP3-Paket; Vorschlag: `ConfigError("APNS_KEY_FILE nicht lesbar: Secret apns_key gemountet? Deploy mit stack.push.yaml")`); (2) Board-Frage Secret fest in `stack.yaml` oder Overlay; (3) CI-Schritt für `test-swarm-deploy.sh` (ci.yml, Job `deploy-files`) noch nicht ergänzt. Nutzeraufgabe: siehe Bericht (Secret anlegen, `.env`, `update.sh --pull-scripts --force`).
+
+## Stand 6. November 2026: Kopplungsfenster (Backend)
+
+**Umgesetzt:** Kopplungsfenster statt TestFlight-Gating (Vertrag in `api.md`/`dashboard-api.md`, Fixtures `docs/fixtures/`, Entscheidung in `decisions.md`): `link-code` nur im Fenster (`403 pairing_closed`, Flutlimit 30 je Fenster), `device_link_window` in `/v1/status`, `GET /dash/api/devices` mit `pairing`, `POST|DELETE /dash/api/devices/pairing`, Auto-Schließen nach der ersten Einlösung, Zustand in `push_state`. Neu: `DEVICE_LINK_REQUIRE_TESTFLIGHT` (envOnly, Standard `false`), `DEVICE_LINK_WINDOW_MINUTES` (envOnly, Standard 5); `pendingKeys` in `ConfigRegistryTSVTests` (TSV/`.env.example` in `deploy/**` noch nachzuziehen). Migration `012_pairing_audit.sql` (nur Audit-Enum). Datenschutzseite Abschnitt 9 angepasst.
+
+**Geprüft:** siehe Commit-Nachrichten und Bericht. **Nicht geprüft:** echter Mehrreplikat-Betrieb, App-/Frontend-Anbindung (andere Agents).

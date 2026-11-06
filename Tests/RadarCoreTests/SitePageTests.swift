@@ -49,8 +49,8 @@ struct SitePageTests {
     @Test func privacyDescribesOperatorDiagnosticsAndStatistics() async throws {
         let t = text(try await api(fullInfo).handle(path: "/datenschutz", ifNoneMatch: nil))
         #expect(t.contains("<h2>8. Betriebsstatistik des Radar-Dienstes</h2>") && t.contains("personenlose") && t.contains("72 Stunden"))
-        #expect(t.contains("<h2>9. Betreiber-Diagnose (nur Testversionen, freiwillig)</h2>"))
-        #expect(t.contains("Koppelcode") && t.contains("48 Stunden") && t.contains("bis zum Widerruf") && t.contains("speichert ihn nicht"))
+        #expect(t.contains("<h2>9. Betreiber-Diagnose (nur auf Freigabe des Betreibers, freiwillig)</h2>"))
+        #expect(t.contains("Koppelcode") && t.contains("48 Stunden") && t.contains("bis zum Widerruf") && t.contains("Kopplungsfenster") && t.contains("Passkey") && !t.contains("App-Transaktion") && !t.contains("nur Testversionen"))
         #expect(t.contains("Es werden keine Standortdaten gespeichert"))
     }
 
