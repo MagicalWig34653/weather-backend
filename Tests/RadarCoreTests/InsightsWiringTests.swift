@@ -52,9 +52,11 @@ struct InsightsWiringTests {
 
     @Test(arguments: RepoKind.allCases) func pushCountersSections(kind: RepoKind) async throws {
         let repo = try await kind.make()
-        try await repo.heartbeat(replicaID: "replica-one", slot: 1, appliedGeneration: 0,
-                                 push: PushReplicaReport(enabled: true, environments: "production", liveActivity: true), now: Date())
+        // The heartbeat is stamped with the engine clock: with the real clock it was "stale" (older than the lease)
+        // whenever the test ran in the first minutes of an hour, and the push section came back empty.
         let now = TimeUtil.floor(Date(), to: 3600).addingTimeInterval(600)
+        try await repo.heartbeat(replicaID: "replica-one", slot: 1, appliedGeneration: 0,
+                                 push: PushReplicaReport(enabled: true, environments: "production", liveActivity: true), now: now)
         let hour = TimeUtil.floor(now, to: 3600)
         try await hourly(repo, hour, [
             ("push_trigger", "rain_start", 7), ("push_trigger", "la_rain_start", 3),
