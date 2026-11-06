@@ -61,3 +61,27 @@ PUSH_RATE_GLOBAL_REGISTRATIONS	Push-Ratenlimits	int	600	pro Minute	60	6000		live
 PUSH_RATE_GLOBAL_REQUESTS	Push-Ratenlimits	int	3000	pro Minute	300	30000		live	0	Alle Push-Anfragen je Replikat (Überlastschutz).
 PUSH_RATE_FAILED_AUTH	Push-Ratenlimits	int	10	pro Minute	3	60		live	0	Fehlgeschlagene Anmeldungen je Installation.
 PUSH_TEST_LIMIT_PER_HOUR	Push-Ratenlimits	int	3	pro Stunde	1	10		live	0	Testmeldungen je Installation.
+DASH_WARN_LAYER_AGE_FACTOR_YELLOW	Dashboard-Schwellen	number	2		1	100		live	0	Ebene veraltet, gelb: Alter als Vielfaches des Takts.
+DASH_WARN_LAYER_AGE_FACTOR_RED	Dashboard-Schwellen	number	4		1	100		live	0	Ebene veraltet, rot: Alter als Vielfaches des Takts.
+DASH_WARN_ERROR_RATE_5XX_YELLOW	Dashboard-Schwellen	number	0.005		0	1		live	0	5xx-Anteil der letzten Stunde, gelb.
+DASH_WARN_ERROR_RATE_5XX_RED	Dashboard-Schwellen	number	0.02		0	1		live	0	5xx-Anteil der letzten Stunde, rot.
+DASH_WARN_OUTBOX_AGE_SECONDS_YELLOW	Dashboard-Schwellen	number	120	s	1	86400		live	0	Ältester Outbox-Eintrag, gelb.
+DASH_WARN_OUTBOX_AGE_SECONDS_RED	Dashboard-Schwellen	number	600	s	1	86400		live	0	Ältester Outbox-Eintrag, rot.
+DASH_WARN_APNS_REJECTION_YELLOW	Dashboard-Schwellen	number	0.05		0	1		live	0	Anteil abgelehnter APNs-Sendungen, gelb.
+DASH_WARN_APNS_REJECTION_RED	Dashboard-Schwellen	number	0.25		0	1		live	0	Anteil abgelehnter APNs-Sendungen, rot.
+DASH_WARN_TOKEN_INVALIDATION_YELLOW	Dashboard-Schwellen	number	0.05		0	1		live	0	Anteil ungültig gewordener Token (24 h), gelb.
+DASH_WARN_TOKEN_INVALIDATION_RED	Dashboard-Schwellen	number	0.2		0	1		live	0	Anteil ungültig gewordener Token (24 h), rot.
+DASH_WARN_CACHE_HIT_YELLOW	Dashboard-Schwellen	number	0.8		0	1		live	0	Cache-Trefferquote, untere Grenze gelb.
+DASH_WARN_CACHE_HIT_RED	Dashboard-Schwellen	number	0.5		0	1		live	0	Cache-Trefferquote, untere Grenze rot.
+DASH_WARN_CAP_FILL_YELLOW	Dashboard-Schwellen	number	0.8		0	1		live	0	Füllgrad einer Obergrenze, gelb.
+DASH_WARN_CAP_FILL_RED	Dashboard-Schwellen	number	0.95		0	1		live	0	Füllgrad einer Obergrenze, rot.
+DASH_WARN_LA_START_RATIO_YELLOW	Dashboard-Schwellen	number	0.7		0	1		live	0	Anteil zugestellter Live-Activity-Starts, untere Grenze gelb.
+DASH_WARN_LA_START_RATIO_RED	Dashboard-Schwellen	number	0.3		0	1		live	0	Anteil zugestellter Live-Activity-Starts, untere Grenze rot.
+DASH_MIN_GROUP	Dashboard-Schwellen	int	5		3	50		live	0	k-Unterdrückung: Gruppen darunter erscheinen als „<k“.
+DEVICE_LINK_ENABLED	Geräte-Kopplung	bool	false					envOnly	0	Geräte-Kopplung für TestFlight-Geräte einschalten (braucht Push).
+DEVICE_LINK_BUNDLE_ID	Geräte-Kopplung	text:bundleIdentifier				155		envOnly	0	Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.
+DEVICE_LINK_ALLOWED_ENVS	Geräte-Kopplung	text:free	Sandbox			500		envOnly	0	Erlaubte receiptType-Werte (Sandbox, Xcode, LocalTesting; Production nie).
+DEVICE_LINK_MAX_AGE_HOURS	Geräte-Kopplung	int	24	h	0	8760		envOnly	0	Höchstalter des AppTransaction-Belegs.
+DASH_MAX_DEVICES	Geräte-Kopplung	int	3		1	5		envOnly	0	Höchstzahl gekoppelter Geräte.
+DASH_DEVICE_TTL_DAYS	Geräte-Kopplung	int	0	Tage	0	365		envOnly	0	Ablauf einer Kopplung; 0 = kein Ablauf.
+DASH_DEVICE_STALE_DAYS	Geräte-Kopplung	int	14	Tage	1	365		envOnly	0	Anzeige „zuletzt gesehen“ als veraltet ab.
