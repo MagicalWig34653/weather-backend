@@ -44,10 +44,12 @@ public struct DashboardRequestInfo: Sendable {
     public var host: String?
     public var contentType: String?
     public var csrfToken: String?
+    /// Value of `X-Dashboard-Proxy-Token` (nil when absent or sent more than once); only read by `DashboardProxyGuard`.
+    public var proxyToken: String?
     public init(method: String, cookieHeader: String? = nil, origin: String? = nil, host: String? = nil,
-                contentType: String? = nil, csrfToken: String? = nil) {
+                contentType: String? = nil, csrfToken: String? = nil, proxyToken: String? = nil) {
         self.method = method; self.cookieHeader = cookieHeader; self.origin = origin; self.host = host
-        self.contentType = contentType; self.csrfToken = csrfToken
+        self.contentType = contentType; self.csrfToken = csrfToken; self.proxyToken = proxyToken
     }
 
     public var isWrite: Bool { !["GET", "HEAD", "OPTIONS"].contains(method.uppercased()) }

@@ -218,35 +218,54 @@ func queryItems(_ req: Request) -> [String: String] {
     return result
 }
 
+/// Turns every thrown error (unrouted request, body too large, ...) into an empty response without detail.
+struct EmptyErrorMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        do { return try await next.respond(to: request) } catch {
+            let status = (error as? any AbortError)?.status ?? .internalServerError
+            return Response(status: status, headers: ["Cache-Control": "no-store"])
+        }
+    }
+}
+
 /// Second HTTP listener (own `Application`, own port). Answers only `/dash/**`; everything else is 404.
 func makeDashboardApp(port: Int, api: DashboardApi, stats: StatsCollector) async throws -> Application {
     let app = try await Application.make(makeEnvironment(port: port))
     app.http.server.configuration.serverName = nil
-    app.middleware.use(StatsMiddleware(stats: stats))
     @Sendable func translate(_ req: Request, method: String, body: [UInt8]) -> DashboardHTTPRequest {
         DashboardHTTPRequest(
             method: method, path: req.url.path, query: queryItems(req), body: body,
             info: DashboardRequestInfo(method: method, cookieHeader: req.headers.first(name: .cookie), origin: req.headers.first(name: .origin),
                                        host: req.headers.first(name: .host), contentType: req.headers.first(name: .contentType),
-                                       csrfToken: req.headers.first(name: "X-CSRF-Token")))
+                                       csrfToken: req.headers.first(name: "X-CSRF-Token"),
+                                       proxyToken: { let v = req.headers[DashboardProxyGuard.headerName]; return v.count == 1 ? v[0] : nil }()))
     }
-    app.get("**") { req async -> Response in vaporResponse(await api.handle(translate(req, method: "GET", body: []))) }
-    for method in [HTTPMethod.POST, .PUT, .DELETE] {
-        app.on(method, "**", body: .collect(maxSize: "32kb")) { req async -> Response in
-            var buffer = req.body.data ?? ByteBuffer()
-            return vaporResponse(await api.handle(translate(req, method: method.rawValue, body: buffer.readBytes(length: buffer.readableBytes) ?? [])))
-        }
+    // Vapor's own 404 (JSON body) must never appear on this listener: every error becomes an empty answer.
+    app.middleware = Middlewares()
+    app.middleware.use(EmptyErrorMiddleware())
+    app.middleware.use(StatsMiddleware(stats: stats))
+    // Every method goes through the router so that the proxy guard answers uniformly (OPTIONS, PATCH, ... included);
+    // `**` does not match the root path, so `/` is registered separately.
+    @Sendable func answer(_ req: Request, _ method: HTTPMethod) async -> Response {
+        var buffer = req.body.data ?? ByteBuffer()
+        return vaporResponse(await api.handle(translate(req, method: method.rawValue, body: buffer.readBytes(length: buffer.readableBytes) ?? [])))
+    }
+    app.get("**") { req async -> Response in await answer(req, .GET) }
+    app.get { req async -> Response in await answer(req, .GET) }
+    for method in [HTTPMethod.POST, .PUT, .DELETE, .PATCH, .OPTIONS] {
+        app.on(method, "**", body: .collect(maxSize: "32kb")) { req async -> Response in await answer(req, method) }
+        app.on(method, body: .collect(maxSize: "32kb")) { req async -> Response in await answer(req, method) }
     }
     return app
 }
 
 /// Builds the dashboard API on the shared repo and store.
-func makeDashboardApi(repo: any Repo, store: ConfigStore, authConfig: DashboardAuthConfig, cache: SlotCacheRef, logger: Logger) -> (DashboardApi, DashboardAuth) {
+func makeDashboardApi(repo: any Repo, store: ConfigStore, authConfig: DashboardAuthConfig, proxyGuard: DashboardProxyGuard, cache: SlotCacheRef, logger: Logger) -> (DashboardApi, DashboardAuth) {
     // `notice`: these lines (open setup window, login result) must be visible at the production log level.
     let auth = DashboardAuth(repo: repo, config: authConfig, log: { logger.notice("\($0)") })
     let root = ProcessInfo.processInfo.environment["DASH_STATIC_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? "/app/dashboard"
     let extra = chainedRoutes([registerInsightsRoutes(engine: makeInsightsEngine(repo: repo, store: store, cache: cache))])
-    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment(), extra: extra), auth)
+    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment(), proxyGuard: proxyGuard, extra: extra), auth)
 }
 
 /// Slot cache of the public `Api` of this process (set once it exists; the dashboard-only mode has none).
@@ -284,8 +303,9 @@ func makeInsightsEngine(repo: any Repo, store: ConfigStore, cache: SlotCacheRef)
 }
 
 /// Minute log of the open setup window (plan 2.4, point 5), until a passkey exists.
-func runSetupHintLoop(auth: DashboardAuth) async {
+func runSetupHintLoop(auth: DashboardAuth, warning: String? = nil, logger: Logger) async {
     while !Task.isCancelled {
+        if let warning { logger.warning("\(warning)") }
         if await auth.logSetupHintIfNeeded() == nil { return }
         try? await Task.sleep(nanoseconds: 60_000_000_000)
     }
@@ -297,6 +317,9 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     let dashboardPort = env["DASH_PORT"].flatMap(Int.init) ?? 9090
     // Fail closed before anything is opened: without a valid DASH_ORIGIN the dashboard does not start.
     let dashboardAuthSettings = dashboardEnabled ? try dashboardAuthConfig() : nil
+    // Same for the proxy secret (published port): no valid token, no dashboard, unless DASH_PROXY_TOKEN_REQUIRED=false.
+    let proxyGuard: DashboardProxyGuard? = dashboardEnabled
+        ? try { do { return try DashboardProxyGuard.loadForStartup(env: env) } catch { throw StartupError.message("\(error)") } }() : nil
     var bootEnv = makeEnvironment(port: dashboardOnly ? dashboardPort : bootstrap.httpPort)
     try LoggingSystem.bootstrap(from: &bootEnv)
     let logger = Logger(label: "radar")
@@ -319,10 +342,11 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     let app: Application
     var dashboard: Application?
     var dashAuth: DashboardAuth?
-    if dashboardEnabled, let dashboardAuthSettings {
-        let (api, auth) = makeDashboardApi(repo: repo, store: configStore, authConfig: dashboardAuthSettings, cache: cacheRef, logger: logger)
+    if dashboardEnabled, let dashboardAuthSettings, let proxyGuard {
+        let (api, auth) = makeDashboardApi(repo: repo, store: configStore, authConfig: dashboardAuthSettings, proxyGuard: proxyGuard, cache: cacheRef, logger: logger)
         dashAuth = auth
         let dashApp = try await makeDashboardApp(port: dashboardPort, api: api, stats: stats)
+        if !proxyGuard.isEnabled { logger.warning("\(DashboardProxyGuard.disabledWarning)") }
         if dashboardOnly { app = dashApp } else { app = try await Application.make(makeEnvironment(port: bootstrap.httpPort)); dashboard = dashApp }
     } else {
         app = try await Application.make(makeEnvironment(port: bootstrap.httpPort))
@@ -383,7 +407,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         if let coordinator { restartTask = Task { await coordinator.run() } }
         else { logger.warning("restart coordinator not started (database)") }
     }
-    let setupHint = dashAuth.map { auth in Task { await runSetupHintLoop(auth: auth) } }
+    let setupHint = dashAuth.map { auth in Task { await runSetupHintLoop(auth: auth, warning: proxyGuard.flatMap { $0.isEnabled ? nil : DashboardProxyGuard.disabledWarning }, logger: logger) } }
     tasks = [loop, backfill, pushTask, restartTask, setupHint, cacheClearTask].compactMap { $0 } + layerLoops
 
     func stopAll() async {

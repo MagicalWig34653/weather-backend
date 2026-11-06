@@ -28,16 +28,17 @@ public final class DashboardApi: Sendable {
     let env: [String: String]
     let site: StaticSite
     let restartPolicy: RestartPolicy
+    let proxyGuard: DashboardProxyGuard?
     let clock: @Sendable () -> Date
     /// Extension point for further route families (WP11 to WP13): returns nil when the path is not theirs.
     let extra: (@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?)?
 
     public init(auth: DashboardAuth, repo: any Repo, store: ConfigStore,
                 env: [String: String] = ProcessInfo.processInfo.environment, staticRoot: String = "/app/dashboard",
-                restartPolicy: RestartPolicy = RestartPolicy(), clock: @escaping @Sendable () -> Date = { Date() },
+                restartPolicy: RestartPolicy = RestartPolicy(), proxyGuard: DashboardProxyGuard? = nil, clock: @escaping @Sendable () -> Date = { Date() },
                 extra: (@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?)? = nil) {
         self.auth = auth; self.repo = repo; self.store = store; self.env = env; self.site = StaticSite(root: staticRoot)
-        self.restartPolicy = restartPolicy; self.clock = clock; self.extra = extra
+        self.restartPolicy = restartPolicy; self.proxyGuard = proxyGuard; self.clock = clock; self.extra = extra
         pushActions = DashboardPushActions(repo: repo)
         devices = DashboardDevices(repo: repo, config: { store.snapshot() }, clock: clock)
     }
@@ -46,8 +47,15 @@ public final class DashboardApi: Sendable {
 
     // MARK: entry point
 
-    public func handle(_ req: DashboardHTTPRequest) async -> ApiResponse {
+    public func handle(_ original: DashboardHTTPRequest) async -> ApiResponse {
+        // First step, before anything else: proxy secret. Plain 404, no counter of the operator limits; the token is dropped afterwards.
+        if let proxyGuard, !proxyGuard.admits(original.info.proxyToken) { return Self.empty(404) }
+        var req = original
+        req.info.proxyToken = nil
         let path = req.path
+        if path == "/", req.method == "GET" || req.method == "HEAD" {
+            return ApiResponse(status: 302, headers: Self.apiHeaders + [("Location", "/dash/")], body: [])
+        }
         let isAPI = path == Self.apiPrefix || path.hasPrefix(Self.apiPrefix + "/")
         guard isAPI || path == "/dash" || path.hasPrefix("/dash/") else { return Self.empty(404) }
         do {

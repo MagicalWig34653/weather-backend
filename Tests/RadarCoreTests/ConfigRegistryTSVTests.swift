@@ -42,9 +42,10 @@ import Testing
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// Register keys whose rows may be missing from the table (none since WP17: the table carries all of them).
-    /// WP pairing window (6.11.2026): the tables under deploy/ belong to another owner; rows follow with the next deploy update.
-    static let pendingKeys: Set<String> = ["DEVICE_LINK_REQUIRE_TESTFLIGHT", "DEVICE_LINK_WINDOW_MINUTES"]
+    /// Register keys whose rows may be missing from the table (tables under deploy/ belong to another owner; rows follow with the next deploy update).
+    /// Pairing window (6.11.2026): DEVICE_LINK_*; proxy auth (6.11.2026): DASH_PROXY_TOKEN*.
+    static let pendingKeys: Set<String> = ["DEVICE_LINK_REQUIRE_TESTFLIGHT", "DEVICE_LINK_WINDOW_MINUTES",
+                                           "DASH_PROXY_TOKEN", "DASH_PROXY_TOKEN_PREVIOUS", "DASH_PROXY_TOKEN_REQUIRED"]
 
     private static func lines(_ text: String, dropping pending: Bool) -> [String] {
         text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).filter { line in
