@@ -20,6 +20,27 @@ public enum PushGrid {
         let cy = Int((b[3] - y) / (b[3] - b[1]) * Double(height))
         return (min(cx, width - 1), min(cy, height - 1))
     }
+
+    static let earthRadius = 6_378_137.0
+
+    /// Centre of a cell as latitude/longitude, rounded to two decimals (about 1 km, the cell size): the inverse of `cell`.
+    /// The server stores only the cell; this is the same information shown on a map in the operator dashboard.
+    public static func coordinate(cellX: Int, cellY: Int, width: Int) -> (lat: Double, lon: Double)? {
+        let b = RadarConstants.bbox
+        let height = RadarConstants.imageHeight(width: width)
+        guard cellX >= 0, cellY >= 0, cellX < width, cellY < height else { return nil }
+        let x = b[0] + (Double(cellX) + 0.5) / Double(width) * (b[2] - b[0])
+        let y = b[3] - (Double(cellY) + 0.5) / Double(height) * (b[3] - b[1])
+        let lon = x / earthRadius * 180 / .pi
+        let lat = atan(sinh(y / earthRadius)) * 180 / .pi
+        return ((lat * 100).rounded() / 100, (lon * 100).rounded() / 100)
+    }
+
+    /// Ground distance of one cell edge in kilometres at the given latitude (Web Mercator stretches towards the poles).
+    public static func cellKilometres(latitude: Double, width: Int) -> Double {
+        let b = RadarConstants.bbox
+        return (b[2] - b[0]) / Double(width) * cos(latitude * .pi / 180) / 1000
+    }
 }
 
 public enum PushEnvironment: String, Sendable, Codable, CaseIterable { case sandbox, production }

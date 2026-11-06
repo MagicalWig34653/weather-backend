@@ -2,6 +2,16 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 7. November 2026: Abo-Diagnose, Ort und Karte
+
+Anlass: Neuauswertung meldete für alle Abos „unter der Schwelle“ trotz Regen. Beschlüsse und Befund: [decisions.md](decisions.md#abo-diagnose-messwerte-ort-und-karte-im-dashboard-7-november-2026).
+
+**Ursache (belegt aus echten Radarbildern, nicht am Server):** Kein Fehler in Zellabbildung oder Pixeldekodierung. Der Regen lag in Klasse 1 und 2 (unter 0,4 mm/h), die Schwelle „Leicht“ ist Klasse 3. **Hypothese, am Server nicht bestätigt:** die Abos des Nutzers sahen genau diese Klassen; die Diagnose konnte sie nur nicht zeigen.
+
+**Erledigt:** `reeval` und `GET devices/{id}/subscriptions` liefern Lauf, Slot, Alter, Zelle/Ort, gemessene Klasse und mm/h, Vorlauf, Umkreis-Zellen und einen festen Grund; zu alter oder fehlender Lauf endet nicht mehr in `failed: internal`. Dashboard: Karte (SVG über Radar-Vorschau, Gradnetz, Zelle, Umkreis), Ort und Messwert je Abo, Klartexte. Tests: `PushChainTests` (7; synthetische 1024 x 1311-Bilder, 15 Legendenfarben, Achsen, Umkreis, veralteter Lauf, erneutes Scharfstellen bei Update), erweiterte `DeviceDashboardTests`, Dashboard `grid.test.ts` und Vertragstests.
+
+**Nicht geprüft:** Verhalten am echten Server und Gerät (kein Zugriff); Neuauswertung mit echtem APNs.
+
 ## Stand 6. November 2026: Dashboard-Port veröffentlicht
 
 Nutzerentscheidung 6.11.: Dashboard über veröffentlichten Ingress-Port (`DASH_PUBLISH_PORT`, 39090; Container `DASH_PORT`) für den externen Proxy, ersetzt „kein ports“ ([decisions.md](decisions.md#dashboard-erreichbarkeit-veröffentlichter-port-6-november-2026)). Overlay `stack.dashboard.yaml` ist im Repo und `ready` (Review-Befund V2 erledigt). Geändert: Overlay, `config-extra.tsv`, `.env.example`, `check-config-tables.sh`, CI-Assertions, `settings.sh`-Hinweise, Tests, `dashboard.md`/`installation.md` (Proxy-Beispiele, Firewall, Reihenfolge Aktivierung, dann sofort Passkey), SC2317 in `test-settings.sh`. Geprüft: `shellcheck -x -P SCRIPTDIR deploy/swarm/*.sh`, `test-settings.sh` (137) und `test-swarm-deploy.sh` im Debian-Container (Bash 5, whiptail, curl), `check-config-tables.sh`, `docker compose config` mit Stack und Overlay (Standard und abweichende Ports). **Nicht geprüft:** Rollout auf einen echten Swarm, Firewall-Beispiele.

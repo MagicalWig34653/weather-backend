@@ -12,14 +12,96 @@
       {
         "index": 0,
         "decision": "below_threshold",
-        "sent": null
+        "sent": null,
+        "reason": "class_below_threshold",
+        "thresholdClass": 3,
+        "leadMinutes": 20,
+        "kind": "point",
+        "minSharePercent": null,
+        "thresholdMmPerHour": null,
+        "place": {
+          "lat": 50.0,
+          "lon": 10.0,
+          "x": 456,
+          "y": 851,
+          "cellKm": 0.71
+        },
+        "measuredClass": 2,
+        "measuredMmPerHour": 0.2,
+        "pixel": "rain",
+        "leadMaxClass": 2,
+        "leadOnsetMinutes": null,
+        "wetCells": null,
+        "cells": null,
+        "neededCells": null,
+        "sharePercent": null
       },
       {
         "index": 1,
         "decision": "lock",
-        "sent": null
+        "sent": null,
+        "reason": "lock",
+        "thresholdClass": 5,
+        "leadMinutes": 20,
+        "kind": "point",
+        "minSharePercent": null,
+        "thresholdMmPerHour": null,
+        "place": {
+          "lat": 50.0,
+          "lon": 10.0,
+          "x": 456,
+          "y": 851,
+          "cellKm": 0.71
+        },
+        "measuredClass": 6,
+        "measuredMmPerHour": 3,
+        "pixel": "rain",
+        "leadMaxClass": 6,
+        "leadOnsetMinutes": 5,
+        "wetCells": null,
+        "cells": null,
+        "neededCells": null,
+        "sharePercent": null
+      },
+      {
+        "index": 2,
+        "decision": "below_threshold",
+        "sent": null,
+        "reason": "share_below",
+        "thresholdClass": 3,
+        "leadMinutes": 30,
+        "kind": "circle",
+        "minSharePercent": 1,
+        "thresholdMmPerHour": null,
+        "place": {
+          "lat": 50.05,
+          "lon": 10.1,
+          "x": 466,
+          "y": 844,
+          "cellKm": 0.71
+        },
+        "measuredClass": 1,
+        "measuredMmPerHour": 0.1,
+        "pixel": "rain",
+        "leadMaxClass": 1,
+        "leadOnsetMinutes": null,
+        "wetCells": 0,
+        "cells": 4301,
+        "neededCells": 44,
+        "sharePercent": 0.0
       }
-    ]
+    ],
+    "radar": {
+      "status": "ok",
+      "runNominal": "2026-11-06T09:20:00Z",
+      "slot": "2026-11-06T09:20:00Z",
+      "slotIndex": 0,
+      "runAgeSeconds": 122,
+      "maxRunAgeSeconds": 1200,
+      "evaluatedAt": "2026-11-06T09:22:02Z",
+      "gridWidth": 1024,
+      "gridHeight": 1311
+    }
   },
   "error": null
 }

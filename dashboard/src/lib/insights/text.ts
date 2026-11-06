@@ -328,8 +328,95 @@ export const decisionName: Record<string, string> = {
 	not_enabled: 'nicht aktiviert',
 	no_start_token: 'Start-Token fehlt',
 	activity_slot_busy: 'Platz belegt',
-	reservation_pending: 'Reservierung offen'
+	reservation_pending: 'Reservierung offen',
+	radar_stale: 'Radarlauf zu alt',
+	radar_missing: 'kein Radarlauf'
 };
+
+/** Untere Grenzen der Intensitaetsklassen 1 bis 15 in mm/h (DWD-Legende `dwd:Niederschlagsradar`). */
+export const classLowerMm = [0.1, 0.2, 0.4, 1, 2, 3, 5, 7.5, 10, 15, 30, 45, 75, 100, 150];
+const mmText = (n: number): string => String(n).replace('.', ',');
+/** "Klasse 3 (ab 0,4 mm/h)"; Klasse 0 heisst trocken. */
+export function classText(c: number): string {
+	if (c <= 0) return 'Klasse 0 (trocken)';
+	return `Klasse ${c} (ab ${mmText(classLowerMm[Math.min(c, 15) - 1])} mm/h)`;
+}
+
+/** Ergebnisgrund der Neuauswertung (feste Woerter, siehe Vertrag `reeval`). */
+export const reasonName: Record<string, string> = {
+	would_trigger: 'Schwelle erreicht, würde auslösen',
+	lock: '60-Minuten-Sperre aktiv',
+	hysteresis: 'Regen schon gesehen, wartet auf trockene Phase (Hysterese)',
+	not_enabled: 'Abo ist ausgeschaltet',
+	no_start_token: 'Start-Token fehlt',
+	activity_slot_busy: 'Live-Activity-Platz belegt',
+	reservation_pending: 'Reservierung noch offen',
+	cell_dry: 'Zelle trocken',
+	class_below_threshold: 'Regen im Radar, aber unter der Schwelle',
+	pixel_unknown: 'Pixel unbekannt (maskiert oder Farbe außerhalb der Legende)',
+	share_below: 'zu wenig nasse Zellen im Umkreis',
+	already_wet: 'Regen läuft schon (Mitteilung nur beim Beginn)',
+	radar_stale: 'Lauf zu alt',
+	radar_missing: 'kein vollständiger Radarlauf'
+};
+
+interface MeasureLike {
+	reason?: string;
+	decision?: string;
+	thresholdClass?: number;
+	minSharePercent?: number | null;
+	kind?: string;
+	measuredClass?: number | null;
+	leadMaxClass?: number | null;
+	leadOnsetMinutes?: number | null;
+	wetCells?: number | null;
+	cells?: number | null;
+	neededCells?: number | null;
+	sharePercent?: number | null;
+}
+
+/** Messung eines Abos als Klartext: gemessene Klasse gegen Schwelle, bei Umkreisen Anteil. */
+export function measureText(m: MeasureLike): string {
+	const parts: string[] = [];
+	if (m.measuredClass === null || m.measuredClass === undefined) {
+		if (m.reason === 'pixel_unknown') parts.push('Pixel unbekannt');
+		else parts.push('keine Messung');
+	} else {
+		const label = m.kind === 'circle' ? 'im Umkreis höchstens' : 'jetzt';
+		parts.push(`${label}: ${classText(m.measuredClass)}`);
+	}
+	if (m.thresholdClass !== undefined) parts.push(`Schwelle: ${classText(m.thresholdClass)}`);
+	if (m.kind === 'circle' && m.wetCells !== null && m.wetCells !== undefined && m.cells) {
+		const share = m.sharePercent ?? 0;
+		parts.push(
+			`Anteil ${String(share).replace('.', ',')} % (${m.wetCells} von ${m.cells} Zellen, nötig ${m.neededCells ?? '–'}) gegen ${m.minSharePercent ?? '–'} %`
+		);
+	}
+	if (m.leadMaxClass !== null && m.leadMaxClass !== undefined)
+		parts.push(
+			m.leadOnsetMinutes
+				? `im Vorlauf erreicht in ${m.leadOnsetMinutes} min`
+				: `im Vorlauf höchstens ${classText(m.leadMaxClass)}`
+		);
+	return parts.join(' · ');
+}
+
+/** Zeile zum ausgewerteten Lauf der Neuauswertung. */
+export function reevalRadarText(radar: {
+	status?: string;
+	runNominal?: string | null;
+	runAgeSeconds?: number | null;
+	maxRunAgeSeconds?: number;
+}): string {
+	if (!radar.runNominal) return 'Kein veröffentlichter Radarlauf.';
+	const age =
+		radar.runAgeSeconds === null || radar.runAgeSeconds === undefined
+			? ''
+			: `, ${formatDuration(radar.runAgeSeconds)} alt`;
+	const limit = radar.maxRunAgeSeconds ? ` (Grenze ${formatDuration(radar.maxRunAgeSeconds)})` : '';
+	const state = radar.status === 'stale_run' ? ' – zu alt, nichts wird gesendet' : '';
+	return `Lauf ${formatDateTime(radar.runNominal)}, Slot 0 (Analyse)${age}${limit}${state}`;
+}
 
 export const commandKindName: Record<string, string> = {
 	test: 'Testpush',
@@ -372,16 +459,25 @@ export function commandResultText(kind: string, r: Record<string, unknown> | nul
 				? `Live Activity beendet (${outcome ?? '–'}).`
 				: 'Es lief keine Live Activity.';
 		case 'reeval': {
-			const subs =
+			const rows =
 				(r.subscriptions as
-					{ index?: number; decision: string; sent?: boolean | null }[] | undefined) ?? [];
-			const text = subs
-				.map(
-					(s, i) =>
-						`Abo ${(s.index ?? i) + 1}: ${decisionName[s.decision] ?? s.decision}${s.sent === true ? ' (gesendet)' : ''}`
-				)
-				.join(' · ');
-			return `${r.dryRun ? 'Trockenlauf' : 'Neuauswertung'}: ${text || 'keine Abos'}.`;
+					| (MeasureLike & { index?: number; decision: string; sent?: boolean | null })[]
+					| undefined) ?? [];
+			const lines = rows.map((s, i) => {
+				const head = `Abo ${(s.index ?? i) + 1}: ${decisionName[s.decision] ?? s.decision}${s.sent === true ? ' (gesendet)' : ''}`;
+				const why = s.reason && s.reason !== s.decision ? (reasonName[s.reason] ?? s.reason) : '';
+				const detail = measureText(s);
+				return [head, why, s.measuredClass !== undefined ? detail : ''].filter(Boolean).join(' – ');
+			});
+			const radar = r.radar
+				? reevalRadarText(r.radar as Parameters<typeof reevalRadarText>[0])
+				: '';
+			return [
+				`${r.dryRun ? 'Trockenlauf' : 'Neuauswertung'}: ${lines.join('\n') || 'keine Abos'}.`,
+				radar
+			]
+				.filter(Boolean)
+				.join('\n');
 		}
 		case 'reset_slot':
 			return r.cleared === 'none'
@@ -440,7 +536,7 @@ export const radarStatusText: Record<string, string> = {
 export const radarStatusLabel = (s: string): string => radarStatusText[s] ?? s;
 
 /** Intensitaetsklassen 1 bis 15 (Radarskala), nur als Zahl benannt: die Zuordnung zu mm/h ist Sache der App. */
-export const thresholdText = (c: number): string => `Klasse ${c}`;
+export const thresholdText = (c: number): string => classText(c);
 
 // ---------------------------------------------------------------- Cache
 

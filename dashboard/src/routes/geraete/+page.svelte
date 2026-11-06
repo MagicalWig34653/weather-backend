@@ -189,7 +189,12 @@
 			if (out.kind === 'final') {
 				const c = out.command;
 				if (c.status === 'done')
-					toast.success(`${def.label}: erledigt`, commandResultText(c.kind, c.result));
+					toast.success(
+						`${def.label}: erledigt`,
+						c.kind === 'reeval'
+							? 'Lauf, Messwert und Grund je Abo stehen unter „Letzte Aufträge“.'
+							: commandResultText(c.kind, c.result)
+					);
 				else if (c.status === 'expired')
 					toast.error(
 						`${def.label}: nicht ausgeführt`,
@@ -486,7 +491,7 @@
 										<p class="font-medium">
 											{commandKindName[c.kind] ?? c.kind}: {commandStatusName[c.status] ?? c.status}
 										</p>
-										<p class="text-muted-foreground">
+										<p class="text-muted-foreground whitespace-pre-line">
 											{#if c.status === 'done'}{commandResultText(
 													c.kind,
 													c.result

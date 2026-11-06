@@ -161,7 +161,7 @@ final class DashboardDevices: Sendable {
         guard let device = try await repo.device(id: id) else { return Self.error(404, "not_found") }
         let subs = try await repo.subscriptions(installationID: device.installID)
         let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
-        let view = subs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: config(), subs: subs, now: now)
+        let view = subs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: config(), subs: subs, now: now, allowStale: true)
         let run = try? await repo.latestPublished()
         let status: String
         switch view.status { case .ok: status = "ok"; case .noSlot: status = "no_slot"; case .staleRun: status = "stale_run" }
@@ -176,14 +176,18 @@ final class DashboardDevices: Sendable {
             let lock = s.lastSentAt.map { $0.addingTimeInterval(PushEvaluator.repeatLock) }.flatMap { $0 > now ? $0 : nil }
             let activity = activities[s.id].map { $0.activityToken != nil ? "active" : "reserved" } ?? "none"
             let circle = s.kind == .circle
-            return ["index": index, "kind": circle ? "circle" : "point", "enabled": s.enabled, "liveActivity": s.liveActivity, "timeSensitive": s.timeSensitive,
+            var row: [String: Any] = ["index": index, "kind": circle ? "circle" : "point", "enabled": s.enabled, "liveActivity": s.liveActivity, "timeSensitive": s.timeSensitive,
                     "thresholdClass": s.threshold, "leadMinutes": s.leadMinutes,
                     "radiusCells": circle ? (s.radiusCells as Any? ?? NSNull()) : NSNull(), "minSharePercent": circle ? (s.minSharePercent as Any? ?? NSNull()) : NSNull(),
                     "state": s.state == .pending ? "pending" : (s.state == .notified ? "notified" : "dry"), "hysteresis": s.wetSeen,
                     "lastSentAt": Self.iso(s.lastSentAt), "lockUntil": Self.iso(lock), "cell": cell, "leadCell": leadCell, "activity": activity]
+            row.merge(PushMeasureJSON.fields(s, measures: view.measures[s.id], radarOK: view.status != .noSlot, width: config().width)) { _, new in new }
+            return row
         }
         return DashboardApi.object(200, ["generatedAt": TimeUtil.toISO(now),
-                                         "radar": ["status": status, "runAgeSeconds": run.flatMap { $0 }.map { max(0, Int(now.timeIntervalSince($0.nominal))) } as Any? ?? NSNull()],
+                                         "radar": ["status": status, "runAgeSeconds": run.flatMap { $0 }.map { max(0, Int(now.timeIntervalSince($0.nominal))) } as Any? ?? NSNull(),
+                                                  "runNominal": view.runNominal.map { TimeUtil.toISO($0) } as Any? ?? NSNull(), "slotIndex": 0,
+                                                  "gridWidth": config().width, "gridHeight": config().height] as [String: Any],
                                          "subscriptions": rows])
     }
 

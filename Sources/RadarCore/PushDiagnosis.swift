@@ -6,32 +6,48 @@ public struct DeviceRadarView: Sendable, Equatable {
     public var status: Status
     /// Per subscription id: classes of the forecast slots (-1 = unknown pixel for live activity subscriptions).
     public var classes: [String: [Int]]
-    public init(status: Status, classes: [String: [Int]] = [:]) { self.status = status; self.classes = classes }
+    /// Per subscription id: what the radar shows in each of the 25 slots (diagnosis detail; circles with cell counts).
+    public var measures: [String: [SlotMeasure]]
+    /// Nominal time of the evaluated run (slot 0 is the analysis at this time); `nil` when no run is published.
+    public var runNominal: Date?
+    public init(status: Status, classes: [String: [Int]] = [:], measures: [String: [SlotMeasure]] = [:], runNominal: Date? = nil) {
+        self.status = status; self.classes = classes; self.measures = measures; self.runNominal = runNominal
+    }
 
     /// Decodes the slots of the latest run once and classifies every given point/region subscription. On demand only (no cache).
-    public static func load(repo: any Repo, config: Config, subs: [PushSubscription], now: Date) async -> DeviceRadarView {
-        guard let run = try? await repo.latestPublished(), let slots = try? await repo.publishedSlots(runID: run.runID),
-              slots.count == TimeUtil.forecastSlots else { return DeviceRadarView(status: .noSlot) }
-        if now.timeIntervalSince(run.nominal) > PushEvaluator.maxRunAge { return DeviceRadarView(status: .staleRun) }
+    /// `allowStale`: also decode a run older than the evaluation limit (the status stays `staleRun`, diagnosis shows what it contained).
+    public static func load(repo: any Repo, config: Config, subs: [PushSubscription], now: Date, allowStale: Bool = false) async -> DeviceRadarView {
+        guard let run = try? await repo.latestPublished() else { return DeviceRadarView(status: .noSlot) }
+        guard let slots = try? await repo.publishedSlots(runID: run.runID), slots.count == TimeUtil.forecastSlots else {
+            return DeviceRadarView(status: .noSlot, runNominal: run.nominal)
+        }
+        let stale = now.timeIntervalSince(run.nominal) > PushEvaluator.maxRunAge
+        if stale, !allowStale { return DeviceRadarView(status: .staleRun, runNominal: run.nominal) }
         var classes: [String: [Int]] = [:]
+        var measures: [String: [SlotMeasure]] = [:]
         for slot in slots.sorted(by: { $0.slotIndex < $1.slotIndex }) {
             guard let blob = try? await repo.getSlot(runID: run.runID, slotID: slot.slotID),
                   let image = try? ImagePipeline.decodeWebP(blob.data), image.width == config.width, image.height == config.height else {
-                return DeviceRadarView(status: .noSlot)
+                return DeviceRadarView(status: .noSlot, runNominal: run.nominal)
             }
             let map = subs.contains { $0.kind == .circle } ? PushIntensity.classMap(image) : []
             for sub in subs {
                 let value: Int
                 if sub.kind == .circle, let radius = sub.radiusCells {
+                    let share = sub.minSharePercent ?? PushRegion.defaultShare
                     value = PushRegion.pseudoClass(classMap: map, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
-                                                   threshold: sub.threshold, sharePercent: sub.minSharePercent ?? PushRegion.defaultShare)
+                                                   threshold: sub.threshold, sharePercent: share)
+                    measures[sub.id, default: []].append(PushRegion.measure(classMap: map, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY,
+                                                                            radius: radius, threshold: sub.threshold, sharePercent: share))
                 } else {
                     value = sub.liveActivity ? PushIntensity.classifyOrUnknown(image, x: sub.cellX, y: sub.cellY) : PushIntensity.classify(image, x: sub.cellX, y: sub.cellY)
+                    // Diagnosis always separates "dry" from "unknown", whatever the subscription kind.
+                    measures[sub.id, default: []].append(SlotMeasure(maxClass: PushIntensity.classifyOrUnknown(image, x: sub.cellX, y: sub.cellY)))
                 }
                 classes[sub.id, default: []].append(value)
             }
         }
-        return DeviceRadarView(status: .ok, classes: classes)
+        return DeviceRadarView(status: stale ? .staleRun : .ok, classes: classes, measures: measures, runNominal: run.nominal)
     }
 }
 

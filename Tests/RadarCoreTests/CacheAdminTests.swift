@@ -172,6 +172,9 @@ struct DeviceSubscriptionsTests {
         _ = try await rig.repo.addSubscription(installationID: installID, id: subID, .init(gridVersion: 1, cellX: 41, cellY: 52, threshold: 3, leadMinutes: 20, enabled: true), maxPerInstallation: 10, now: Date())
         let body = String(decoding: await rig.call("GET", "/dash/api/devices/\(id)/subscriptions").response.body, as: UTF8.self)
         for secret in [installID, subID, deviceToken, "cellX", "cellY", "latitude", "longitude"] { #expect(!body.contains(secret)) }
+        // The place of the operator's own linked device is shown as a rounded cell centre and the cell indices (decisions.md, 7 Nov 2026).
+        let place = try #require(((await rig.call("GET", "/dash/api/devices/\(id)/subscriptions").json as? [String: Any])?["subscriptions"] as? [[String: Any]])?.first?["place"] as? [String: Any])
+        #expect(place["x"] as? Int == 41 && place["y"] as? Int == 52 && place["lat"] is Double && place["lon"] is Double)
     }
 }
 

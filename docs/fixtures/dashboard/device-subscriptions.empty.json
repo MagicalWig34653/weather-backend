@@ -1,1 +1,12 @@
-{ "generatedAt": "2026-11-06T09:21:30Z", "radar": { "status": "ok", "runAgeSeconds": 210 }, "subscriptions": [] }
+{
+  "generatedAt": "2026-11-06T09:21:30Z",
+  "radar": {
+    "status": "ok",
+    "runAgeSeconds": 210,
+    "runNominal": "2026-11-06T09:18:00Z",
+    "slotIndex": 0,
+    "gridWidth": 1024,
+    "gridHeight": 1311
+  },
+  "subscriptions": []
+}

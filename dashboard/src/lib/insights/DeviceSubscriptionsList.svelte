@@ -2,11 +2,13 @@
 	import StatusBadge from '#lib/design/StatusBadge.svelte';
 	import type { Tone } from '#lib/design/tone.js';
 	import { ctx } from '#lib/design/context.svelte.js';
+	import SubscriptionMap from './SubscriptionMap.svelte';
 	import { formatAgo, formatDateTime, formatDuration } from '#lib/format.js';
 	import {
 		activityLabel,
 		cellLabel,
 		kindLabel,
+		measureText,
 		radarStatusLabel,
 		subscriptionStateDetail,
 		subscriptionStateLabel,
@@ -35,6 +37,7 @@
 		Dieses Gerät hat keine Abos. Orte, Umkreise und Live Activities werden in der App angelegt.
 	</p>
 {:else}
+	<SubscriptionMap {data} />
 	<ul class="grid gap-3 lg:grid-cols-2">
 		{#each data.subscriptions as s (s.index)}
 			<li class="bg-background rounded-lg border p-3.5">
@@ -72,6 +75,30 @@
 						</dd>
 						<dd class="text-muted-foreground text-[12px]">{subscriptionStateDetail(s.state)}</dd>
 					</div>
+					{#if s.place}
+						<div class="col-span-2">
+							<dt class="text-muted-foreground">Ort</dt>
+							<dd class="font-medium num">
+								{s.place.lat.toFixed(2).replace('.', ',')} ° N, {s.place.lon
+									.toFixed(2)
+									.replace('.', ',')} ° O
+								<span class="text-muted-foreground font-normal"
+									>· Rasterzelle {s.place.x} / {s.place.y}</span
+								>
+							</dd>
+							<dd class="text-muted-foreground text-[12px]">
+								Mitte der Zelle, gerundet (Zellgröße etwa {s.place.cellKm
+									.toFixed(1)
+									.replace('.', ',')} km). Karte oben: Abo {s.index + 1}.
+							</dd>
+						</div>
+					{/if}
+					{#if s.measuredClass !== undefined}
+						<div class="col-span-2">
+							<dt class="text-muted-foreground">Radar jetzt (Slot 0)</dt>
+							<dd class="font-medium">{measureText({ ...s, reason: undefined })}</dd>
+						</div>
+					{/if}
 					<div>
 						<dt class="text-muted-foreground">Zelle jetzt</dt>
 						<dd>

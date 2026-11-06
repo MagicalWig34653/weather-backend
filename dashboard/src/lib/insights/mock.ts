@@ -412,8 +412,22 @@ function deviceSubscriptions(state: MockState) {
 	return {
 		generatedAt: new Date().toISOString(),
 		radar: stale
-			? { status: 'stale_run', runAgeSeconds: 4100 }
-			: { status: 'ok', runAgeSeconds: 210 },
+			? {
+					status: 'stale_run',
+					runAgeSeconds: 4100,
+					runNominal: iso(4100_000),
+					slotIndex: 0,
+					gridWidth: 1024,
+					gridHeight: 1311
+				}
+			: {
+					status: 'ok',
+					runAgeSeconds: 210,
+					runNominal: iso(210_000),
+					slotIndex: 0,
+					gridWidth: 1024,
+					gridHeight: 1311
+				},
 		subscriptions:
 			state === 'empty'
 				? []
@@ -434,7 +448,18 @@ function deviceSubscriptions(state: MockState) {
 							lockUntil: iso(-44 * 60_000),
 							cell: stale ? 'unknown' : 'wet',
 							leadCell: stale ? 'unknown' : 'wet',
-							activity: 'active'
+							activity: 'active',
+							place: { lat: 50.0, lon: 10.0, x: 456, y: 851, cellKm: 0.71 },
+							thresholdMmPerHour: 2,
+							measuredClass: 6,
+							measuredMmPerHour: 3,
+							pixel: 'rain',
+							leadMaxClass: 6,
+							leadOnsetMinutes: null,
+							wetCells: null,
+							cells: null,
+							neededCells: null,
+							sharePercent: null
 						},
 						{
 							index: 1,
@@ -452,7 +477,18 @@ function deviceSubscriptions(state: MockState) {
 							lockUntil: null,
 							cell: stale ? 'unknown' : 'dry',
 							leadCell: stale ? 'unknown' : 'dry',
-							activity: 'none'
+							activity: 'none',
+							place: { lat: 50.05, lon: 10.1, x: 466, y: 844, cellKm: 0.71 },
+							thresholdMmPerHour: 0.4,
+							measuredClass: 1,
+							measuredMmPerHour: 0.1,
+							pixel: 'rain',
+							leadMaxClass: 1,
+							leadOnsetMinutes: null,
+							wetCells: 0,
+							cells: 113,
+							neededCells: 12,
+							sharePercent: 0
 						}
 					]
 	};
@@ -1144,9 +1180,40 @@ export function mockInsights(
 					la_end: { outcome: 'delivered', hadActivity: true, reservationCleared: false },
 					reeval: {
 						dryRun: c.dryRun,
+						radar: {
+							status: 'ok',
+							runNominal: iso(122_000),
+							slot: iso(122_000),
+							slotIndex: 0,
+							runAgeSeconds: 122,
+							maxRunAgeSeconds: 1200,
+							evaluatedAt: generatedAt,
+							gridWidth: 1024,
+							gridHeight: 1311
+						},
 						subscriptions: [
-							{ index: 0, decision: 'below_threshold', sent: null },
-							{ index: 1, decision: 'lock', sent: null }
+							{
+								index: 0,
+								decision: 'below_threshold',
+								sent: null,
+								reason: 'class_below_threshold',
+								kind: 'point',
+								thresholdClass: 3,
+								leadMinutes: 20,
+								minSharePercent: null,
+								thresholdMmPerHour: 0.4,
+								place: { lat: 50.0, lon: 10.0, x: 456, y: 851, cellKm: 0.71 },
+								measuredClass: 2,
+								measuredMmPerHour: 0.2,
+								pixel: 'rain',
+								leadMaxClass: 2,
+								leadOnsetMinutes: null,
+								wetCells: null,
+								cells: null,
+								neededCells: null,
+								sharePercent: null
+							},
+							{ index: 1, decision: 'lock', sent: null, reason: 'lock' }
 						]
 					},
 					reset_slot: { cleared: 'none' }

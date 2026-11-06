@@ -389,4 +389,12 @@ test.describe('Geräte-Abos', () => {
 		await expect(page.getByText('Benachrichtigt').first()).toBeVisible();
 		await expect(page.getByText('Live Activity läuft').first()).toBeVisible();
 	});
+
+	test('zeigt Ort, Karte und gemessene Klasse je Abo', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth');
+		await expect(page.getByRole('img', { name: /Karte der Abo-Orte/ }).first()).toBeVisible();
+		await expect(page.getByText('Rasterzelle 456 / 851').first()).toBeVisible();
+		await expect(page.getByText('jetzt: Klasse 6 (ab 3 mm/h)').first()).toBeVisible();
+		await expect(page.getByText('Schwelle: Klasse 5 (ab 2 mm/h)').first()).toBeVisible();
+	});
 });

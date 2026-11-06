@@ -19,7 +19,9 @@
 			<Icon class="mt-0.5 size-4.5 shrink-0 {toneText[t.tone]}" aria-hidden="true" />
 			<div class="min-w-0 flex-1">
 				<p class="text-sm leading-5 font-medium">{t.title}</p>
-				{#if t.detail}<p class="text-muted-foreground mt-0.5 text-[13px]">{t.detail}</p>{/if}
+				{#if t.detail}<p class="text-muted-foreground mt-0.5 text-[13px] whitespace-pre-line">
+						{t.detail}
+					</p>{/if}
 			</div>
 			<button
 				type="button"

@@ -342,7 +342,29 @@ export interface StaleInfo {
 export type RadarStatus = 'ok' | 'no_slot' | 'stale_run' | (string & {});
 export type CellState = 'wet' | 'dry' | 'unknown' | (string & {});
 
-export interface DeviceSubscription {
+/** Mitte einer Rasterzelle (auf 2 Nachkommastellen gerundet) und ihre Indizes im Radarraster. */
+export interface CellPlace {
+	lat: number;
+	lon: number;
+	x: number;
+	y: number;
+	cellKm: number;
+}
+/** Was das Radar fuer ein Abo zeigt (Slot 0 und Vorlauf); alle Felder fehlen oder sind null, solange kein Lauf vorliegt. */
+export interface SubscriptionMeasure {
+	place?: CellPlace | null;
+	thresholdMmPerHour?: number;
+	measuredClass?: number | null;
+	measuredMmPerHour?: number | null;
+	pixel?: 'rain' | 'dry' | 'unknown' | (string & {}) | null;
+	leadMaxClass?: number | null;
+	leadOnsetMinutes?: number | null;
+	wetCells?: number | null;
+	cells?: number | null;
+	neededCells?: number | null;
+	sharePercent?: number | null;
+}
+export interface DeviceSubscription extends SubscriptionMeasure {
 	index: number;
 	kind: 'point' | 'circle' | (string & {});
 	enabled: boolean;
@@ -362,7 +384,14 @@ export interface DeviceSubscription {
 }
 export interface DeviceSubscriptions extends StaleInfo {
 	generatedAt: string;
-	radar: { status: RadarStatus; runAgeSeconds: number | null };
+	radar: {
+		status: RadarStatus;
+		runAgeSeconds: number | null;
+		runNominal?: string | null;
+		slotIndex?: number;
+		gridWidth?: number;
+		gridHeight?: number;
+	};
 	subscriptions: DeviceSubscription[];
 }
 
@@ -420,4 +449,27 @@ export interface RefreshJob {
 	finishedAt: string | null;
 	result: { stored: number; failed: number; published: boolean } | null;
 	error: string | null;
+}
+
+/** Ergebnis der Neuauswertung je Abo (Vertrag: Ergebnisform `reeval`, additiv ab 7.11.2026). */
+export interface ReevalRow extends SubscriptionMeasure {
+	index: number;
+	decision: string;
+	sent?: boolean | null;
+	reason?: string;
+	kind?: string;
+	thresholdClass?: number;
+	leadMinutes?: number;
+	minSharePercent?: number | null;
+}
+export interface ReevalRadar {
+	status: RadarStatus;
+	runNominal: string | null;
+	slot: string | null;
+	slotIndex: number;
+	runAgeSeconds: number | null;
+	maxRunAgeSeconds: number;
+	evaluatedAt: string;
+	gridWidth: number;
+	gridHeight: number;
 }

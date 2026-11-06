@@ -378,10 +378,37 @@ Ergebnisformen (`result`, nur bei `status: "done"`):
 | `test` | `{"outcome":"delivered"\|"rejected"\|"retry"\|"dropped","apnsStatus":int\|null,"reason":<APNs-Reason>\|null}` |
 | `la_probe` | wie `test`, zusätzlich `"skipped":null\|"no_start_token"\|"activity_slot_busy"\|"reservation_pending"` (dann `outcome: "dropped"`, kein Versand) |
 | `la_end` | `{"outcome":…,"hadActivity":bool,"reservationCleared":bool}` |
-| `reeval` | `{"dryRun":bool,"subscriptions":[{"index":int,"decision":"would_trigger"\|"below_threshold"\|"lock"\|"hysteresis"\|"not_enabled"\|"no_start_token"\|"activity_slot_busy"\|"reservation_pending","sent":bool\|null}]}` (`sent` nur bei `dryRun: false`) |
+| `reeval` | `{"dryRun":bool,"radar":Radar,"subscriptions":[ReevalRow]}` (Form unten; `sent` nur bei `dryRun: false`) |
 | `reset_slot` | `{"cleared":"none"\|"reservation"\|"activity"}` |
 
 `error` bei `status: "failed"`: `apns_unavailable`, `environment_not_allowed`, `device_gone` (Installation inzwischen gelöscht), `internal`. Die Pfade verwenden dieselben Dienste wie der normale Betrieb (echter Startpfad, Payload-Vertrag P8); die Probe ignoriert 60-Minuten-Sperre und Hysterese, **nicht** den Platz-/Token-Check, und sendet den Alert-Text `Live-Activity-Test` (`en`: `Live Activity test`). Neuauswertung mit Versand (`dryRun: false`) berücksichtigt Sperren wie ein Tick.
+
+**`reeval`: Ergebnisform (additiv, 7. November 2026).** Alte Felder (`index`, `decision`, `sent`) bleiben; neue Felder sind additiv, unbekannte Werte zeigt ein Client als Rohtext.
+
+```
+Radar = { status: "ok"|"stale_run"|"no_slot",
+          runNominal: ISO|null,          // ausgewerteter Lauf (Nominalzeit)
+          slot: ISO|null, slotIndex: 0,  // ausgewerteter Slot: 0 = Analyse zur Nominalzeit des Laufs
+          runAgeSeconds: int|null, maxRunAgeSeconds: 1200,   // Alter des Laufs gegen die Auswertegrenze
+          evaluatedAt: ISO, gridWidth: int, gridHeight: int }
+ReevalRow = { index, sent: bool|null,
+              decision: "would_trigger"|"below_threshold"|"lock"|"hysteresis"|"not_enabled"|"no_start_token"|"activity_slot_busy"|"reservation_pending"
+                        |"radar_stale"|"radar_missing",                  // neu: Lauf zu alt / kein Lauf
+              reason: <Grund>,
+              kind: "point"|"circle", thresholdClass: 1..15, thresholdMmPerHour: number, leadMinutes: int,
+              minSharePercent: int|null,                                 // nur circle
+              place: Place|null,
+              measuredClass: int|null,       // Slot 0: Punkt = Klasse des Pixels (0 trocken), Umkreis = höchste Klasse im Umkreis; null = Pixel unbekannt / kein Lauf
+              measuredMmPerHour: number|null,                            // untere Klassengrenze (0 bei trocken)
+              pixel: "rain"|"dry"|"unknown"|null,
+              leadMaxClass: int|null,        // höchste Klasse in den Slots bis zum Vorlauf
+              leadOnsetMinutes: int|null,    // erster Slot im Vorlauf, der die Schwelle erreicht
+              wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null }   // nur circle
+Place = { lat: number, lon: number, x: int, y: int, cellKm: number }    // Mitte der Rasterzelle, auf 2 Nachkommastellen gerundet
+```
+
+`reason` (feste Wörter): `would_trigger`, `lock`, `hysteresis`, `not_enabled`, `no_start_token`, `activity_slot_busy`, `reservation_pending` (wie `decision`); bei `below_threshold` genauer `cell_dry` (Pixel trocken), `class_below_threshold` (Regen im Radar, aber Klasse unter der Schwelle), `pixel_unknown` (Pixel maskiert oder Farbe außerhalb der Legende; kein Regen bestätigt), `share_below` (Umkreis: zu wenig nasse Zellen, `wetCells` gegen `neededCells`), `already_wet` (Regen läuft schon; Mitteilungs-Abos melden nur den Beginn); dazu `radar_stale` (Lauf älter als `maxRunAgeSeconds`; die Messwerte stammen trotzdem aus diesem Lauf, es wird nichts gesendet) und `radar_missing` (kein vollständiger Lauf). Ohne Radar (`no_slot`) antwortet der Auftrag mit `done` und diesen Gründen statt mit `failed: internal`.
+
 
 | Aktion | Limit je Gerät | Fehler bei Überschreitung |
 |---|---|---|
@@ -419,11 +446,13 @@ Additiv zum eingefrorenen Vertrag (neue Routen, neue Felder). Beispiele: `docs/f
 
 ### `GET /dash/api/devices/{id}/subscriptions`
 
-Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=false` ebenfalls `404`). Sitzung erforderlich, kein CSRF (Lesen). Limit wie die übrigen Geräte-Lesezugriffe (60 pro Minute). Der Ort gehört dem eigenen, vom Betreiber gekoppelten Gerät; trotzdem gilt: **keine Koordinaten, keine Zellindizes, keine Tokens, keine IDs**; das Backend speichert außerdem keine Ortsnamen, deshalb gibt es kein Namensfeld (die App-Anzeige „Ort/Region“ wird über `kind` ersetzt). Reihenfolge und `index` wie in `GET devices/{id}`.
+Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=false` ebenfalls `404`). Sitzung erforderlich, kein CSRF (Lesen). Limit wie die übrigen Geräte-Lesezugriffe (60 pro Minute). Der Ort gehört dem eigenen, vom Betreiber gekoppelten Gerät. Seit 7. November 2026 nennt die Antwort je Abo den Ort so, wie der Server ihn ohnehin hält: Rasterindizes und die daraus abgeleitete Mitte der Zelle, auf 2 Nachkommastellen gerundet (`place`, etwa 1 km, die Genauigkeit der Zelle; der Server kennt keine genauere Koordinate); weiterhin **keine Tokens, keine IDs**; das Backend speichert keine Ortsnamen, deshalb gibt es kein Namensfeld. Die Angabe steht nur hinter der Passkey-Sitzung und wird nicht protokolliert. Reihenfolge und `index` wie in `GET devices/{id}`.
 
 ```
 { generatedAt,
-  radar: { status: "ok"|"no_slot"|"stale_run", runAgeSeconds: int|null },     // Quelle von cell/leadCell
+  radar: { status: "ok"|"no_slot"|"stale_run", runAgeSeconds: int|null,     // Quelle von cell/leadCell
+           runNominal: ISO|null, slotIndex: 0,                              // ausgewerteter Lauf; Slot 0 = Analyse zu dieser Zeit (7.11.: neu)
+           gridWidth: int, gridHeight: int },                               // Raster der Zellindizes
   subscriptions: [ { index: int, kind: "point"|"circle",
                      enabled: bool, liveActivity: bool, timeSensitive: bool,
                      thresholdClass: 1..15, leadMinutes: 10|20|30,
@@ -433,8 +462,15 @@ Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=fal
                      lastSentAt: ISO|null, lockUntil: ISO|null,
                      cell: "wet"|"dry"|"unknown",                               // Zelle jetzt (Slot 0) gegen Schwelle
                      leadCell: "wet"|"dry"|"unknown",                           // irgendein Slot bis zum Vorlauf gegen Schwelle (würde auslösen)
-                     activity: "none"|"reserved"|"active" } ] }
+                     activity: "none"|"reserved"|"active",
+                     // additiv 7.11.2026, Felder wie ReevalRow (siehe Aktionen/reeval): Ort und Messung
+                     place: Place|null, thresholdMmPerHour: number,
+                     measuredClass: int|null, measuredMmPerHour: number|null, pixel: "rain"|"dry"|"unknown"|null,
+                     leadMaxClass: int|null, leadOnsetMinutes: int|null,
+                     wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null } ] }
 ```
+
+Das Dashboard zeigt den Ort als Karte (eigene SVG-Darstellung, keine Kartenkacheln): Ausschnitt der Radar-Vorschau des Caches (`GET cache/radar/preview?slot=<radar.runNominal>&run=<radar.runNominal>`, derselbe Slot 0 wie die Auswertung) mit Rasterzelle, Umkreis und Gradnetz. Es gehen keine Koordinaten an Dritte.
 
 `cell`/`leadCell`: `unknown`, wenn `radar.status` nicht `ok` ist oder der Pixel unbekannt ist (Live-Activity-Abos); `wet` heißt Intensitätsklasse mindestens `thresholdClass`. Für `circle` gilt der Anteilsschwellwert (`minSharePercent`). `activity` gilt für den (einzigen) Live-Activity-Platz der Installation und wird bei dem Abo gezeigt, das ihn belegt, sonst `none`.
 

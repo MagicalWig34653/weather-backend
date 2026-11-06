@@ -260,11 +260,80 @@ struct DeviceDashboardTests {
         #expect(await h.sender.requests.first?.activityEvent == .end)
     }
 
-    @Test func reevalWithoutRadarFailsAndWithoutLinkExpires() async throws {
+    /// Publishes a run whose slot 0 shows `cls` at the cell of `liveSubscription` (10, 20); `ageSeconds` after the nominal time it is "now".
+    private func publishRun(_ h: Harness, cls: Int?, nominal: Date) async throws {
+        let id = TimeUtil.toID(nominal)
+        #expect(try await h.repo.tryClaim(runID: id, nominal: nominal, owner: "t", leaseSeconds: 60, maxAttempts: 2))
+        for (index, slot) in TimeUtil.slots(of: nominal).enumerated() {
+            var image = makeImage(width: h.config.width, height: h.config.height, seed: 200 + index)
+            if let cls, index == 0 {
+                var pixels = image.pixels
+                let color = PushIntensity.palette[cls - 1], o = (20 * h.config.width + 10) * 4
+                pixels[o] = UInt8(color.r); pixels[o + 1] = UInt8(color.g); pixels[o + 2] = UInt8(color.b); pixels[o + 3] = 255
+                image = RGBAImage(width: image.width, height: image.height, pixels: pixels)
+            }
+            try await h.repo.putSlot(SlotRef(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot), contentType: "image/webp", data: try cachedWebP(image))
+        }
+        #expect(try await h.repo.publish(runID: id, owner: "t", expectedSlots: TimeUtil.forecastSlots))
+    }
+
+    @Test func reevalNamesRunSlotMeasuredClassAndReason() async throws {
         let h = try await Harness()
         let id = try await h.link()
+        try await h.liveSubscription()
+        let nominal = TimeUtil.floorStep(Date().addingTimeInterval(-420))
+        try await publishRun(h, cls: 2, nominal: nominal)
+        let done = try await h.runCommand(id, "reeval")
+        #expect(done["status"] as? String == "done")
+        let result = try #require(done["result"] as? [String: Any])
+        let radar = try #require(result["radar"] as? [String: Any])
+        #expect(radar["status"] as? String == "ok" && radar["runNominal"] as? String == TimeUtil.toISO(nominal) && radar["slotIndex"] as? Int == 0)
+        #expect((radar["runAgeSeconds"] as? Int ?? 0) >= 420 && radar["maxRunAgeSeconds"] as? Int == 1200 && radar["gridWidth"] as? Int == 64)
+        let row = try #require((result["subscriptions"] as? [[String: Any]])?.first)
+        // Rain is on the radar (class 2) but below the threshold class 3 (from 0.4 mm/h): the answer says exactly that.
+        #expect(row["decision"] as? String == "below_threshold" && row["reason"] as? String == "class_below_threshold")
+        #expect(row["measuredClass"] as? Int == 2 && row["pixel"] as? String == "rain" && row["thresholdClass"] as? Int == 3)
+        #expect(row["measuredMmPerHour"] as? Double == 0.2 && row["thresholdMmPerHour"] as? Double == 0.4)
+        let place = try #require(row["place"] as? [String: Any])
+        #expect(place["x"] as? Int == 10 && place["y"] as? Int == 20 && place["lat"] is Double && place["lon"] is Double)
+        // The same sub with class 3 triggers.
+        try await publishRun(h, cls: 3, nominal: TimeUtil.floorStep(Date().addingTimeInterval(-120)))
+        let again = try await h.runCommand(id, "reeval")
+        let row2 = try #require(((again["result"] as? [String: Any])?["subscriptions"] as? [[String: Any]])?.first)
+        #expect(row2["decision"] as? String == "would_trigger" && row2["measuredClass"] as? Int == 3)
+    }
+
+    @Test func reevalWithStaleRunNamesAgeAndStillShowsMeasurement() async throws {
+        let h = try await Harness()
+        let id = try await h.link()
+        try await h.liveSubscription()
+        try await publishRun(h, cls: 4, nominal: TimeUtil.floorStep(Date().addingTimeInterval(-3600)))
+        let done = try await h.runCommand(id, "reeval", body: #"{"dryRun":false}"#)
+        let result = try #require(done["result"] as? [String: Any])
+        let radar = try #require(result["radar"] as? [String: Any])
+        #expect(radar["status"] as? String == "stale_run" && (radar["runAgeSeconds"] as? Int ?? 0) >= 3600)
+        let row = try #require((result["subscriptions"] as? [[String: Any]])?.first)
+        #expect(row["decision"] as? String == "radar_stale" && row["reason"] as? String == "radar_stale" && row["measuredClass"] as? Int == 4)
+        #expect(row["sent"] as? Bool == false)
+        #expect(await h.sender.requests.isEmpty)       // nothing is sent from a stale run
+    }
+
+    @Test func reevalWithoutRadarSaysSoPerSubscription() async throws {
+        let h = try await Harness()
+        let id = try await h.link()
+        try await h.liveSubscription()
         let failed = try await h.runCommand(id, "reeval")
-        #expect(failed["status"] as? String == "failed" && failed["error"] as? String == "internal")
+        #expect(failed["status"] as? String == "done")
+        let result = try #require(failed["result"] as? [String: Any])
+        #expect((result["radar"] as? [String: Any])?["status"] as? String == "no_slot")
+        let row = try #require((result["subscriptions"] as? [[String: Any]])?.first)
+        #expect(row["decision"] as? String == "radar_missing" && row["reason"] as? String == "radar_missing" && row["measuredClass"] is NSNull)
+    }
+
+    @Test func reevalWithoutLinkExpires() async throws {
+        let h = try await Harness()
+        let id = try await h.link()
+        _ = try await h.runCommand(id, "reset-slot")
         // A queued command that nobody processes expires after 120 seconds.
         let cmds = try await h.repo.commands(deviceID: id, limit: 1)
         let cmd = try #require(cmds.first)

@@ -1,13 +1,48 @@
 {
   "generatedAt": "2026-11-06T09:21:30Z",
-  "radar": { "status": "stale_run", "runAgeSeconds": 4100 },
+  "radar": {
+    "status": "stale_run",
+    "runAgeSeconds": 4100,
+    "runNominal": "2026-11-06T08:12:00Z",
+    "slotIndex": 0,
+    "gridWidth": 1024,
+    "gridHeight": 1311
+  },
   "subscriptions": [
     {
-      "index": 0, "kind": "point", "enabled": true, "liveActivity": true, "timeSensitive": false,
-      "thresholdClass": 5, "leadMinutes": 20, "radiusCells": null, "minSharePercent": null,
-      "state": "pending", "hysteresis": false,
-      "lastSentAt": null, "lockUntil": null,
-      "cell": "unknown", "leadCell": "unknown", "activity": "reserved"
+      "index": 0,
+      "kind": "point",
+      "enabled": true,
+      "liveActivity": true,
+      "timeSensitive": false,
+      "thresholdClass": 5,
+      "leadMinutes": 20,
+      "radiusCells": null,
+      "minSharePercent": null,
+      "state": "pending",
+      "hysteresis": false,
+      "lastSentAt": null,
+      "lockUntil": null,
+      "cell": "unknown",
+      "leadCell": "unknown",
+      "activity": "reserved",
+      "place": {
+        "lat": 50.0,
+        "lon": 10.0,
+        "x": 456,
+        "y": 851,
+        "cellKm": 0.71
+      },
+      "thresholdMmPerHour": 2,
+      "measuredClass": null,
+      "measuredMmPerHour": null,
+      "pixel": null,
+      "leadMaxClass": null,
+      "leadOnsetMinutes": null,
+      "wetCells": null,
+      "cells": null,
+      "neededCells": null,
+      "sharePercent": null
     }
   ]
 }

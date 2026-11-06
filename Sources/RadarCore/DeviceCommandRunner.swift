@@ -144,26 +144,45 @@ extension PushService {
     private func reevaluate(_ worker: PushService, command: DeviceCommand, device: LinkedDevice, install: PushInstallation, now: Date) async throws -> (String?, String?) {
         let dryRun = command.dryRun ?? true
         let subs = try await repo.subscriptions(installationID: device.installID)
-        let view = await DeviceRadarView.load(repo: repo, config: config, subs: subs, now: now)
-        guard view.status == .ok, let run = try await repo.latestPublished() else { return (nil, "internal") }
+        // A stale run is decoded as well so that the answer can say what it contained; nothing is sent from it.
+        let view = await DeviceRadarView.load(repo: repo, config: config, subs: subs, now: now, allowStale: true)
+        let run = try await repo.latestPublished()
         let targets = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).map { ($0.subscription.id, $0) })
         var rows: [[String: Any]] = []
         for (index, sub) in subs.enumerated() {
             let classes = view.classes[sub.id] ?? []
-            let decision = Self.decide(sub: sub, classes: classes, hasStartToken: install.liveActivityStartToken != nil,
+            let measures = view.measures[sub.id]
+            var decision = Self.decide(sub: sub, classes: classes, hasStartToken: install.liveActivityStartToken != nil,
                                        activity: targets[sub.id]?.activity, now: now)
+            switch view.status {
+            case .noSlot: decision = sub.enabled ? "radar_missing" : decision
+            case .staleRun: decision = sub.enabled ? "radar_stale" : decision
+            case .ok: break
+            }
             var sent: Any = NSNull()
             if !dryRun {
                 sent = false
-                if decision == "would_trigger", sub.liveActivity, sub.kind == .point, let target = targets[sub.id] {
+                if view.status == .ok, decision == "would_trigger", sub.liveActivity, sub.kind == .point, let target = targets[sub.id], let run {
                     var tick = PushTick(); tick.isLeader = true
                     try await worker.evaluateActivity(target: target, classes: classes, notify: true, reference: run.nominal, now: now, result: &tick)
                     sent = tick.sent > 0
                 }
             }
-            rows.append(["index": index, "decision": decision, "sent": sent])
+            var row: [String: Any] = ["index": index, "decision": decision, "sent": sent,
+                                      "reason": PushMeasureJSON.reason(sub, decision: decision, measures: measures, radar: view.status),
+                                      "thresholdClass": sub.threshold, "leadMinutes": sub.leadMinutes, "kind": sub.kind == .circle ? "circle" : "point",
+                                      "minSharePercent": sub.kind == .circle ? (sub.minSharePercent as Any? ?? NSNull()) : NSNull()]
+            row.merge(PushMeasureJSON.fields(sub, measures: measures, radarOK: view.status != .noSlot, width: config.width)) { _, new in new }
+            rows.append(row)
         }
-        return (Self.json(["dryRun": dryRun, "subscriptions": rows]), nil)
+        let status: String
+        switch view.status { case .ok: status = "ok"; case .noSlot: status = "no_slot"; case .staleRun: status = "stale_run" }
+        let radar: [String: Any] = ["status": status, "runNominal": view.runNominal.map { TimeUtil.toISO($0) } as Any? ?? NSNull(),
+                                    "slot": view.runNominal.map { TimeUtil.toISO($0) } as Any? ?? NSNull(), "slotIndex": 0,
+                                    "runAgeSeconds": view.runNominal.map { max(0, Int(now.timeIntervalSince($0))) } as Any? ?? NSNull(),
+                                    "maxRunAgeSeconds": Int(PushEvaluator.maxRunAge), "evaluatedAt": TimeUtil.toISO(now),
+                                    "gridWidth": config.width, "gridHeight": config.height]
+        return (Self.json(["dryRun": dryRun, "radar": radar, "subscriptions": rows]), nil)
     }
 
     /// Decision of the evaluation for one subscription, without side effects. Locks only matter when the rule would otherwise fire.

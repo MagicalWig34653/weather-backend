@@ -14,6 +14,7 @@ import { api } from './client';
 import { draftOf, parseDraft, valuesEqual } from './config/form';
 import { errorText } from './errors';
 import { describeError, insights } from './insights/api';
+import { coordOf } from './insights/grid';
 import { checkLabel, formatCode, isValidCode } from './insights/pairing';
 import {
 	checkName,
@@ -22,7 +23,11 @@ import {
 	commandResultText,
 	eventKindName,
 	levelLabel,
+	measureText,
 	outcomeName,
+	reasonName,
+	decisionName,
+	reevalRadarText,
 	summaryText
 } from './insights/text';
 
@@ -259,6 +264,36 @@ describe.skipIf(!present)('Darstellung deckt die Fixtures ab (keine Rohcodes)', 
 		};
 		for (const c of list.commands)
 			expect(commandResultText(c.kind, c.result)).toMatch(/Abo 1: würde auslösen/);
+	});
+	it('Abos und Neuauswertung: Ort stimmt mit dem Raster ueberein, Grund und Messung haben Klartext', () => {
+		const places: { lat: number; lon: number; x: number; y: number }[] = [];
+		for (const file of files('device-subscriptions.')) {
+			const d = read(file) as { subscriptions: { place?: (typeof places)[number] | null }[] };
+			for (const s of d.subscriptions) if (s.place) places.push(s.place);
+		}
+		const reeval = read('dashboard/command.done-reeval.json') as {
+			result: {
+				radar: Parameters<typeof reevalRadarText>[0];
+				subscriptions: { decision: string; reason: string; place?: (typeof places)[number] }[];
+			};
+		};
+		for (const s of reeval.result.subscriptions) {
+			expect(decisionName[s.decision], s.decision).toBeTypeOf('string');
+			expect(reasonName[s.reason], s.reason).toBeTypeOf('string');
+			if (s.place) places.push(s.place);
+		}
+		expect(places.length).toBeGreaterThan(2);
+		for (const p of places) {
+			const c = coordOf(p.x, p.y);
+			expect(Math.abs(c.lat - p.lat)).toBeLessThan(0.006);
+			expect(Math.abs(c.lon - p.lon)).toBeLessThan(0.006);
+		}
+		const text = commandResultText('reeval', reeval.result as unknown as Record<string, unknown>);
+		expect(text).toContain('Abo 1: unter der Schwelle – Regen im Radar, aber unter der Schwelle');
+		expect(text).toContain('jetzt: Klasse 2 (ab 0,2 mm/h) · Schwelle: Klasse 3 (ab 0,4 mm/h)');
+		expect(text).toContain('Anteil 0 % (0 von 4301 Zellen, nötig 44) gegen 1 %');
+		expect(text).toContain('Slot 0 (Analyse), 2 min alt');
+		expect(measureText({ reason: 'pixel_unknown', measuredClass: null })).toBe('Pixel unbekannt');
 	});
 	it('Reeval zeigt "gesendet" und nummeriert nach index', () => {
 		expect(
