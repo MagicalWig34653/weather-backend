@@ -2,6 +2,10 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Dashboard-Ausbau geplant (6. November 2026)
+
+Plan (nur Planung, nichts gebaut): [dashboard-insights-plan.md](dashboard-insights-plan.md) mit Insight-Katalog, Aktionen, Geräte-Opt-in per Koppelcode, Design und WP10 bis WP18. Offen: Nutzerentscheidungen D1 bis D13 (Abschnitt 9), TestFlight-Erkennung per Spike (Apple-Doku war per Werkzeug nicht lesbar). Nicht ausgeführt: Builds/Tests.
+
 ## Härtung L1: kanonische Slot-IDs (6. November 2026)
 
 Prüfung des App-Wunsches „Backend-Härtung H1/H2/M1/M2“: bereits umgesetzt und gepusht (`89731b8`, Abschnitt „Backend-Härtung“ unten; Live-Activity-Härtung A1/A6/A7/A8 in `49321e4`). Neu: `TimeUtil.fromID` akzeptiert nur die kanonische Schreibweise (kein `+`/`-`, keine normalisierten Werte wie Monat 13 oder 31. Februar), indem `toID(date) == id` erzwungen wird (Security-Review L1: weniger Cache-Schlüssel-Varianten, kein breiterer DB-Zugriff). Test `fromIDRejectsNonCanonicalIDs` in `UnitTests`. Geprüft: `swift test --filter UnitTests` 17 Tests grün. **Offen aus den Security-Berichten:** Registrierungsschutz (App Attest/DeviceCheck, Nutzerentscheidung), M3 Firewall/Port 38090 (Betrieb), M4 DB-TLS-Option, M5 Digest-Pinning, L3 BadDeviceToken-Zähler, L6 Container-Härtung. Offene Todolino-Frage: APNs-Secret fest oder per Overlay (Empfehlung Overlay). Der uncommittete Arbeitsbaum unter `deploy/swarm/` (Dashboard-Overlay) gehört nicht zu dieser Änderung.

@@ -2,6 +2,8 @@
 
 Stand: 3. November 2026. Status: Plan, noch keine Umsetzung. Board: Todolino-Aufgabe „Dashboard für Cache Hits, Statistiken und Traffic Analyse. Zugriff über einen zweiten Port“ mit je einer Unteraufgabe je Arbeitspaket (Abschnitt 11).
 
+**Ausbau (6.11.2026):** Insight-Katalog, Aktionen, Geräte-Kopplung (Opt-in per Koppelcode), Designleitlinien und die Pakete WP10 bis WP18 stehen in [dashboard-insights-plan.md](dashboard-insights-plan.md). WP7 wird dort durch WP10/WP15/WP16 ersetzt.
+
 Nutzerentscheidungen (3.11.2026): eigene Webseite mit SvelteKit (statischer Build) und shadcn-svelte; Login per Passkey (WebAuthn), keine Benutzerverwaltung (genau ein Betreiber); zweiter Listener/Port, intern, standardmäßig aus; statischer Build im Backend-Image eingebettet; erster Passkey per fester Registrierung nur beim ersten Start ohne Token; Statistik: 30 Tage Tagesaggregate, nur Zähler ohne IPs, Koordinaten, Installations-IDs, Tokens; Konfiguration im Dashboard mit Rangfolge ENV > Dashboard-Wert (DB) > Default, Geheimnisse nur per ENV, Änderungsprotokoll, serverseitige Grenzen, CSRF. Alle Board-Fragen sind beantwortet (3.11.2026): Zugriff über den vorhandenen internen Reverse Proxy des Betreibers (Dienst `dashboard` im Overlay-Netz, kein Host-Port, kein Ingress; der Proxy terminiert TLS, der Betreiber muss im Repo nichts dafür tun); Einstellungen mit Neustartbedarf: Dashboard-Knopf für einen kontrollierten Neustart (Abschnitt 5.3, ohne Docker-Socket); Aufbewahrung 30 Tage Tagesaggregate; erster Passkey per fester Registrierung ohne Token; Auslieferung als statischer Build im Backend-Image.
 
 ## 1. Ziel und Nicht-Ziele
