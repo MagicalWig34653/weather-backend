@@ -192,13 +192,13 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
             ingestErrors: Series, statsDropped: int },
   cache: { hitRatio: number|null, hitRatioRadar: number|null, hitRatioLayer: number|null,
            negativeShare: number|null, joinedShare: number|null, dbReads: int, series: Series,
-           fill: { bytes: int, maxBytes: int, entries: int, evictions: int, scope: "maxOfReplicas" }|null },
+           fill: { bytes: int, maxBytes: int, entries: int, evictions: int, scope: "maxOfReplicas"|"thisReplica" }|null },
   latency: [ { route, buckets: [ { le: "10ms"|"50ms"|"200ms"|"1s"|"inf", count: int } ],
                p50Ms: int|null, p95Ms: int|null, p99Ms: int|null } ] | null,
   replicas: [ { id: "<8 hex>", startedAt: ISO, ageSeconds: int, appliedGeneration: int,
                 revision: string|null, level: Level, isLeader: bool } ],
   generation: int,
-  leader: { holder: "<8 hex>"|null, leaseSecondsLeft: int|null, changes24h: int },
+  leader: { holder: "<8 hex>"|null, leaseSecondsLeft: int|null, changes24h: int|null },   // null: Leaderwechsel werden nicht gezählt
   db: { poolUsage: number|null, errors24h: int|null, migration: string|null } }
 ```
 
@@ -232,7 +232,7 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
     subscriptions: { total: int, enabled: int, liveActivity: int, liveActivityWithStartToken: int, inconsistent: int }
   } | null,
   triggers: [ { trigger: "rain_start"|"raining_now"|"la_rain_start"|"la_raining_now", count: int } ] | null,
-  skipped: [ { trigger: <wie oben>, reason: "lock_60min"|"hysteresis"|"no_start_token"|"activity_slot_busy"|"reservation_pending"|"not_enabled"|"budget_exhausted"|"below_threshold", count: int } ] | null,
+  skipped: [ { trigger: <wie oben>|"run", reason: "lock_60min"|"hysteresis"|"no_start_token"|"activity_slot_busy"|"reservation_pending"|"not_enabled"|"budget_exhausted"|"below_threshold"|"env_not_allowed"|"unknown_pixel"|"no_fresh_run"|"incomplete_run"|"paused", count: int } ] | null,
   lifecycle: { events: [ { event: "start"|"update"|"end"|"expire", outcome: "delivered"|"rejected"|"retry"|"dropped", count: int } ],
                activeNow: int, reservationsOpen: int, reservationsExpired: int } | null,
   locks: { activeLocks: int, activitySlots: Gauge } | null,
@@ -245,6 +245,8 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
   rejects: [ { code: "server_full"|"activity_full"|"region_limit"|"subscription_limit"|"start_token_required"|"unauthorized", count: int } ] | null,
   caps: [ { key: "installations"|"subscriptions"|"region_cells"|"activity_subscriptions", gauge: Gauge } ] | null }
 ```
+
+**Additive Erweiterung (WP11b/Integration, 6.11.2026):** `skipped[].trigger` ist zusätzlich `"run"` für Gründe, die den ganzen Auswertelauf betreffen (`no_fresh_run`, `incomplete_run`, `paused`); neue Gründe `env_not_allowed` (APNs-Umgebung der Installation nicht erlaubt), `unknown_pixel`, `no_fresh_run`, `incomplete_run`, `paused`. Clients zeigen unbekannte Werte als Rohtext. `lifecycle.events`, `apnsErrors` usw. stammen aus Zählern, `timing` und `registrations` bleiben `null`, bis dafür Zähler existieren; `delivery.rejected` enthält von APNs abgemeldete Geräte (`Unregistered`). `ops.layers[].runs` hat Stundenauflösung (ein Eintrag je Stunde mit Aufnahmeaktivität: `ok`, wenn mindestens ein Lauf gelang, sonst `error`/`missed`).
 
 `<APNs-Reason>`: `BadDeviceToken`, `DeviceTokenNotForTopic`, `Unregistered`, `ExpiredProviderToken`, `InvalidProviderToken`, `MissingTopic`, `TopicDisallowed`, `PayloadTooLarge`, `TooManyRequests`, `InternalServerError`, `ServiceUnavailable`, `ExpiredToken` (Liste vor Umsetzung gegen die aktuelle Apple-Doku abzugleichen; alles andere `other`). Der Abschnitt `funnel` ist die Slice-1-Fassung (nur DB-Gauges) und steht vor WP11 zur Verfügung; die zählerbasierten Abschnitte (`triggers`, `skipped`, `lifecycle`, `apnsErrors`, `delivery`, `tokenInvalidations`, `timing`, `registrations`, `rejects`) sind `null`, solange WP11 nicht geliefert ist. `prerequisites[].detail` ist eine feste Kennung, nie ein Konfigurationswert.
 

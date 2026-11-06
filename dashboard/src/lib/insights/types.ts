@@ -123,7 +123,11 @@ export interface OpsInsights {
 		isLeader: boolean;
 	}[];
 	generation: number;
-	leader: { holder: string | null; leaseSecondsLeft: number | null; changes24h: number };
+	leader: {
+		holder: string | null;
+		leaseSecondsLeft: number | null;
+		changes24h: number | null;
+	} | null;
 	db: { poolUsage: number | null; errors24h: number | null; migration: string | null } | null;
 }
 

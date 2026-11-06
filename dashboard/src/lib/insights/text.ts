@@ -135,7 +135,8 @@ export const triggerName: Record<string, string> = {
 	rain_start: 'Regen beginnt',
 	raining_now: 'Es regnet',
 	la_rain_start: 'Live Activity, Regen beginnt',
-	la_raining_now: 'Live Activity, es regnet'
+	la_raining_now: 'Live Activity, es regnet',
+	run: 'Ganzer Lauf'
 };
 export const skipName: Record<string, string> = {
 	lock_60min: 'Sperrzeit (60 Minuten)',
@@ -145,7 +146,12 @@ export const skipName: Record<string, string> = {
 	reservation_pending: 'Reservierung offen',
 	not_enabled: 'Abo nicht aktiviert',
 	budget_exhausted: 'Budget erschöpft',
-	below_threshold: 'Unter der Schwelle'
+	below_threshold: 'Unter der Schwelle',
+	env_not_allowed: 'APNs-Umgebung nicht erlaubt',
+	unknown_pixel: 'Unbekannter Bildpunkt',
+	no_fresh_run: 'Kein frischer Radarlauf',
+	incomplete_run: 'Unvollständiger Radarlauf',
+	paused: 'Push pausiert'
 };
 export const eventName: Record<string, string> = {
 	start: 'Start',

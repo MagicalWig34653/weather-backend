@@ -373,8 +373,12 @@
 					/>
 				{/if}
 				<p class="text-muted-foreground px-5 py-3 text-[12px]">
-					{#if o.leader.holder}Leader-Sperre noch {dash(o.leader.leaseSecondsLeft, formatDuration)} ·
-						{o.leader.changes24h} Wechsel in 24 h{:else}Kein Leader.{/if}
+					{#if o.leader?.holder}Leader-Sperre noch {dash(
+							o.leader.leaseSecondsLeft,
+							formatDuration
+						)}{#if o.leader.changes24h !== null}
+							· {o.leader.changes24h} Wechsel in 24 h{/if}{:else if o.leader}Kein Leader.{:else}Leader
+						nicht ermittelt.{/if}
 					{#if o.db}· Datenbank-Pool {dash(o.db.poolUsage, formatPercent)}{/if}
 				</p>
 			</Panel>

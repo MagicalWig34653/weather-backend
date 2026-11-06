@@ -140,9 +140,9 @@ func makeApnsSender(config: Config, client: HTTPClient, logger: Logger) -> (any 
     }
 }
 
-func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (any ApnsSender)?, logger: Logger) async {
+func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (any ApnsSender)?, owner: String, logger: Logger) async {
     guard config.push.enabled, let sender else { return }
-    let service = PushService(config: config, repo: repo, sender: sender, owner: replicaID(), stats: stats)
+    let service = PushService(config: config, repo: repo, sender: sender, owner: owner, stats: stats)
     // Dashboard commands of linked devices (leader only, queue polled about every 2 seconds).
     let commands = Task {
         while !Task.isCancelled {
@@ -171,14 +171,18 @@ func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (
 struct StatsMiddleware: AsyncMiddleware {
     let stats: StatsCollector
 
+    /// Handling time until the response object exists (the body is already in memory for every route here); it feeds the
+    /// `latency` buckets of the route group.
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        let start = DispatchTime.now().uptimeNanoseconds
+        func seconds() -> Double { Double(DispatchTime.now().uptimeNanoseconds &- start) / 1e9 }
         do {
             let response = try await next.respond(to: request)
-            stats.recordRequest(path: request.url.path, status: Int(response.status.code), bytes: max(0, response.body.count))
+            stats.recordRequest(path: request.url.path, status: Int(response.status.code), bytes: max(0, response.body.count), seconds: seconds())
             return response
         } catch {
             let status = (error as? any AbortError)?.status.code ?? 500
-            stats.recordRequest(path: request.url.path, status: Int(status), bytes: 0)
+            stats.recordRequest(path: request.url.path, status: Int(status), bytes: 0, seconds: seconds())
             throw error
         }
     }
@@ -237,11 +241,46 @@ func makeDashboardApp(port: Int, api: DashboardApi, stats: StatsCollector) async
 }
 
 /// Builds the dashboard API on the shared repo and store.
-func makeDashboardApi(repo: any Repo, store: ConfigStore, authConfig: DashboardAuthConfig, logger: Logger) -> (DashboardApi, DashboardAuth) {
+func makeDashboardApi(repo: any Repo, store: ConfigStore, authConfig: DashboardAuthConfig, cache: SlotCacheRef, logger: Logger) -> (DashboardApi, DashboardAuth) {
     // `notice`: these lines (open setup window, login result) must be visible at the production log level.
     let auth = DashboardAuth(repo: repo, config: authConfig, log: { logger.notice("\($0)") })
     let root = ProcessInfo.processInfo.environment["DASH_STATIC_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? "/app/dashboard"
-    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment()), auth)
+    let extra = chainedRoutes([registerInsightsRoutes(engine: makeInsightsEngine(repo: repo, store: store, cache: cache))])
+    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment(), extra: extra), auth)
+}
+
+/// Slot cache of the public `Api` of this process (set once it exists; the dashboard-only mode has none).
+final class SlotCacheRef: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: SlotCache?
+    func set(_ cache: SlotCache) { lock.withLock { value = cache } }
+    func snapshot() async -> SlotCacheSnapshot? {
+        guard let cache = lock.withLock({ value }) else { return nil }
+        return await cache.snapshot()
+    }
+}
+
+/// Route families of the dashboard one after the other: the first non-nil answer wins.
+func chainedRoutes(_ handlers: [@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?])
+    -> @Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse? {
+    return { req, session in
+        for handler in handlers { if let response = try await handler(req, session) { return response } }
+        return nil
+    }
+}
+
+/// Insights engine on the shared repo: thresholds from the environment or the live dashboard values, push state from the repo.
+func makeInsightsEngine(repo: any Repo, store: ConfigStore, cache: SlotCacheRef) -> InsightsEngine {
+    let env = ProcessInfo.processInfo.environment
+    let source = RepoInsightsDataSource(
+        repo: repo, enabledLayers: store.snapshot().layers,
+        context: { @Sendable in
+            let paused = (try? await repo.pushPausedSince()) ?? nil
+            return InsightsContext.make(config: store.snapshot(), pushPaused: paused != nil,
+                                        lookup: InsightsThresholds.lookup(env: env, stored: store.storedValues()))
+        },
+        cache: { @Sendable in await cache.snapshot() })
+    return InsightsEngine(source: source)
 }
 
 /// Minute log of the open setup window (plan 2.4, point 5), until a passkey exists.
@@ -269,6 +308,9 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     let config = configStore.snapshot()
     let provider = configStore.provider
     let heartbeat = Heartbeat()
+    // One id per process for heartbeat, restart coordination and the push leader lease (the insights match them).
+    let selfID = replicaID()
+    let cacheRef = SlotCacheRef()
     let apnsClient = HTTPClient(eventLoopGroupProvider: .singleton)
     let sender = dashboardOnly ? nil : makeApnsSender(config: config, client: apnsClient, logger: logger)
 
@@ -278,7 +320,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     var dashboard: Application?
     var dashAuth: DashboardAuth?
     if dashboardEnabled, let dashboardAuthSettings {
-        let (api, auth) = makeDashboardApi(repo: repo, store: configStore, authConfig: dashboardAuthSettings, logger: logger)
+        let (api, auth) = makeDashboardApi(repo: repo, store: configStore, authConfig: dashboardAuthSettings, cache: cacheRef, logger: logger)
         dashAuth = auth
         let dashApp = try await makeDashboardApp(port: dashboardPort, api: api, stats: stats)
         if dashboardOnly { app = dashApp } else { app = try await Application.make(makeEnvironment(port: bootstrap.httpPort)); dashboard = dashApp }
@@ -293,6 +335,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         let api = Api(repo: repo, configProvider: provider, sender: sender, alive: { heartbeat.isAlive }, stats: stats)
         // Operator "clear cache" (dashboard): every replica empties its in-process slot cache when the generation moves.
         cacheClearTask = Task { await CacheClearWatcher(repo: repo, cache: api.cache).run() }
+        cacheRef.set(api.cache)
         app.middleware.use(StatsMiddleware(stats: stats))
         app.get("**") { req async -> Response in
             let path = req.url.path
@@ -329,13 +372,13 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         let activity = ActivityFlag()
         loop = Task { await runIngestLoop(config: config, provider: provider, stats: stats, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
         backfill = Task { await runBackfillLoop(config: config, provider: provider, repo: repo, activity: activity, logger: logger) }
-        pushTask = Task { await runPushLoop(config: config, stats: stats, repo: repo, sender: sender, logger: logger) }
+        pushTask = Task { await runPushLoop(config: config, stats: stats, repo: repo, sender: sender, owner: selfID, logger: logger) }
         layerLoops = config.layers.compactMap { id in
             LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, provider: provider, stats: stats, repo: repo, logger: logger) } }
         }
         // Controlled restart (plan 5.3): the leader flag is not known here, so replicas leave in slot order.
         let coordinator = try? await RestartCoordinator.make(
-            repo: repo, replicaID: replicaID(), slot: RestartPolicy.slot(env), policy: RestartPolicy.fromEnvironment(env),
+            repo: repo, replicaID: selfID, slot: RestartPolicy.slot(env), policy: RestartPolicy.fromEnvironment(env),
             isLeader: { false }, leaderSlot: { nil }, shutdown: { logger.info("controlled restart: leaving"); raise(SIGTERM) })
         if let coordinator { restartTask = Task { await coordinator.run() } }
         else { logger.warning("restart coordinator not started (database)") }
