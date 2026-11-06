@@ -74,3 +74,38 @@ test('Bestätigungsdialog und Toast', async ({ page }) => {
 		timeout: 10_000
 	});
 });
+
+// Zustände: leer, Fehler, Teilausfall (Mock-Schalter) je Seite, hell/dunkel auf dem Telefon.
+for (const state of ['empty', 'error', 'slice1'] as const) {
+	test.describe(`Zustand ${state}`, () => {
+		test.use({ viewport: { width: 390, height: 844 } });
+		for (const p of [
+			'',
+			'betrieb',
+			'traffic',
+			'push',
+			'abos',
+			'geraete',
+			'konfiguration',
+			'protokoll'
+		]) {
+			test(`axe /${p} (${state})`, async ({ page }) => {
+				await page.goto(`/dash/${p}?mock=auth&mockstate=${state}`);
+				await page.waitForSelector('main h1');
+				await page.waitForTimeout(700);
+				const r = await new AxeBuilder({ page })
+					.withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+					.analyze();
+				expect(
+					r.violations.map(
+						(v) =>
+							`${v.id}: ${v.nodes
+								.map((n) => n.target.join(' '))
+								.slice(0, 3)
+								.join(' | ')}`
+					)
+				).toEqual([]);
+			});
+		}
+	});
+}

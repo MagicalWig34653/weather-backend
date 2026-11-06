@@ -156,7 +156,7 @@ describe.skipIf(!present)('Fehler-Fixtures: Code, Text, Wartezeit', () => {
 			const path = f.path.endsWith('/*')
 				? '/insights/overview'
 				: fill(f.path).replace('/dash/api', '');
-			const err = await api.get(path).catch((e) => e);
+			const err = (await api.get(path).catch((e) => e)) as ApiError;
 			expect(err).toBeInstanceOf(ApiError);
 			expect(err.status).toBe(f.status);
 			expect(err.serverCode).toBe(fx.error);

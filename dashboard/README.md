@@ -6,16 +6,23 @@ Betreiber-Oberfläche des Radar-Backends: SvelteKit (Svelte 5, TypeScript, `adap
 
 ```sh
 npm ci                # exakt nach package-lock.json
-npm run dev:mock      # Entwicklung mit Mock-Backend (erfundene Daten, VITE_MOCK=1)
+npm run dev:mock      # Entwicklung mit Mock-Backend (erfundene Daten, Build-Konstante __MOCK__)
+DASH_API_TARGET=http://127.0.0.1:8081 npm run dev   # Entwicklung gegen ein echtes Backend (Proxy auf /dash/api)
 npm run check         # svelte-check
 npm run lint          # Prettier + ESLint
-npm test              # Vitest (API-Client, Base64URL, Skalen, Reihen, Navigation)
-npm run test:e2e      # Playwright gegen den Mock-Server: axe (WCAG 2.2 AA), hell/dunkel, Desktop/Telefon
+npm test              # Vitest (API-Client, Formularlogik, Protokoll, Polling, Vertragstests gegen docs/fixtures, Mock-Form)
+npm run test:e2e      # Playwright gegen den Mock-Server: axe (WCAG 2.2 AA) je Seite und Zustand, hell/dunkel, Desktop/Telefon, Abläufe (Konfiguration, Protokoll, Geräte, Anmeldung)
 node scripts/screenshots.mjs <Ordner> [Seiten] [normal|empty|error|slow]  # Screenshots (Mock-Server auf :5199 nötig)
 npm run build         # statischer Build nach build/ inkl. CSP-Nachbearbeitung
 ```
 
-Im Mock-Modus wählt `?mock=setup`, `?mock=login` oder (Standard) `?mock=auth` den Anfangszustand. Der Mock ist nicht Teil des Produktionsbuilds.
+Im Mock-Modus wählt `?mock=setup|closed|login|auth` den Anfangszustand, `?mockstate=empty|slice1|error|slow|limited` den Datenzustand (`limited`: Schreibzugriffe antworten 429) und `?mockcmd=failed|expired` das Ergebnis von Geräteaufträgen.
+
+**Echte Daten statt Mock:** Ohne `--mode mock` ist `__MOCK__` eine Literalkonstante `false`; die Datenschicht (`src/lib/client.ts`) nutzt dann `fetch` gegen `/dash/api`. Der Mock, die Passkey-Attrappe, das Mock-Banner und die Design-Vorschau (`/dash/_design`) fehlen im Produktionsbuild; `scripts/postbuild.mjs` bricht den Build ab, wenn Marker davon (Texte, Dateinamen) auftauchen. `npm run dev` mit `DASH_API_TARGET` leitet `/dash/api` an ein Backend weiter und setzt `Origin` auf das Ziel; die Passkey-Anmeldung braucht dafür `DASH_ORIGIN`/`DASH_RP_ID` passend zum Zielhost (nicht geprüft; im Betrieb liefert das Backend das Frontend selbst unter `/dash`).
+
+## Vertrag und Tests
+
+Maßgeblich ist `docs-site/content/dashboard-api.md` (camelCase, Fehler als `{"error":"<code>"}`; Texte wählt der Client nach Code, `src/lib/errors.ts`). `src/lib/contract.test.ts` lässt jede Fixture aus `docs/fixtures/manifest.json` durch Client und Datenschicht laufen (Erfolg: unveränderte Antwort, Pfad, Methode, Body; Fehler: Status, Servercode, Klartext, Retry-After), `src/lib/mock.test.ts` prüft die Form des Mocks gegen die Fixtures. Bekannte Vertragslücken: der Vertrag nennt keinen Akteur im Protokoll (abgeleitet: nur `reset_cli` ist Kommandozeile), keine Seitenverschiebung (`limit` höchstens 200, Seiten werden clientseitig gebildet) und keine erlaubten Werte für `enum`-Einträge (`choices` wird genutzt, falls der Server sie additiv liefert; sonst Textfeld).
 
 ## Designsystem (WP10)
 
