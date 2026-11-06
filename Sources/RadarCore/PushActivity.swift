@@ -27,6 +27,8 @@ public enum PushActivityPayload {
                                   "stale-date": Int(now.addingTimeInterval(PushEvaluator.maxRunAge).timeIntervalSince1970)]
         if event == .start {
             aps["attributes-type"] = "RainActivityAttributes"
+            // Apple (iOS 18+): required so the system hands the app an update push token for this activity.
+            aps["input-push-token"] = 1
             // No name is uploaded/stored. The app can resolve the subscription locally.
             aps["attributes"] = ["displayName": "", "subscriptionID": subscriptionID]
             // Apple requires an alert for push-to-start. If it already rains (phase endsIn/raining), "starting soon" would be wrong.

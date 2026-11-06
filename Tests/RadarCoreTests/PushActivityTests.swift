@@ -495,8 +495,10 @@ struct PushActivityWireTests {
                 let attributes = try #require(aps["attributes"] as? [String: String])
                 #expect(attributes == ["displayName": "", "subscriptionID": F.subscription])
                 #expect(aps["alert"] != nil)
+                // iOS 18+: without input-push-token the app never receives the update token of a remotely started activity.
+                #expect(aps["input-push-token"] as? Int == 1)
             } else {
-                #expect(aps["attributes-type"] == nil && aps["attributes"] == nil && aps["alert"] == nil)
+                #expect(aps["attributes-type"] == nil && aps["attributes"] == nil && aps["alert"] == nil && aps["input-push-token"] == nil)
             }
             if event == .end { #expect(aps["dismissal-date"] as? Int == Int(run0.timeIntervalSince1970)) }
             else { #expect(aps["dismissal-date"] == nil) }
