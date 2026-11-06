@@ -234,3 +234,11 @@ Nutzerauftrag: ein `settings.sh` im Stil von `raspi-config`, das alle per ENV m�
 - **Design:** orientiert sich an `timetrack-pwa` (Svelte 5, shadcn-svelte, Tailwind 4, Zinc-Tokens in OKLCH, Inter Variable lokal, eigene SVG-Charts); Plan Abschnitt 5.
 - **WP-V:** API-Verträge eingefroren (`docs-site/content/api.md`, `dashboard-api.md`), Fixtures `docs/fixtures/`; Änderungen nur additiv oder mit Vertragsversion.
 
+
+## Dashboard-Erreichbarkeit: veröffentlichter Port (6. November 2026)
+
+- **Nutzerentscheidung 6.11.2026:** Das Dashboard wird wie `radar` über einen **veröffentlichten Ingress-Port** erreichbar gemacht, den der **externe** Reverse Proxy des Betreibers anspricht. Die Entscheidung vom 3.11.2026 („kein `ports:`, nur Overlay-Netz hinter internem Proxy“, [dashboard-plan.md](dashboard-plan.md) Abschnitte 2 und 9) ist damit **ersetzt**.
+- **Umsetzung:** `stack.dashboard.yaml` hat genau einen Eintrag `ports:` (`mode: ingress`, `target: ${DASH_PORT:-9090}`, `published: ${DASH_PUBLISH_PORT:-39090}`). Der Container-Port folgt derselben Variable wie Listener und Healthcheck, kann also nicht auseinanderlaufen. Neue Deploy-Variable `DASH_PUBLISH_PORT` (`config-extra.tsv`, `.env.example`).
+- **Sicherheitsabwägung:** Der Port ist auf jedem Swarm-Knoten erreichbar (Routing-Mesh); der Schutz hängt damit an (1) Firewall nur für die Proxy-Adresse(n), (2) Passkey (WebAuthn) mit Ratenbegrenzung, CSRF-Schutz und Host-/Origin-Prüfung, (3) HTTPS am Proxy, (4) dem Setup-Fenster, das bis zum ersten Passkey für den **Ersten gilt, der den Port erreicht**: Passkey sofort nach der Aktivierung einrichten. Unverändert: ein Replikat, kein Docker-Socket, kein APNs-Schlüssel, `PUSH_ENABLED=false`, schreibgeschütztes Dateisystem, keine zusätzlichen Rechte, Standard aus.
+- **Prüfungen:** `check-config-tables.sh` und der CI-Schritt „Validate the stack file“ verlangen jetzt genau einen Port mit `mode: ingress` und `target` = Dashboard-Port (nie `host`) sowie die bisherigen Härtungsmerkmale; Tests `test-swarm-deploy.sh`, `test-settings.sh` entsprechend. `settings.sh` zeigt bei Aktivierung Proxy-Ziel, Firewall-Hinweis und den Hinweis zum Setup-Fenster.
+- **Offen/nicht geprüft:** Rollout auf einen echten Swarm und die Firewall-Beispiele (ufw/iptables) sind nicht getestet; sie liegen in der Verantwortung des Betreibers.

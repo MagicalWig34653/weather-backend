@@ -1,17 +1,57 @@
 # Betreiber-Dashboard
 
-Das Dashboard ist eine optionale, nur für den Betreiber gedachte Oberfläche: Betriebszustand, Traffic, Push-Pipeline, gekoppelte Testgeräte und einige Aktionen. Es ist standardmäßig aus, läuft auf einem eigenen Listener (Port 9090) und wird nie öffentlich veröffentlicht. Die Schnittstellen stehen in der [Dashboard-API](https://github.com/MagicalWig34653/weather-backend/blob/main/docs-site/content/dashboard-api.md). Es zeigt nur Zähler, Messwerte und feste Etiketten: keine IP-Adressen, Orte, Zellen, Installations-IDs oder Token.
+Das Dashboard ist eine optionale, nur für den Betreiber gedachte Oberfläche: Betriebszustand, Traffic, Push-Pipeline, gekoppelte Testgeräte und einige Aktionen. Es ist standardmäßig aus, läuft als eigener Dienst mit eigenem Listener (Container-Port 9090), den nur Ihr externer Reverse Proxy erreichen soll (veröffentlichter Port 39090, per Firewall auf den Proxy beschränkt). Die Schnittstellen stehen in der [Dashboard-API](https://github.com/MagicalWig34653/weather-backend/blob/main/docs-site/content/dashboard-api.md). Es zeigt nur Zähler, Messwerte und feste Etiketten: keine IP-Adressen, Orte, Zellen, Installations-IDs oder Token.
 
 ## Aktivieren
 
 1. In der `.env` (oder per `deploy/swarm/settings.sh`, Gruppe „Dashboard“) setzen: `DASH_ENABLED=true` und `DASH_ORIGIN=https://<Ihre-Dashboard-Adresse>` (https, ohne Pfad; ohne gültige Origin bricht der Start bewusst ab). `DASH_RP_ID` ist optional (Standard: Host der Origin).
-2. Der interne Reverse Proxy terminiert TLS, leitet auf `dashboard:9090` (Overlay-Netz, kein veröffentlichter Port) und reicht den `Host`-Header unverändert durch. Auf dem öffentlichen Port antwortet `/dash` mit 404.
+2. Der **externe** Reverse Proxy terminiert TLS, leitet auf `<Swarm-Knoten>:39090` (`DASH_PUBLISH_PORT`, Ingress-Port wie bei `radar`; im Container lauscht der Dienst auf `DASH_PORT`, Standard 9090) und reicht den `Host`-Header unverändert durch (WebSockets nicht nötig). Auf dem öffentlichen Radar-Port antwortet `/dash` weiterhin mit 404.
 3. `swarm-deploy.sh` beziehungsweise `update.sh` binden bei `DASH_ENABLED=true` das Overlay `stack.dashboard.yaml` ein. Danach ausrollen.
-4. **Setup-Fenster:** Nur beim ersten Start ohne vorhandenes Credential ist die Registrierung offen, für `DASH_SETUP_WINDOW_MINUTES` (Standard 15). Die Dienste melden den Hinweis jede Minute im Log. Rufen Sie das Dashboard in diesem Fenster auf und legen Sie den **Passkey** an (WebAuthn, daher HTTPS). Richten Sie ihn nur im internen Netz direkt nach dem Start ein.
+4. **Setup-Fenster:** Nur beim ersten Start ohne vorhandenes Credential ist die Registrierung offen, für `DASH_SETUP_WINDOW_MINUTES` (Standard 15), und zwar für den **Ersten, der das Dashboard erreicht**. Rufen Sie das Dashboard deshalb **sofort nach dem Ausrollen** über Ihren Proxy auf und legen Sie den **Passkey** an (WebAuthn, daher HTTPS). Die Dienste melden den Hinweis jede Minute im Log. Ist das Fenster verpasst: Dienst neu starten.
 5. Sitzungen laufen höchstens `DASH_SESSION_HOURS` (12) und enden nach `DASH_IDLE_MINUTES` (30) ohne Aktivität. Änderungen und Aktionen brauchen zusätzlich das CSRF-Token und sind ratenbegrenzt.
 6. **Reset** (Passkey verloren): `radar dashboard-reset --yes` am Dienst. Es löscht Passkey, Sitzungen und offene Challenges (Audit `reset_cli`); das Setup-Fenster öffnet sich beim nächsten Start der Dienste.
 
 Weitere Einstellungen: `DASH_MIN_GROUP` (3 bis 50, Standard 5): Gruppen darunter erscheinen als „<5“, auch Differenzen, aus denen sich kleine Gruppen errechnen ließen. `RESTART_STAGGER_SECONDS` (45): Abstand beim kontrollierten Neustart der Replikate.
+
+## Erreichbarkeit absichern
+
+Der Dienst veröffentlicht genau einen Ingress-Port (`DASH_PUBLISH_PORT`, Standard 39090; nie `mode: host`). Dieser Port ist auf jedem Swarm-Knoten erreichbar, deshalb:
+
+- **Firewall:** Port nur für die Adresse(n) Ihres Reverse Proxys öffnen, nie fürs Internet. Beispiel `ufw` auf jedem Knoten: `ufw allow from <Proxy-IP> to any port 39090 proto tcp`; Docker umgeht `ufw`-Regeln, bei Bedarf stattdessen in der Kette `DOCKER-USER`: `iptables -I DOCKER-USER -p tcp --dport 39090 ! -s <Proxy-IP> -j DROP` (Beispiel, vom Betreiber auf dem eigenen Setup zu prüfen: Von einem Rechner außerhalb des Proxys darf `curl -m 5 http://<Knoten>:39090/` nicht antworten).
+- **Host-Header** unverändert (`DASH_ORIGIN` wird gegen `Host` und `Origin` geprüft), **HTTPS** am Proxy.
+- **Passkey sofort** einrichten (Setup-Fenster, siehe oben). Danach schützt der Passkey; der Dienst hat Ratenbegrenzung, CSRF-Schutz, kein Docker-Socket, kein APNs-Schlüssel, schreibgeschütztes Dateisystem.
+
+Proxy-Beispiele (Adresse `dash.example.org`, Knoten `10.0.0.5`):
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name dash.example.org;
+  location / {
+    proxy_pass http://10.0.0.5:39090;
+    proxy_set_header Host $host;                       # unverändert durchreichen
+    proxy_set_header X-Forwarded-Proto https;
+  }
+}
+```
+
+```caddy
+dash.example.org {
+  reverse_proxy 10.0.0.5:39090   # Caddy reicht Host standardmäßig unverändert durch
+}
+```
+
+```yaml
+# Traefik (dynamische Konfiguration); passHostHeader ist Standard true
+http:
+  routers:
+    dash: { rule: "Host(`dash.example.org`)", service: dash, tls: {} }
+  services:
+    dash:
+      loadBalancer:
+        passHostHeader: true
+        servers: [ { url: "http://10.0.0.5:39090" } ]
+```
 
 ## Schwellen und Befunde
 

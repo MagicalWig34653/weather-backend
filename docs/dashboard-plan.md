@@ -1,6 +1,6 @@
 # Dashboard-Plan: Statistik, Traffic und Konfiguration
 
-Stand: 3. November 2026. Status: Plan, noch keine Umsetzung. Board: Todolino-Aufgabe „Dashboard für Cache Hits, Statistiken und Traffic Analyse. Zugriff über einen zweiten Port“ mit je einer Unteraufgabe je Arbeitspaket (Abschnitt 11).
+Stand: 3. November 2026. Status: Plan, noch keine Umsetzung. **Hinweis 6.11.2026:** Die Aussagen „kein `ports:`/nur Overlay-Netz“ (Abschnitte 2 und 9) sind durch die Entscheidung „veröffentlichter Port“ in [decisions.md](decisions.md#dashboard-erreichbarkeit-veröffentlichter-port-6-november-2026) ersetzt. Board: Todolino-Aufgabe „Dashboard für Cache Hits, Statistiken und Traffic Analyse. Zugriff über einen zweiten Port“ mit je einer Unteraufgabe je Arbeitspaket (Abschnitt 11).
 
 **Ausbau (6.11.2026):** Insight-Katalog, Aktionen, Geräte-Kopplung (Opt-in per Koppelcode), Designleitlinien und die Pakete WP10 bis WP18 stehen in [dashboard-insights-plan.md](dashboard-insights-plan.md). WP7 wird dort durch WP10/WP15/WP16 ersetzt.
 
