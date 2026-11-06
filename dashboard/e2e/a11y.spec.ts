@@ -159,3 +159,17 @@ test('Traffic ohne Stundenzähler: Tagesansicht mit Hinweis statt Nullreihe', as
 	await expect(page.getByText(/Stundenzähler noch nicht erfasst/)).toBeVisible();
 	await expect(page.getByText('8.558').first()).toBeVisible();
 });
+
+// App-Icon folgt dem im UI gewählten Theme (.dark am <html>), nicht nur prefers-color-scheme.
+test('App-Icon folgt dem gewählten Theme', async ({ page }) => {
+	await page.emulateMedia({ colorScheme: 'light' });
+	await page.goto('/dash/?mock=auth');
+	await page.waitForSelector('main h1');
+	const vis = (v: string) =>
+		page.locator(`aside img[data-icon="${v}"], header img[data-icon="${v}"]`).first();
+	await expect(vis('light')).toBeVisible();
+	await expect(vis('dark')).toBeHidden();
+	await page.evaluate(() => document.documentElement.classList.add('dark'));
+	await expect(vis('dark')).toBeVisible();
+	await expect(vis('light')).toBeHidden();
+});

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AppIcon from '#lib/design/shell/AppIcon.svelte';
 	import { api } from '#lib/client.js';
 	import { ApiError, type SessionState } from '#lib/api.js';
 	import { authErrorText } from '#lib/auth-errors.js';
@@ -7,7 +8,6 @@
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
-	import { asset } from '$app/paths';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 
 	let { mode }: { mode: Extract<SessionState, { state: 'setupOpen' | 'setupClosed' | 'login' }> } =
@@ -52,14 +52,7 @@
 <div class="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-4">
 	<Card.Root>
 		<Card.Header>
-			<img
-				src={asset('icons/icon-64.png')}
-				srcset="{asset('icons/icon-64.png')} 1x, {asset('icons/icon-192.png')} 3x"
-				alt=""
-				width="56"
-				height="56"
-				class="mb-2 size-14 rounded-[22%]"
-			/>
+			<AppIcon size={56} class="mb-2 size-14" />
 			<Card.Title class="text-xl">
 				{mode.state === 'setupClosed'
 					? 'Dashboard gesperrt'
