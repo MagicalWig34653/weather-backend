@@ -129,7 +129,7 @@ Der Betreiber kann **sein eigenes** Gerät freiwillig mit dem Dashboard koppeln,
 
 ### 4.2 Ablauf
 
-1. App (nur wenn Server-Capability `device_link` gemeldet **und** Build zulässig, 4.6): Info-Sheet, Abschnitt „Betreiber-Diagnose“, Schalter „Dieses Gerät für die Diagnose bereitstellen“ (Standard aus). Beim Einschalten ruft die App `POST /v1/push/installations/<id>/link-code` auf (Installations-Secret wie bei allen App-Aufrufen).
+1. App (nur wenn Server-Capability `device_link` gemeldet **und** Build nachweislich TestFlight, 4.6; sonst existiert der Abschnitt nicht): Info-Sheet, Abschnitt „Betreiber-Diagnose“, Schalter „Dieses Gerät für die Diagnose bereitstellen“ (Standard aus). Beim Einschalten ruft die App `POST /v1/push/installations/<id>/link-code` mit dem `AppTransaction`-JWS auf (Installations-Secret wie bei allen App-Aufrufen).
 2. Server erzeugt einen 8-stelligen Code (Crockford-Base32, 40 Bit, ohne 0/O/1/I/L), speichert **nur den Hash**, gültig 10 Minuten, einmalig verwendbar, höchstens ein offener Code je Installation. Antwort: Code und Ablaufzeit. App zeigt den Code groß mit Restzeit und „Abbrechen“.
 3. Betreiber (Dashboard, Seite „Geräte“, angemeldet per Passkey): „Gerät koppeln“, gibt Code und eine **eigene Bezeichnung** (frei wählbar, höchstens 40 Zeichen, z. B. „Mein iPhone“) ein: `POST /dash/api/devices/pair`. Der Server prüft Hash/Ablauf, markiert den Code als verbraucht und legt die Kopplung an.
 4. App fragt kurz `GET /v1/push/installations/<id>/link` (Polling nur, solange der Code-Bildschirm offen ist, alle 3 s, höchstens 10 Minuten) und zeigt „Gekoppelt seit …, läuft ab am …“ mit „Trennen“.
@@ -189,21 +189,48 @@ Reine Funktion `PushDiagnosis` (testbar ohne Netz): Eingabe Installation, Abos, 
 
 Ausgang: genau ein „wahrscheinlichster Grund“ plus Liste der übrigen Prüfungen. Das ist die Antwort auf „es fehlt Sichtbarkeit“ und braucht nur Lesezugriffe plus das Ereignisprotokoll.
 
-### 4.6 TestFlight-Kopplung und Erkennung
+### 4.6 TestFlight-Kopplung und Erkennung (harte Anforderung, Präzisierung 6.11.2026)
 
-Ziel: Funktion nur in TestFlight-Builds (und Debug) anbieten; App Store-Nutzer sehen den Schalter nicht.
+**Anforderung H1:** Das Geräte-Opt-in darf in App-Store-Installationen **weder sichtbar noch aktivierbar** sein; es erscheint nur, wenn die App nachweislich aus TestFlight stammt. Gilt zweifach: App-seitig (UI und Code-Pfad) **und** serverseitig (Backend lehnt die Kopplung ohne gültigen Umgebungsnachweis ab). Im Zweifel (offline, nicht verifizierbar, unbekannter Wert) gilt „kein TestFlight“ (fail closed).
 
-| Methode | Befund | Bewertung |
+**Belegte Befunde (Primärquelle: Apples Bibliothek `app-store-server-library-swift`, `main`, abgerufen 6.11.2026, Dateien `SignedDataVerifier.swift`, `Models/AppTransaction.swift`, `Models/AppStoreEnvironment.swift`):**
+- Das signierte `AppTransaction`-JWS enthält ein Feld `receiptType`, dokumentiert als „server environment, production or sandbox, that signed the app transaction“; Werte `Sandbox`, `Production`, `Xcode`, `LocalTesting`.
+- `SignedDataVerifier.verifyAndDecodeAppTransaction` prüft Zertifikatskette (Apple-Wurzelzertifikate, vom Betreiber der Prüfung bereitzustellen), `bundleId` und Umgebung (`INVALID_ENVIRONMENT`, `INVALID_APP_IDENTIFIER`); optional Online-Prüfung (`enableOnlineChecks`). Das Backend kann also die Umgebung **kryptografisch aus dem von der App gelieferten JWS prüfen**, ohne Apple-Server-Aufruf und ohne Konto-Zugang.
+- Das JWS enthält zusätzlich `deviceVerification` und `deviceVerificationNonce` (Bindung an das Gerät; Berechnung laut Apple-Doku zu `AppTransaction.deviceVerification`, Details ANNAHME, nicht gelesen) und `appTransactionId` (konto-/app-bezogene ID: **nicht speichern**).
+
+**Nicht belegt (Prüfpunkt, ANNAHME):** dass TestFlight-Installationen `Sandbox` melden und App-Store-Installationen `Production`. Das ist die verbreitete Aussage; die Apple-Doku-Seiten (`AppTransaction`, `AppTransaction.environment`, App Store Server API „Environment“) waren per Abrufwerkzeug nicht inhaltlich lesbar (dynamisch geladen). **Abnahme per Gerätetest (WP14-Spike):** TestFlight-Build liefert `Sandbox`, Xcode-Lauf `Xcode`; der App-Store-Fall `Production` ist erst mit der ersten Veröffentlichung messbar. Deshalb dort doppelt abgesichert (Testplan unten).
+
+| Methode | Bewertung |
+|---|---|
+| **StoreKit 2 `AppTransaction.shared`** (iOS 16+; `environment`, `jwsRepresentation`) | **Empfehlung (Primärmethode):** liefert ein von Apple signiertes Objekt, dessen `receiptType` das Backend selbst prüft. Grenzen: braucht beim ersten Abruf eine Verbindung zum App Store; ohne Netz/Verifikation `unverified` → fail closed. `AppTransaction.refresh()` zeigt eine Anmeldeabfrage und wird **nicht** aufgerufen. `Sandbox` bedeutet „kein App-Store-Produktionskauf“ und ist nicht exklusiv TestFlight (auch Sandbox-Konten); `Xcode`/`LocalTesting` sind Entwicklungsläufe und gelten nur in Debug-Konfiguration als zulässig. Aktuelle Empfehlung unter iOS 27: **nicht geprüft** (Apple-Seiten nicht lesbar); bis zur Prüfung gilt iOS-16+-API, zusätzlich Release Notes zu StoreKit/iOS 27 im Spike lesen. |
+| `Bundle.main.appStoreReceiptURL` mit Endung `sandboxReceipt` | Nur **Rückfall und Gegenprobe** (lokal, offline lesbar), nicht für die Serverseite: inoffiziell als TestFlight-Merkmal, StoreKit-1-Altlast (ANNAHME zur Einstufung als veraltet). **Fälschbar** (kein Nachweis; Jailbreak/Neuverpackung). Darf nie allein das Freischalten bewirken, kann aber verhindern, dass bei Widerspruch zum JWS etwas erscheint (beide müssen zustimmen: JWS `Sandbox` **und** `sandboxReceipt`, außer in Debug). |
+| `env` der Push-Registrierung / `aps-environment` | TestFlight und App Store melden beide `production` (App-Repo `docs/apns-einrichtung.md`, dort selbst als ungeprüft vermerkt): **ungeeignet** |
+| Eingebettetes Provisioning-Profil | TestFlight und App Store haben keines: **ungeeignet** |
+| Info.plist-Kanal-Schlüssel | gleiche Binärdatei für TestFlight und App Store möglich: **ungeeignet** als Beleg |
+
+**Grenzen und Fälschbarkeit (offen benannt):**
+- Das Backend prüft Echtheit, Bundle-ID und Umgebung des JWS (Apple-Signatur). Ein Angreifer ohne gültiges Sandbox-JWS kann die Kopplung nicht erzeugen.
+- Ein **wiedergegebenes** echtes Sandbox-JWS (anderes Gerät, manipulierte App) ist technisch möglich; Gegenmaßnahmen: JWS nur zusammen mit dem Koppelcode und nur über die authentifizierte Installations-Route, Alter `receiptCreationDate` ≤ 24 Stunden (ANNAHME zur Praktikabilität: das JWS wird von StoreKit gecacht; Spike prüft, ob das Feld bei jedem Abruf neu ist, sonst Fenster 7 Tage oder entfällt), Speicherung **nur des Prüfergebnisses** (Umgebung, Zeitpunkt), nie des JWS. Der entscheidende Schutz bleibt, dass die Kopplung **nur ein Passkey-Betreiber im Dashboard einlösen kann**; ein Fälscher gewänne ohne Betreiber nichts. Ein vollständig kompromittiertes Gerät/ein manipuliertes App-Binary kann die Client-Erkennung umgehen, **aber nicht die Serverprüfung**, sofern es kein echtes Sandbox-JWS besitzt.
+- Jeder TestFlight-Tester (auch extern) kann die Kopplung anfordern, aber nur der Betreiber kann sie einlösen: Der Code gilt nur für die eigene Installation.
+- Zusätzlich serverseitig `DEVICE_LINK_ENABLED` (Standard aus) und Capability `device_link`, die ein Betreiber im Dashboard abschaltet, sobald nicht mehr getestet wird.
+
+**App-seitiges Gating (H1, WP14):**
+1. Code-Pfad: Eine Komponente `BuildChannel` (injizierbar, Tests ohne StoreKit) liefert `.testFlight` nur, wenn `AppTransaction.shared` verifiziert ist **und** `environment == .sandbox` **und** `sandboxReceipt` passt; in Debug zusätzlich `.xcode`. Alles andere, einschließlich Fehler/Offline/Timeout (3 s), ergibt `.appStore`/`.unknown` = **nicht sichtbar**.
+2. UI: Abschnitt „Betreiber-Diagnose“ wird nur bei `.testFlight` **und** Server-Capability `device_link` überhaupt in die View-Hierarchie eingefügt (kein verstecktes, kein ausgegrautes Element, kein Accessibility-Eintrag, kein Deep Link, kein Debug-Menü, keine Einstellung in `UserDefaults`).
+3. Netzpfad: Die Routen werden nur aus dieser Komponente aufgerufen (kein Aufruf aus Hintergrund, Widget, Watch, Intent, URL-Schema). Der Schalter-Zustand wird bei jedem Start gegen `BuildChannel` geprüft; wechselt das Gerät von TestFlight zu App Store (Update), wird ein bestehender Link beim nächsten Start per `DELETE …/link` gelöscht und der Schalter entfernt.
+4. Der Nachweis (`jwsRepresentation`) wird nur im Speicher gehalten und nur mit `link-code` gesendet.
+
+**Serverseitiges Gegenstück (H1, WP13):** `POST …/link-code` verlangt im Body `app_transaction` (JWS). Das Backend verifiziert Signaturkette gegen im Repo gebündelte Apple-Wurzelzertifikate (öffentliche Zertifikate, Prüfsumme dokumentiert), `bundleId` gleich `APNS_TOPIC`-Basis (Konfiguration `DEVICE_LINK_BUNDLE_ID`), `receiptType == Sandbox` (Konfiguration `DEVICE_LINK_ALLOWED_ENVS`, Standard `Sandbox`; `Xcode` nur bei `APNS_ENV` sandbox/both erlaubbar), Zeitfenster, und lehnt sonst mit `403 not_testflight` ab (einheitlich, ohne Grund; Zähler `device_link_reject{reason}` mit festen Gründen `unverified|production|expired|bundle`). Verfahren: entweder Apples Swift-Bibliothek als exakt gepinnte Abhängigkeit (Lizenz/Abhängigkeitsgröße in WP13 prüfen) oder eigene Minimalprüfung (ES256, x5c-Kette, wie bei WebAuthn als Rückfall geplant). Entscheidung D14. Zusätzlich verlangt auch `POST /dash/api/devices/pair`, dass die zugehörige Code-Zeile mit `attested=1` angelegt wurde.
+
+**Testplan H1:**
+| Fall | Erwartung | Wie |
 |---|---|---|
-| `aps-environment` / `env` der Registrierung | TestFlight und App Store melden beide `production` (BESTÄTIGT durch Apple-Verhalten laut App-Repo `docs/apns-einrichtung.md`; dort selbst als „nicht ausdrücklich auf Apple-Seiten“ vermerkt, UNGEPRÜFT) | **ungeeignet** zur Unterscheidung |
-| StoreKit 2 `AppTransaction.shared` → `environment` (`.production`, `.sandbox`, `.xcode`; iOS 16+) | Laut Doku-Seite von Apple existiert `AppTransaction` mit `environment`; die Seite war per Abruf nicht inhaltlich lesbar (Seitentext dynamisch geladen, nur Titel erhalten). Verbreitete Aussage: TestFlight meldet `.sandbox`, App Store `.production`, Xcode-Lauf `.xcode`. **ANNAHME, nicht belegt.** Außerdem benötigt der Aufruf eine App-Store-Verbindung bei erster Nutzung und liefert `unverified` ohne Netz. | **Primärkandidat**, nach Spike |
-| `Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"` | inoffiziell, seit StoreKit 1 genutzt; TestFlight liefert `sandboxReceipt`. ANNAHME, von Apple nicht als Erkennung für TestFlight dokumentiert, StoreKit 1 ist als veraltet geführt | Rückfall |
-| Eingebettetes Provisioning-Profil | gilt für Ad-hoc/Development; TestFlight/App Store haben keines → unterscheidet TestFlight nicht von App Store | ungeeignet |
-| Eigener Build-Schalter (Info.plist-Key `ShowerChannel`, gesetzt vom Archive/Upload-Skript) | belegbar und deterministisch, aber derselbe Archive-Build wird bei TestFlight und App Store verwendet (gleiche Binärdatei bei „Release Candidate“-Promotion) | nur wenn getrennte Builds gewollt, D2 |
-
-**Plan (WP14, Spike zuerst):** Ein kleiner Prüf-Build loggt auf einem echten Gerät einmal `AppTransaction.environment` und `sandboxReceipt` (nur lokal sichtbar, kein Upload): (a) Xcode-Lauf, (b) TestFlight-Build. Der Wert im App-Store-Zustand kann erst nach der Veröffentlichung gemessen werden; bis dahin bleibt die Fortsetzung „im Zweifel kein Schalter“ (fail closed): Schalter nur anzeigen, wenn Erkennung eindeutig `.sandbox`/`.xcode`/Debug meldet. Primärquellen für die Abnahme: Apple Developer Documentation `AppTransaction` und `AppTransaction.environment`, Apple „Distributing your app for beta testing and releases“ (manuell prüfen, da Abruf per Werkzeug nicht lesbar war).
-
-Wichtig: Die Client-Erkennung ist **kein Sicherheitsmerkmal**, nur Sichtbarkeitssteuerung. Das Sicherheitsmerkmal ist, dass die Kopplung einen Betreiber-Passkey-Login braucht. Server-seitig zusätzlich: `DEVICE_LINK_ENABLED` (Standard `false`, Dashboard-Konfiguration `live`), Capability `device_link` nur dann in `GET /v1/push/capabilities`. Optionale Härtung (K): App sendet das signierte `AppTransaction`-JWS mit dem Code, der Server prüft die Apple-Zertifikatskette und `environment`; erst bei Bedarf.
+| App-Store-Build (Umgebung `Production`) | Abschnitt fehlt vollständig; kein Netzaufruf zu `link*`; Server antwortet auf manuell gesendetes Production-JWS `403 not_testflight` | Unit-Tests `BuildChannel` mit injizierten Antworten (production, unverified, offline, Timeout, `Xcode` in Release); UI-Test: View-Hierarchie enthält den Abschnitt nicht; Backend-Test mit selbstsigniertem Testketten-JWS (`Production`) |
+| TestFlight-Build | Abschnitt sichtbar, Code erzeugbar, Kopplung möglich | Gerätetest (Spike und Abnahme WP18) |
+| Xcode-Debug | sichtbar nur in Debug-Konfiguration | UI-Test/Gerät |
+| Manipulierter Client sendet Production-/fremdes/abgelaufenes JWS | `403 not_testflight`, Zähler | Backend-Tests mit Fixtures (falsche Kette, falsche Bundle-ID, abgelaufen, verändertes Feld) |
+| Update TestFlight → App Store | bestehender Link wird gelöscht, Abschnitt verschwindet | Test mit gespeichertem Zustand |
+| Echter App-Store-Build | Abschnitt fehlt | **erst nach erster Veröffentlichung messbar**; bis dahin Fixture-Tests und Review der Logik; nach Veröffentlichung Stichprobe (App-Store-Installation zeigt keine Diagnose) als Abnahmepunkt in WP18 |
 
 ### 4.7 API-Entwurf
 
@@ -211,7 +238,7 @@ App ↔ Backend (Auth wie übrige Push-Routen: Installations-ID + Secret; Rate-L
 
 | Methode, Pfad | Zweck | Antworten |
 |---|---|---|
-| POST `/v1/push/installations/<id>/link-code` | Code erzeugen (ersetzt einen offenen Code) | `201 {"code":"ABCD-EFGH","expires_at":"…"}`; `409 link_full` (Maximum erreicht); `429` |
+| POST `/v1/push/installations/<id>/link-code` | Body `{"app_transaction":"<JWS>"}`; Code erzeugen (ersetzt einen offenen Code) | `201 {"code":"ABCD-EFGH","expires_at":"…"}`; `403 not_testflight` (Nachweis fehlt/ungültig/Production); `409 link_full`; `429` |
 | GET `/v1/push/installations/<id>/link` | Zustand | `200 {"state":"none\|code_open\|linked","linked_at":"…","expires_at":"…","label_set":true}` (Bezeichnung nicht zurückgeben) |
 | DELETE `/v1/push/installations/<id>/link` | Trennen und Code verwerfen | `204` (idempotent) |
 | GET `/v1/push/capabilities` | + `device_link` | bestehend, additiv |
@@ -297,13 +324,21 @@ Dateibesitz exklusiv je Paket; `main.swift` gehört WP5, `PushService.swift` und
 | **WP17 Doku, Datenschutz, Deploy** | `docs-site` (api, dashboard-api, betrieb, seiten/datenschutz), `docs/pages.md`, `.env.example`, Registerzeilen und Tabellen (`deploy/swarm/config-registry.tsv`, `check-config-tables.sh` laufen lassen), ggf. Secret im `stack.dashboard.yaml` (D6) | genannte Dateien; **`deploy/swarm/*` erst anfassen, wenn der Fremdbesitz der uncommitteten Änderungen geklärt ist** | WP13, WP12 | M | Linkprüfung, Suche nach privaten Pfaden/Domains, `check-config-tables.sh`, `docker stack config` |
 | **WP18 Review und Abnahme** | Erweiterung WP9: Sicherheits-Review Gerätekopplung, E2E (Playwright, virtueller Authenticator, Pairing-Flow mit Test-App-Client), Datenschutzprüfung, Gerätetest mit TestFlight-Build (Live Activity Probe), Designabnahme, Status/Entscheidungen | `docs/decisions.md`, `docs/status.md`, `dashboard/e2e/**` | alle | M | siehe Spalte, plus Abschnitt 8 |
 
-**Reihenfolge und Wellen.** Voraussetzung ist der Abschluss von WP5 (Listener/Router), WP7-Altumfang entfällt zugunsten WP10/WP15/WP16 (WP7 ist noch nicht begonnen; Board-Aufgabe WP7 mit Verweis auf diesen Plan anpassen).
-- **Welle A (parallel, 3 Worker):** WP5 (läuft/offen, Voraussetzung), WP10 (Frontend, unabhängig), WP14-Spike (App-Repo, kleiner Teil).
-- **Welle B:** WP11 (nach WP5-Router für Verdrahtung, Zähler selbst unabhängig), WP12-Slice 1 (Push-Gauges, vorab für die Live-Activity-Frage), WP15 beginnt mit Mock.
-- **Welle C:** WP13 (nach WP11 wegen `PushService`/`PushApi`), WP12 Rest, WP16.
-- **Welle D:** WP14 vollständig (gegen WP13-Vertrag), WP17.
-- **Welle E:** WP18 (zusammen mit WP9).
-Höchstens drei Worker gleichzeitig. Docker/Build/Browser-Screenshots: WP10 und WP18 sind Verantwortliche der Frontend-Ressourcen; Swift-Build/DB-Tests nacheinander je Welle.
+**Parallelisierung (Präzisierung 6.11.2026): drei unabhängige Spuren, getrennter Dateibesitz, höchstens drei Worker.**
+
+Schritt 0 (vorab, ein Worker, klein, S): **WP-V „Verträge einfrieren“** schreibt die API-Verträge in `docs-site/content/api.md` (App-Routen inkl. `app_transaction`, `device_link`), `docs-site/content/dashboard-api.md` (Insights- und Geräte-Routen) und einen Fixture-Satz (`docs/fixtures/dashboard/*.json`, erfundene Beispieldaten) fest. Danach arbeiten die Spuren ohne gegenseitiges Warten:
+
+| Spur | Worker | Pakete in Reihenfolge | Exklusive Verzeichnisse | Gegen was entwickelt |
+|---|---|---|---|---|
+| **Backend-API** (Repo Backend, `Sources/`, `Tests/`, `migrations/`) | 1 | WP5 (Router, Voraussetzung) → WP13a (Kopplung + JWS-Prüfung + Diagnose, **zuerst**, weil Nutzerschmerz) → WP11 (Metriken/Observer) → WP12 (Insight-API) | alle Swift-Dateien dieser Pakete, `migrations/010+`, `docs-site/content/{api,dashboard-api}.md` nach WP-V | Tests mit Memory/MariaDB, selbstsignierte Testkette für JWS |
+| **Dashboard-Frontend** (Repo Backend, nur `dashboard/**`) | 2 | WP10 (Designsystem) → WP15 (Seiten) → WP16 (Geräte, Konfiguration) | `dashboard/**` ausschließlich | Mock-Server mit den Fixtures aus WP-V |
+| **App-Opt-in** (Repo Apple, eigener Besitzer) | 3 | WP14: Spike TestFlight-Erkennung → `BuildChannel` → UI → Datenschutztext → Tests | nur App-Repo; dieses Repo unverändert | Mock-Server nach Vertrag, injizierte StoreKit-Antworten |
+
+Konflikte ausgeschlossen: Frontend schreibt nur unter `dashboard/`, App nur im App-Repo, Backend nur unter `Sources/`, `Tests/`, `migrations/`, Vertragsdateien (erst nach WP-V). `PushService.swift`/`PushApi.swift` hat im Backend nur ein Worker. Docker/Browser-Build: Frontend-Worker; Swift-Build/DB-Tests: Backend-Worker; Gerätetests: Nutzer/App-Worker. WP17 (Doku/Deploy, nach Klärung von `deploy/swarm/`) und WP18 (Review/E2E, Gerätetest TestFlight, App-Store-Stichprobe nach Veröffentlichung) folgen, sobald die Spuren fertig sind; auch sie als ein Worker je Paket, nie mehr als drei gleichzeitig.
+
+Zeitliche Abfolge: Welle 0: WP-V (+ Spike WP14 parallel, weil unabhängig). Welle 1: die drei Spuren parallel. Welle 2: WP17, WP18 (WP12-Rest und WP16 laufen in ihren Spuren weiter). Der Sofort-Slice (Push-Gauges, Diagnose, Ereignisse) liegt vorn in der Backend-Spur (WP13a vor WP11); das Frontend zeigt ihn zuerst im Mock.
+
+Voraussetzung bleibt der Abschluss von WP5; WP7-Altumfang entfällt zugunsten WP10/WP15/WP16 (Board-Aufgabe WP7 anpassen). WP13 aus der Tabelle oben heißt jetzt WP13a (Kopplung, Diagnose, JWS-Prüfung, Aktionen); der Rest der Tabellenzeile (Dateien) bleibt, erweitert um `AppAttestation.swift` (JWS-Prüfung, ggf. mit Package-Änderung `Package.swift`/`Package.resolved`, Besitz Backend-Spur).
 
 **Abgrenzung zu WP5 bis WP9.**
 - WP5 bleibt Listener/Router/Statik/`main.swift`; Insights- und Geräte-Routen kommen als eigene Dateien, die WP5 nur registriert (Router-Erweiterungspunkt in WP5 verlangen: Liste von Routen-Registrierern).
@@ -320,7 +355,7 @@ Höchstens drei Worker gleichzeitig. Docker/Build/Browser-Screenshots: WP10 und 
 | # | Frage | Empfehlung | Alternativen |
 |---|---|---|---|
 | D1 | Stundenauflösung für ausgewählte Metriken (72 h, nur Zähler)? | **Ja**, 72 h; ohne sie sind Live-Activity-Probleme und Tagesmuster kaum sichtbar | Nur Tageswerte (einfacher, weniger Insight) |
-| D2 | Sichtbarkeit des App-Schalters | **Nur TestFlight/Debug, fail closed**, Server-Schalter `DEVICE_LINK_ENABLED` Standard aus | Immer sichtbar, aber nur bei Server-Schalter; getrennter Info.plist-Kanal |
+| D2 | Sichtbarkeit des App-Schalters | **ENTSCHIEDEN (6.11.2026, harte Anforderung H1): nie im App Store; nur nachweislich TestFlight (Debug zusätzlich), fail closed, App- und Serverprüfung**; Server-Schalter `DEVICE_LINK_ENABLED` Standard aus | – |
 | D3 | Kopplungsdauer und Anzahl | **14 Tage, höchstens 3 Geräte** | 7 oder 30 Tage; 1 Gerät |
 | D4 | Aufbewahrung: Geräteereignisse 48 h, Audit 365 Tage | **Ja** (Audit kurz halten) | Audit 90 Tage |
 | D5 | Geografische Verteilung der Abos | **Nein** (nur Verteilungen ohne Geografie) | grobe Sektoren, k ≥ 10 |
@@ -330,13 +365,14 @@ Höchstens drei Worker gleichzeitig. Docker/Build/Browser-Screenshots: WP10 und 
 | D9 | Push-Pause-Schalter und Cache leeren aufnehmen | **Ja** | nur Konfiguration/Neustart |
 | D10 | Reihenfolge | **Zuerst Sofort-Slice (Push-Gauges, Diagnose, Ereignisse), dann Optik/Rest** | erst Designsystem |
 | D11 | Schrift | **Inter Variable lokal gebündelt** | Nur Systemschrift |
-| D12 | TestFlight-Erkennung | **`AppTransaction.environment` mit `sandboxReceipt`-Rückfall nach Spike** (WP14), bis zur Messung ist der Schalter für Release-Builds aus | Info.plist-Kanal |
+| D12 | TestFlight-Erkennung | **`AppTransaction` (verifiziertes JWS, `Sandbox`) + `sandboxReceipt` als Gegenprobe, Spike-Abnahme** (WP14), bis zur Messung Schalter in Release-Builds aus | nur lokale Erkennung ohne Serverprüfung (nicht empfohlen) |
+| D14 | JWS-Prüfung im Backend | **Apples `app-store-server-library-swift` exakt gepinnt**, falls Lizenz/Abhängigkeiten tragbar (WP13 prüft); sonst eigene Minimalprüfung | Eigenprüfung von Anfang an |
 | D13 | Befund-Schwellen aus 2.6 | **Als Startwerte übernehmen**, nach 2 Wochen kalibrieren | andere Werte |
 
 ## 10. Risiken
 
 1. **Datenschutz/Vertrauen:** Gerätekopplung ist die einzige Funktion mit Gerätebezug; Gegenmaßnahmen 4.3. Restrisiko: Betreiber koppelt fremdes Gerät (Code nur über die App, Einwilligung des Gerätebesitzers; Betreiber-Hinweis in Doku).
-2. **TestFlight-Erkennung unbelegt** (4.6): Spike zuerst, fail closed.
+2. **TestFlight=`Sandbox` unbelegt** (4.6): Spike zuerst, fail closed; Replay eines echten Sandbox-JWS bleibt möglich, wird durch Passkey-Einlösung entschärft; App-Store-Fall erst nach Veröffentlichung messbar.
 3. **Zähler-Overhead und Etikettenraum** bei neuen Metriken: Messung wie in WP2 (Mikrosekunden je Anfrage), feste Etiketten.
 4. **Gleichzeitige Änderungen an `PushService`/`PushApi`** (WP11, WP13): sequenziell, `PushObserver` als schmale Nahtstelle.
 5. **Dashboard-Dienst ohne APNs-Secret** (D6) kann Aktionen nicht direkt senden → Befehlstabelle; Verzug und Fehlerrückmeldung über Ereignisverlauf.
