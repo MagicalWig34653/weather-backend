@@ -48,3 +48,25 @@ if (/https?:\/\//.test(html.replace(/<!doctype[^>]*>/i, ''))) {
 	throw new Error('index.html verweist auf externe Adressen.');
 }
 console.log(`Startskript ausgelagert: ${file}`);
+
+// Produktionsbuild ohne Mock und Design-Vorschau (Plan 5: /dash/_design nur Dev/Mock).
+// Die Marker stammen aus dem Mock-Server, dem Mock-Banner und der Vorschauseite.
+const forbidden = [
+	'Mock-Modus',
+	'Mock-Daten',
+	'mock-csrf-token',
+	'db.example.internal',
+	'createMockFetch',
+	'Vorschau der Tokens und Bausteine'
+];
+const leaks = [];
+for (const f of readdirSync(root, { recursive: true })) {
+	if (!/\.(js|html|css|json|txt)$/.test(f)) continue;
+	if (/mock/i.test(f) || /(^|[\\/])_design/.test(f)) leaks.push(`Datei ${f}`);
+	const text = readFileSync(join(root, f), 'utf8');
+	for (const m of forbidden) if (text.includes(m)) leaks.push(`${m} in ${f}`);
+}
+if (leaks.length > 0) {
+	throw new Error(`Mock- oder Vorschau-Code im Produktionsbuild: ${leaks.join('; ')}`);
+}
+console.log('Produktionsbuild enthaelt weder Mock noch Design-Vorschau.');

@@ -44,8 +44,9 @@
 			</div>
 			{#if cred}
 				<p class="text-muted-foreground mt-3 text-[12px]">
-					Passkey registriert: <time>{formatDateTime(cred.created_at)}</time>. unbekannt vor, setze
-					den Zugang mit dem Notfall-Befehl zurück.
+					Passkey registriert am <time datetime={cred.createdAt}
+						>{formatDateTime(cred.createdAt)}</time
+					>. Stammt das nicht von dir, setze den Zugang mit dem Notfall-Befehl zurück.
 				</p>
 			{/if}
 			<div class="mt-4 flex items-center justify-between gap-3">

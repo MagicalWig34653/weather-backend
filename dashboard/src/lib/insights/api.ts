@@ -4,6 +4,7 @@
  */
 import { api } from '#lib/client.js';
 import { ApiError } from '#lib/api.js';
+import { formatDuration } from '#lib/format.js';
 import { errorText } from './text.js';
 import type {
 	Device,
@@ -27,10 +28,13 @@ import type {
 const q = (range: Range) => `?range=${encodeURIComponent(range)}`;
 const enc = encodeURIComponent;
 
-/** Klartext fuer einen Fehler (Servercode bevorzugt). */
+/** Klartext fuer einen Fehler (Servercode bevorzugt); bei 429 mit Wartezeit aus Retry-After. */
 export function describeError(e: unknown): string {
-	if (e instanceof ApiError) return (e.serverCode && errorText[e.serverCode]) || e.message;
-	return 'Unbekannter Fehler.';
+	if (!(e instanceof ApiError)) return errorText.unknown;
+	const base = (e.serverCode && errorText[e.serverCode]) || e.message;
+	return e.code === 'rate_limited' && e.retryAfter
+		? `${base} Erneut möglich in ${formatDuration(e.retryAfter)}.`
+		: base;
 }
 
 export const insights = {

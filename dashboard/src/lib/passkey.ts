@@ -83,11 +83,7 @@ export async function createPasskey(
 			publicKey: {
 				...options,
 				challenge: b64urlToBuffer(options.challenge),
-				user: { ...options.user, id: b64urlToBuffer(options.user.id) },
-				excludeCredentials: options.excludeCredentials?.map((c) => ({
-					...c,
-					id: b64urlToBuffer(c.id)
-				})) as PublicKeyCredentialDescriptor[] | undefined
+				user: { ...options.user, id: b64urlToBuffer(options.user.id) }
 			} as PublicKeyCredentialCreationOptions
 		})) as PublicKeyCredential | null;
 		if (!cred) throw new PasskeyError('cancelled', 'Es wurde kein Passkey erstellt.');

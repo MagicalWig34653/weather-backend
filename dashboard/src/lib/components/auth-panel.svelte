@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { api } from '#lib/client.js';
 	import { ApiError, type SessionState } from '#lib/api.js';
-	import { MOCK } from '#lib/client.js';
-	import { createPasskey, getPasskey, passkeysSupported, PasskeyError } from '#lib/passkey.js';
+	import { authErrorText } from '#lib/auth-errors.js';
+	import { createPasskey, getPasskey, passkeysSupported } from '#lib/passkey.js';
 	import { session } from '#lib/session.svelte.js';
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -10,13 +10,14 @@
 	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 
-	let { mode }: { mode: Extract<SessionState, { state: 'setup_open' | 'login' }> } = $props();
+	let { mode }: { mode: Extract<SessionState, { state: 'setupOpen' | 'setupClosed' | 'login' }> } =
+		$props();
 
 	let busy = $state(false);
 	let error = $state<string | null>(null);
 
-	const supported = $derived(MOCK || passkeysSupported());
-	const isSetup = $derived(mode.state === 'setup_open');
+	const supported = $derived(__MOCK__ || passkeysSupported());
+	const isSetup = $derived(mode.state === 'setupOpen');
 
 	async function run(): Promise<void> {
 		busy = true;
@@ -24,38 +25,27 @@
 		try {
 			if (isSetup) {
 				const begin = await api.setupBegin();
-				const cred = MOCK ? mockCred() : await createPasskey(begin.options);
-				await api.setupFinish(begin.challenge_id, cred);
+				const cred = __MOCK__ ? await mockCred() : await createPasskey(begin.options);
+				await api.setupFinish(begin.challengeId, cred);
 			} else {
 				const begin = await api.loginBegin();
-				const cred = MOCK ? mockCred() : await getPasskey(begin.options);
-				await api.loginFinish(begin.challenge_id, cred as never);
+				const cred = __MOCK__ ? await mockCred() : await getPasskey(begin.options);
+				await api.loginFinish(begin.challengeId, cred as never);
 			}
 			await session.refresh();
 		} catch (e) {
-			if (e instanceof PasskeyError) error = e.message;
-			else if (e instanceof ApiError) {
-				error =
-					e.code === 'conflict'
-						? 'Die Einrichtung ist bereits abgeschlossen. Seite neu laden.'
-						: e.code === 'rate_limited'
-							? 'Zu viele Versuche. Bitte eine Minute warten.'
-							: e.code === 'unauthorized' || e.code === 'validation'
-								? 'Anmeldung abgelehnt. Bitte erneut versuchen.'
-								: e.message;
-			} else error = 'Unbekannter Fehler.';
+			error = authErrorText(e, isSetup);
+			// Fenster/Passkey-Zustand hat sich geaendert: Sitzungszustand neu laden.
+			if (e instanceof ApiError && (e.code === 'conflict' || e.serverCode === 'setup_closed'))
+				void session.refresh();
 		} finally {
 			busy = false;
 		}
 	}
 
-	function mockCred() {
-		return {
-			id: 'mock',
-			rawId: 'mock',
-			type: 'public-key' as const,
-			response: { clientDataJSON: '', attestationObject: '' }
-		};
+	// Nur im Mock-Build vorhanden (Literalkonstante, im Produktionsbuild entfernt).
+	async function mockCred() {
+		return (await import('#lib/mock-passkey.js')).mockCredential();
 	}
 </script>
 
@@ -68,7 +58,11 @@
 				<LockIcon class="size-5" aria-hidden="true" />
 			</div>
 			<Card.Title class="text-xl">
-				{isSetup ? 'Dashboard einrichten' : 'Anmelden'}
+				{mode.state === 'setupClosed'
+					? 'Dashboard gesperrt'
+					: isSetup
+						? 'Dashboard einrichten'
+						: 'Anmelden'}
 			</Card.Title>
 			<Card.Description>
 				{isSetup
@@ -77,12 +71,21 @@
 			</Card.Description>
 		</Card.Header>
 		<Card.Content class="space-y-4">
-			{#if mode.state === 'setup_open'}
+			{#if mode.state === 'setupClosed'}
+				<Alert.Root variant="destructive">
+					<TriangleAlertIcon aria-hidden="true" />
+					<Alert.Title>Einrichtung geschlossen</Alert.Title>
+					<Alert.Description>
+						Es gibt noch keinen Passkey, und das Einrichtungsfenster ist abgelaufen. Starte das
+						Dashboard neu, um es wieder zu öffnen.
+					</Alert.Description>
+				</Alert.Root>
+			{:else if mode.state === 'setupOpen'}
 				<Alert.Root variant="destructive">
 					<TriangleAlertIcon aria-hidden="true" />
 					<Alert.Title>Einrichtung ist offen</Alert.Title>
 					<Alert.Description>
-						Noch etwa {mode.minutes_left} Minuten kann ohne Token ein erster Passkey registriert werden.
+						Noch etwa {mode.minutesLeft} Minuten kann ohne Token ein erster Passkey registriert werden.
 						Wer zuerst kommt, wird Betreiber. Nur fortfahren, wenn du es selbst bist.
 					</Alert.Description>
 				</Alert.Root>
@@ -99,7 +102,12 @@
 			{#if error}
 				<div role="alert" class="text-destructive text-sm">{error}</div>
 			{/if}
-			<Button class="w-full" size="lg" onclick={run} disabled={busy || !supported}>
+			<Button
+				class="w-full"
+				size="lg"
+				onclick={run}
+				disabled={busy || !supported || mode.state === 'setupClosed'}
+			>
 				{#if busy}Warte auf Passkey …{:else if isSetup}Passkey registrieren{:else}Mit Passkey
 					anmelden{/if}
 			</Button>

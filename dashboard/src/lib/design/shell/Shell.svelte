@@ -10,7 +10,6 @@
 	import MonitorIcon from '@lucide/svelte/icons/monitor';
 	import MoonIcon from '@lucide/svelte/icons/moon';
 	import SunIcon from '@lucide/svelte/icons/sun';
-	import { MOCK } from '#lib/client.js';
 	import { formatTime } from '#lib/format.js';
 	import { theme } from '#lib/theme.svelte.js';
 	import { ctx, parseRange, RANGES, REFRESH_MS } from '../context.svelte.js';
@@ -107,7 +106,7 @@
 	</nav>
 	<div class="text-muted-foreground flex items-center gap-2 border-t px-5 py-3 text-[12px]">
 		<span class="bg-ok-fill size-2 rounded-full" aria-hidden="true"></span>
-		<span>{MOCK ? 'Mock-Daten' : 'Verbunden'}</span>
+		<span>{__MOCK__ ? 'Mock-Daten' : 'Verbunden'}</span>
 	</div>
 </aside>
 
@@ -194,7 +193,7 @@
 		{/if}
 	</header>
 
-	{#if MOCK}
+	{#if __MOCK__}
 		<p class="bg-warn-soft text-warn px-4 py-1 text-center text-xs">
 			Mock-Modus: erfundene Platzhalterdaten, kein Backend verbunden.
 		</p>

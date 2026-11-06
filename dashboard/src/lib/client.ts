@@ -1,10 +1,8 @@
 import { ApiClient } from './api';
 
-/** true nur mit `vite --mode mock`; im Produktionsbuild eine Konstante (toter Code entfaellt). */
-export const MOCK = import.meta.env.VITE_MOCK === '1';
-
+// Ohne `--mode mock` ist __MOCK__ die Literalkonstante false: Der Mock samt Chunk fehlt im Produktionsbuild.
 export const api = new ApiClient({
-	fetch: MOCK
+	fetch: __MOCK__
 		? async (input, init) => {
 				const { createMockFetch } = await import('./mock');
 				mockFetch ??= createMockFetch();

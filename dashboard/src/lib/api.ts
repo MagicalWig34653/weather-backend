@@ -1,9 +1,9 @@
 /**
- * API-Vertrag des Dashboards (docs/dashboard-plan.md, Abschnitt 2.2).
+ * API-Vertrag des Dashboards: docs-site/content/dashboard-api.md (eingefroren, Feldnamen camelCase).
  * Alle Routen liegen unter /dash/api, sind JSON-only und liefern Cache-Control: no-store.
- * Die endgueltigen Antwortformen werden in docs-site/content/dashboard-api.md (WP5)
- * festgeschrieben; Abweichungen sind dort und hier gemeinsam anzupassen.
+ * Fehlerantworten tragen nur {"error":"<code>"}; der Text wird hier nach Code und Status gewaehlt.
  */
+import { errorText } from './errors';
 
 // ---------------------------------------------------------------- Sitzung
 
@@ -11,13 +11,14 @@ export interface CredentialInfo {
 	/** Anzeigename des Passkeys (kein Personenbezug). */
 	name: string;
 	/** ISO-8601-Zeitpunkt der Registrierung; so faellt eine Fremdregistrierung auf. */
-	created_at: string;
+	createdAt: string;
 }
 
 export type SessionState =
-	| { state: 'setup_open'; minutes_left: number }
+	| { state: 'setupOpen'; minutesLeft: number }
+	| { state: 'setupClosed' }
 	| { state: 'login' }
-	| { state: 'authenticated'; csrf_token: string; credential: CredentialInfo };
+	| { state: 'authenticated'; csrfToken: string; credential: CredentialInfo };
 
 // ---------------------------------------------------------------- Passkey (WebAuthn, Base64URL)
 
@@ -38,7 +39,6 @@ export interface CreationOptionsJSON {
 		residentKey?: 'required' | 'preferred' | 'discouraged';
 		userVerification?: 'required' | 'preferred' | 'discouraged';
 	};
-	excludeCredentials?: CredentialDescriptorJSON[];
 }
 
 export interface RequestOptionsJSON {
@@ -51,7 +51,7 @@ export interface RequestOptionsJSON {
 
 export interface BeginResponse<T> {
 	/** Verweist auf die einmalig nutzbare Challenge in der Datenbank (5 Minuten gueltig). */
-	challenge_id: string;
+	challengeId: string;
 	options: T;
 }
 
@@ -74,102 +74,67 @@ export interface AssertionCredentialJSON {
 	};
 }
 
-// ---------------------------------------------------------------- Statistik
-
-export interface HitCounts {
-	hits: number;
-	misses: number;
-	/** hits / (hits + misses), 0 bis 1; null ohne Anfragen. */
-	ratio: number | null;
-}
-
-export interface LayerStatus {
-	id: string;
-	name: string;
-	status: 'ok' | 'stale' | 'missing';
-	/** ISO-8601 des juengsten Slots; null wenn keiner vorhanden ist. */
-	updated_at: string | null;
-}
-
-export interface StatsOverview {
-	generated_at: string;
-	/** Zaehler werden gesammelt geschrieben: Anzeige kann bis zu so viele Sekunden nachlaufen. */
-	lag_seconds: number;
-	cache_today: HitCounts;
-	cache_30d: HitCounts;
-	requests_today: number;
-	gauges: { installations: number; subscriptions: number; regions_cells: number };
-	layers: LayerStatus[];
-}
-
-export type StatusClass = '2xx' | '3xx' | '4xx' | '5xx';
-export type DailyMetric = 'requests' | 'bytes';
-
-export interface DailyPoint {
-	/** Kalendertag YYYY-MM-DD (UTC). */
-	date: string;
-	/** Wert je Route (normalisierte Routenvorlage, keine Parameterwerte). */
-	routes: Record<string, number>;
-	/** Wert je Statusklasse. */
-	status: Record<StatusClass, number>;
-	not_modified: number;
-	rate_limited: number;
-}
-
-export interface StatsDaily {
-	metric: DailyMetric;
-	days: DailyPoint[];
-}
-
 // ---------------------------------------------------------------- Konfiguration
 
-/** Typname des Registers (ConfigRegistry.swift): int, number, text, url, bool, layers, choice, secret. */
-export type ConfigType =
-	'int' | 'number' | 'text' | 'url' | 'bool' | 'layers' | 'choice' | 'secret';
+/** Typ im Register; unbekannte Werte werden wie `string` behandelt (offene Aufzaehlung). */
+export type ConfigType = 'bool' | 'int' | 'double' | 'string' | 'enum' | 'list' | (string & {});
 export type ConfigSource = 'env' | 'dashboard' | 'default';
-/** live: wirkt nach hoechstens 30 s; restart: erst nach Neustart; envOnly: nur per Umgebungsvariable. */
-export type ConfigApply = 'live' | 'restart' | 'envOnly';
+/** live: wirkt nach hoechstens 30 s; restart: erst nach Neustart. */
+export type ConfigApply = 'live' | 'restart';
+/** Typisierter Wert: Zahl, Wahrheitswert, Text oder Liste; null bei Geheimnissen und ENV-only-Schluesseln. */
+export type ConfigValue = string | number | boolean | string[] | null;
 
-/** Eintrag von GET /dash/api/config, Feldnamen wie `ConfigEntry` im Backend (camelCase, Werte als Text). */
 export interface ConfigEntry {
 	key: string;
 	group: string;
 	type: ConfigType;
-	unit?: string | null;
-	summary: string;
+	default: ConfigValue;
+	min: number | null;
+	max: number | null;
+	unit: string | null;
+	description: string;
 	apply: ConfigApply;
-	/** Geheimnis: value ist immer null, nie anzeigen oder speichern. */
-	secret: boolean;
-	/** false bei Geheimnissen und envOnly-Schluesseln. */
-	editable: boolean;
 	source: ConfigSource;
-	/** true: durch Umgebungsvariable festgelegt, nicht aenderbar. */
-	lockedByEnv: boolean;
-	value: string | null;
-	defaultValue: string | null;
-	isSet?: boolean | null;
-	minimum?: number | null;
-	maximum?: number | null;
-	maxLength?: number | null;
-	choices?: string[] | null;
+	/** true: durch Umgebungsvariable festgelegt oder nicht ueber das Dashboard aenderbar. */
+	locked: boolean;
+	value: ConfigValue;
 	restartPending: boolean;
+	/** Additiv: erlaubte Werte bei `enum`, falls der Server sie nennt. */
+	choices?: string[] | null;
 }
 
 export interface ConfigList {
+	revision: number;
 	entries: ConfigEntry[];
 }
 
-export type AuditAction = 'set' | 'reset' | 'restart' | 'login' | 'setup' | 'dashboard-reset';
+export const AUDIT_ACTIONS = [
+	'set',
+	'reset',
+	'restart',
+	'login',
+	'setup',
+	'reset_cli',
+	'device_pair',
+	'device_unpair',
+	'device_action',
+	'push_pause',
+	'cache_clear'
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export interface AuditEntry {
 	id: number;
 	at: string;
-	action: AuditAction;
-	key: string | null;
-	/** Werte ohne Geheimnisse; null wenn nicht zutreffend. */
-	old_value: string | null;
-	new_value: string | null;
-	actor: 'operator' | 'system';
+	/** Offene Aufzaehlung: unbekannte Aktionen werden unveraendert angezeigt. */
+	action: AuditAction | (string & {});
+	configKey: string | null;
+	oldValue: string | null;
+	newValue: string | null;
+	/** Erste 8 Hexzeichen von SHA-256(Kopplungs-ID); nie die ID selbst. */
+	deviceRef: string | null;
+	/** Z. B. `test:delivered`. */
+	outcome: string | null;
 }
 
 export interface AuditList {
@@ -177,16 +142,18 @@ export interface AuditList {
 }
 
 export interface ReplicaState {
-	slot: number;
-	applied_generation: number;
-	state: 'running' | 'waiting' | 'restarting';
+	/** 8 Hexzeichen eines SHA-256, kein Hostname. */
+	id: string;
+	appliedGeneration: number;
+	startedAt: string;
+	state: 'current' | 'waiting' | (string & {});
 }
 
 export interface RestartState {
 	generation: number;
-	replicas: ReplicaState[];
 	/** Schluessel mit apply = restart, deren Wert vom laufenden Prozess abweicht. */
-	pending_keys: string[];
+	pending: string[];
+	replicas: ReplicaState[];
 }
 
 // ---------------------------------------------------------------- Fehler
@@ -198,6 +165,7 @@ export type ApiErrorCode =
 	| 'conflict'
 	| 'validation'
 	| 'rate_limited'
+	| 'unavailable'
 	| 'network'
 	| 'unknown';
 
@@ -216,7 +184,7 @@ export class ApiError extends Error {
 	}
 }
 
-function codeFor(status: number): ApiErrorCode {
+export function codeFor(status: number): ApiErrorCode {
 	switch (status) {
 		case 401:
 			return 'unauthorized';
@@ -231,9 +199,27 @@ function codeFor(status: number): ApiErrorCode {
 			return 'validation';
 		case 429:
 			return 'rate_limited';
+		case 502:
+		case 503:
+		case 504:
+			return 'unavailable';
 		default:
 			return 'unknown';
 	}
+}
+
+/** Text nach Servercode (bevorzugt), sonst nach Status. Der Server sendet nie Klartext. */
+export function messageFor(status: number, serverCode: string | null): string {
+	if (serverCode && errorText[serverCode]) return errorText[serverCode];
+	const byStatus = errorText[codeFor(status)];
+	return byStatus ?? `Fehler ${status}.`;
+}
+
+/** Retry-After als ganze Sekunden (nur positive Zahlen), sonst null. */
+export function parseRetryAfter(value: string | null): number | null {
+	if (value === null || value.trim() === '') return null;
+	const n = Number(value);
+	return Number.isFinite(n) && n > 0 ? Math.ceil(n) : null;
 }
 
 // ---------------------------------------------------------------- Client
@@ -243,6 +229,8 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 export interface ApiClientOptions {
 	fetch?: FetchLike;
 	baseUrl?: string;
+	/** Abbruch nach so vielen Millisekunden (Standard 20 s); verhindert haengende Anfragen. */
+	timeoutMs?: number;
 }
 
 /**
@@ -253,10 +241,12 @@ export class ApiClient {
 	private csrf: string | null = null;
 	private readonly doFetch: FetchLike;
 	private readonly baseUrl: string;
+	private readonly timeoutMs: number;
 
 	constructor(options: ApiClientOptions = {}) {
 		this.doFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
 		this.baseUrl = options.baseUrl ?? '/dash/api';
+		this.timeoutMs = options.timeoutMs ?? 20_000;
 	}
 
 	setCsrfToken(token: string | null): void {
@@ -278,32 +268,37 @@ export class ApiClient {
 				credentials: 'same-origin',
 				cache: 'no-store',
 				referrerPolicy: 'no-referrer',
-				body: write && body !== undefined ? JSON.stringify(body) : undefined
+				body: write && body !== undefined ? JSON.stringify(body) : undefined,
+				signal:
+					typeof AbortSignal.timeout === 'function'
+						? AbortSignal.timeout(this.timeoutMs)
+						: undefined
 			});
 		} catch {
-			throw new ApiError(0, 'network', 'Der Server ist nicht erreichbar.');
+			throw new ApiError(0, 'network', errorText.network);
 		}
 		if (!res.ok) {
-			let message = '';
 			let serverCode: string | null = null;
 			try {
-				const data = (await res.json()) as { message?: unknown; error?: unknown };
-				if (typeof data.message === 'string') message = data.message;
+				const data = (await res.json()) as { error?: unknown };
 				if (typeof data.error === 'string') serverCode = data.error;
 			} catch {
 				/* Fehlerantworten duerfen leer sein (z. B. 403 ohne Details). */
 			}
-			const ra = Number(res.headers.get('Retry-After'));
 			throw new ApiError(
 				res.status,
 				codeFor(res.status),
-				message || `Fehler ${res.status}`,
-				Number.isFinite(ra) && ra > 0 ? ra : null,
+				messageFor(res.status, serverCode),
+				parseRetryAfter(res.headers.get('Retry-After')),
 				serverCode
 			);
 		}
 		if (res.status === 204) return undefined as T;
-		return (await res.json()) as T;
+		try {
+			return (await res.json()) as T;
+		} catch {
+			throw new ApiError(res.status, 'unknown', errorText.bad_response);
+		}
 	}
 
 	/** Generischer Zugriff fuer die Insights-Schicht (src/lib/insights/api.ts); Pfad relativ zu /dash/api. */
@@ -323,63 +318,59 @@ export class ApiClient {
 	// Sitzung
 	async session(): Promise<SessionState> {
 		const s = await this.request<SessionState>('GET', '/session');
-		this.csrf = s.state === 'authenticated' ? s.csrf_token : null;
+		this.csrf = s.state === 'authenticated' ? s.csrfToken : null;
 		return s;
 	}
 	setupBegin() {
 		return this.request<BeginResponse<CreationOptionsJSON>>('POST', '/setup/begin', {});
 	}
+	/** Antwort 204 mit Set-Cookie; danach GET session aufrufen. */
 	setupFinish(challengeId: string, credential: AttestationCredentialJSON) {
-		return this.request<void>('POST', '/setup/finish', {
-			challenge_id: challengeId,
-			credential
-		});
+		return this.request<void>('POST', '/setup/finish', { challengeId, credential });
 	}
 	loginBegin() {
 		return this.request<BeginResponse<RequestOptionsJSON>>('POST', '/login/begin', {});
 	}
 	loginFinish(challengeId: string, credential: AssertionCredentialJSON) {
-		return this.request<void>('POST', '/login/finish', {
-			challenge_id: challengeId,
-			credential
-		});
+		return this.request<void>('POST', '/login/finish', { challengeId, credential });
 	}
 	async logout(): Promise<void> {
 		await this.request<void>('POST', '/logout', {});
 		this.csrf = null;
 	}
 
-	// Statistik
-	overview() {
-		return this.request<StatsOverview>('GET', '/stats/overview');
-	}
-	daily(metric: DailyMetric, days = 30) {
-		return this.request<StatsDaily>(
-			'GET',
-			`/stats/daily?days=${encodeURIComponent(days)}&metric=${encodeURIComponent(metric)}`
-		);
-	}
-
-	// Konfiguration
+	// Konfiguration: Werte werden typisiert gesendet (Zahl, Wahrheitswert, Text, Liste).
 	config() {
 		return this.request<ConfigList>('GET', '/config');
 	}
-	setConfig(key: string, value: string) {
-		return this.request<ConfigEntry>('PUT', `/config/${encodeURIComponent(key)}`, { value });
+	async setConfig(key: string, value: ConfigValue): Promise<ConfigEntry> {
+		const r = await this.request<{ entry: ConfigEntry }>(
+			'PUT',
+			`/config/${encodeURIComponent(key)}`,
+			{ value }
+		);
+		return r.entry;
 	}
-	resetConfig(key: string) {
-		return this.request<ConfigEntry>('DELETE', `/config/${encodeURIComponent(key)}`);
+	async resetConfig(key: string): Promise<ConfigEntry> {
+		const r = await this.request<{ entry: ConfigEntry }>(
+			'DELETE',
+			`/config/${encodeURIComponent(key)}`
+		);
+		return r.entry;
 	}
-	audit(limit = 100) {
-		return this.request<AuditList>('GET', `/config/audit?limit=${encodeURIComponent(limit)}`);
+	/** `limit` 1 bis 200; `action` filtert serverseitig. Es gibt keine Seitenverschiebung. */
+	audit(limit = 200, action?: string) {
+		const q = new URLSearchParams({ limit: String(limit) });
+		if (action) q.set('action', action);
+		return this.request<AuditList>('GET', `/config/audit?${q}`);
 	}
 
 	// Neustart
 	restartState() {
 		return this.request<RestartState>('GET', '/restart');
 	}
-	/** Der Server verlangt die ausdrueckliche Bestaetigung zusaetzlich zu Sitzung und CSRF-Token. */
+	/** Sitzung und CSRF genuegen; die Bestaetigung fragt die Oberflaeche ab. Antwort 202. */
 	requestRestart() {
-		return this.request<RestartState>('POST', '/restart', { confirm: true });
+		return this.request<{ generation: number }>('POST', '/restart', {});
 	}
 }
