@@ -22,6 +22,8 @@ extension MariaRepo: DeviceCommandRepo {
     public func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, now: Date) async throws -> CreateCommandResult {
         try await transaction { conn in
             guard try await query(conn, "SELECT id FROM dashboard_device WHERE id=? FOR UPDATE", [str(deviceID)]).rows.first != nil else { return .deviceGone }
+            _ = try await query(conn, "UPDATE dashboard_command SET status='failed', finished_at=?, error='timeout' WHERE status='running' AND started_at < ?",
+                                [ts(now), ts(now.addingTimeInterval(-DeviceRetention.runningTimeoutSeconds))])
             if try await query(conn, "SELECT id FROM dashboard_command WHERE device_id=? AND kind=? AND status IN ('queued','running') LIMIT 1",
                                [str(deviceID), str(kind.rawValue)]).rows.first != nil { return .pending }
             let id = UUID().uuidString.lowercased()
@@ -50,6 +52,8 @@ extension MariaRepo: DeviceCommandRepo {
 
     public func claimNextCommand(now: Date) async throws -> DeviceCommand? {
         try await connection { conn in
+            _ = try await query(conn, "UPDATE dashboard_command SET status='failed', finished_at=?, error='timeout' WHERE status='running' AND started_at < ?",
+                                [ts(now), ts(now.addingTimeInterval(-DeviceRetention.runningTimeoutSeconds))])
             _ = try await query(conn, "UPDATE dashboard_command SET status='expired', finished_at=? WHERE status='queued' AND created_at < ?",
                                 [ts(now), ts(now.addingTimeInterval(-DeviceRetention.commandExpirySeconds))])
             for _ in 0..<3 {

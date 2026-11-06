@@ -44,6 +44,8 @@ public struct PushRateLimits: Sendable, Equatable {
 /// tables are checked against it). Off by default; needs push.
 public struct DeviceLinkSettings: Sendable, Equatable {
     public var enabled = false
+    /// `DEVICE_LINK_ENABLED` was set to `false` explicitly (unset or empty is not enough): only then may the janitor remove links.
+    public var explicitlyDisabled = false
     /// `DEVICE_LINK_BUNDLE_ID`; empty = base of `APNS_TOPIC`.
     public var bundleID = ""
     /// `DEVICE_LINK_ALLOWED_ENVS`: AppTransaction `receiptType` values accepted (default `Sandbox` = TestFlight). `Production` is never accepted.
@@ -229,7 +231,9 @@ public struct Config: Sendable {
         c.push.regionLimits.maxRegionsPerInstallation = try ranged("PUSH_MAX_REGIONS_PER_INSTALLATION", c.push.regionLimits.maxRegionsPerInstallation, 1...10)
         c.push.regionLimits.maxCellsPerInstallation = try ranged("PUSH_MAX_CELLS_PER_INSTALLATION", c.push.regionLimits.maxCellsPerInstallation, 500...50000)
         if c.push.enabled { c.push.keyPEM = try secret(env, "APNS_KEY", "") }
-        c.deviceLink.enabled = (env["DEVICE_LINK_ENABLED"] ?? "").lowercased() == "true"
+        let linkSwitch = (env["DEVICE_LINK_ENABLED"] ?? "").lowercased()
+        c.deviceLink.enabled = linkSwitch == "true"
+        c.deviceLink.explicitlyDisabled = linkSwitch == "false"
         c.deviceLink.bundleID = text("DEVICE_LINK_BUNDLE_ID")
         if let raw = env["DEVICE_LINK_ALLOWED_ENVS"] {
             let values = Set(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })

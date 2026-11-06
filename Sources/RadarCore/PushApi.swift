@@ -25,6 +25,15 @@ final class RateLimiter: @unchecked Sendable {
         _ = bump(key, window: window, now: now)
     }
 
+    /// Gives back one event reserved with `allow` (a successful attempt that must not use up a failure budget).
+    func refund(_ key: String, window: TimeInterval, now: Date) {
+        lock.lock(); defer { lock.unlock() }
+        let isPinned = key.hasPrefix("global:")
+        guard var entry = isPinned ? pinned[key] : windows[key], now.timeIntervalSince(entry.start) < window, entry.count > 0 else { return }
+        entry.count -= 1
+        if isPinned { pinned[key] = entry } else { windows[key] = entry }
+    }
+
     /// Events of the current window (0 when none).
     func count(_ key: String, window: TimeInterval, now: Date) -> Int {
         lock.lock(); defer { lock.unlock() }

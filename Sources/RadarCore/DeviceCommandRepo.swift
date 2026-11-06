@@ -56,6 +56,8 @@ public enum DeviceRetention {
     public static let maxEventsPerDevice = 200
     /// Unprocessed commands expire after this many seconds.
     public static let commandExpirySeconds: TimeInterval = 120
+    /// A `running` command older than this (leader died before `finishCommand`) is set to `failed` (`error: "timeout"`).
+    public static let runningTimeoutSeconds: TimeInterval = 180
 }
 
 /// Command table (decision D6: the dashboard process sends nothing; the leader executes) and the 48 hour event log of linked devices.

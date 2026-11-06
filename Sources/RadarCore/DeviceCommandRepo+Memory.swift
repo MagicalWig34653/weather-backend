@@ -6,6 +6,14 @@ struct MemoryCommandStore {
     func pendingCount(deviceID: String) -> Int {
         commands.values.filter { $0.deviceID == deviceID && ($0.status == .queued || $0.status == .running) }.count
     }
+    /// N1: `running` commands whose leader died become `failed` (`timeout`).
+    mutating func reapStuck(now: Date) {
+        for (id, c) in commands where c.status == .running && now.timeIntervalSince(c.startedAt ?? c.createdAt) > DeviceRetention.runningTimeoutSeconds {
+            commands[id]?.status = .failed
+            commands[id]?.finishedAt = now
+            commands[id]?.error = "timeout"
+        }
+    }
     mutating func removeAll(deviceID: String) {
         commands = commands.filter { $0.value.deviceID != deviceID }
         events[deviceID] = nil
@@ -14,6 +22,7 @@ struct MemoryCommandStore {
 
 extension MemoryRepo: DeviceCommandRepo {
     public func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, now: Date) async throws -> CreateCommandResult {
+        commandStore.reapStuck(now: now)
         guard let device = deviceStore.devices[deviceID], push.installs[device.installID] != nil else { return .deviceGone }
         if commandStore.commands.values.contains(where: { $0.deviceID == deviceID && $0.kind == kind && ($0.status == .queued || $0.status == .running) }) { return .pending }
         let command = DeviceCommand(id: UUID().uuidString.lowercased(), deviceID: deviceID, kind: kind, dryRun: dryRun, status: .queued, createdAt: now)
@@ -34,6 +43,7 @@ extension MemoryRepo: DeviceCommandRepo {
     }
 
     public func claimNextCommand(now: Date) async throws -> DeviceCommand? {
+        commandStore.reapStuck(now: now)
         for (id, c) in commandStore.commands where c.status == .queued && now.timeIntervalSince(c.createdAt) > DeviceRetention.commandExpirySeconds {
             commandStore.commands[id]?.status = .expired
             commandStore.commands[id]?.finishedAt = now

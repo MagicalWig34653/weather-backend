@@ -154,15 +154,20 @@ final class DashboardDevices: Sendable {
         guard (1...40).contains(label.count), !label.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
             return Self.error(400, "validation")
         }
-        // Only failed attempts count (5 per minute, global): a valid redemption by the operator is never blocked by others' guessing.
-        guard limiter.count("pair-fail", window: 60, now: now) < 5 else { return Self.error(429, "rate_limited", retryAfter: 60) }
+        // Budget: 5 unknown codes per minute (global, per replica). The slot is reserved atomically before the check (a burst
+        // cannot pass the check before the first failure is counted) and given back unless the code was unknown, so a correct
+        // code does not use up the budget. While guessers have used it up, even a correct code gets 429: the check itself is what
+        // the limit protects (2^40 codes, 10 minutes, session and CSRF required).
+        guard limiter.allow("pair-fail", limit: 5, window: 60, now: now) else { return Self.error(429, "rate_limited", retryAfter: 60) }
         switch try await repo.pairDevice(codeHash: LinkCode.hash(code), label: label, deviceID: UUID().uuidString.lowercased(), now: now,
                                          maxDevices: settings.maxDevices, ttlDays: settings.ttlDays) {
         case .codeUnknown:
-            limiter.record("pair-fail", window: 60, now: now)
             return Self.error(404, "code_unknown")
-        case .deviceLimit: return Self.error(409, "device_limit")
+        case .deviceLimit:
+            limiter.refund("pair-fail", window: 60, now: now)
+            return Self.error(409, "device_limit")
         case .paired(let device):
+            limiter.refund("pair-fail", window: 60, now: now)
             try await repo.appendDeviceAudit(action: .devicePair, deviceRef: DashboardValidation.deviceRef(device.id), outcome: nil, now: now)
             return DashboardApi.object(201, try await deviceJSON(device, settings: settings, now: now))
         }
