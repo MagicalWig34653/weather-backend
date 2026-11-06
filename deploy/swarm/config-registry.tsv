@@ -15,6 +15,9 @@ DASH_RP_ID	Dashboard	text:free				500		envOnly	0	WebAuthn Relying-Party-ID.
 DASH_SETUP_WINDOW_MINUTES	Dashboard	int	15	min	1	120		envOnly	0	Zeitfenster der Ersteinrichtung.
 DASH_SESSION_HOURS	Dashboard	int	12	h	1	72		envOnly	0	Maximale Sitzungsdauer.
 DASH_IDLE_MINUTES	Dashboard	int	30	min	1	240		envOnly	0	Abmeldung bei Inaktivität.
+DASH_PROXY_TOKEN	Dashboard	secret						envOnly	1	Geheimnis, das der Reverse Proxy als Header X-Dashboard-Proxy-Token setzt (Swarm-Secret per DASH_PROXY_TOKEN_FILE, mind. 32 Zeichen). Erzeugen: openssl rand -base64 32 | tr '+/' '-_' | tr -d '='.
+DASH_PROXY_TOKEN_PREVIOUS	Dashboard	secret						envOnly	1	Vorheriges Proxy-Token, bei Rotation parallel gültig (DASH_PROXY_TOKEN_PREVIOUS_FILE).
+DASH_PROXY_TOKEN_REQUIRED	Dashboard	bool	true					envOnly	0	Ohne gültiges Proxy-Token startet das Dashboard nicht; nur false erlaubt den Start ohne (laute Warnung im Log).
 MIGRATIONS_DIR	Dienst	text:free	migrations			500		envOnly	0	Verzeichnis der SQL-Migrationen.
 BUILD_REVISION	Dienst	text:free				500		envOnly	0	Commit des Images (nur Anzeige).
 WMS_URL	Quellen	text:free	https://maps.dwd.de/geoserver/ows			500		envOnly	0	DWD-WMS (nur für Tests ändern).
@@ -78,10 +81,12 @@ DASH_WARN_CAP_FILL_RED	Dashboard-Schwellen	number	0.95		0	1		live	0	Füllgrad ei
 DASH_WARN_LA_START_RATIO_YELLOW	Dashboard-Schwellen	number	0.7		0	1		live	0	Anteil zugestellter Live-Activity-Starts, untere Grenze gelb.
 DASH_WARN_LA_START_RATIO_RED	Dashboard-Schwellen	number	0.3		0	1		live	0	Anteil zugestellter Live-Activity-Starts, untere Grenze rot.
 DASH_MIN_GROUP	Dashboard-Schwellen	int	5		3	50		live	0	k-Unterdrückung: Gruppen darunter erscheinen als „<k“.
-DEVICE_LINK_ENABLED	Geräte-Kopplung	bool	false					envOnly	0	Geräte-Kopplung für TestFlight-Geräte einschalten (braucht Push).
+DEVICE_LINK_ENABLED	Geräte-Kopplung	bool	false					envOnly	0	Geräte-Kopplung einschalten (braucht Push und Dashboard): Geräte koppeln sich nur in einem vom Betreiber im Dashboard geöffneten Kopplungsfenster.
 DEVICE_LINK_BUNDLE_ID	Geräte-Kopplung	text:bundleIdentifier				155		envOnly	0	Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.
 DEVICE_LINK_ALLOWED_ENVS	Geräte-Kopplung	text:free	Sandbox			500		envOnly	0	Erlaubte receiptType-Werte (Sandbox, Xcode, LocalTesting; Production nie).
 DEVICE_LINK_MAX_AGE_HOURS	Geräte-Kopplung	int	24	h	0	8760		envOnly	0	Höchstalter des AppTransaction-Belegs.
+DEVICE_LINK_REQUIRE_TESTFLIGHT	Geräte-Kopplung	bool	false					envOnly	0	Zusätzlich den TestFlight-Nachweis (AppTransaction) für Koppelcodes verlangen.
+DEVICE_LINK_WINDOW_MINUTES	Geräte-Kopplung	int	5	min	1	15		envOnly	0	Standarddauer des Kopplungsfensters im Dashboard.
 DASH_MAX_DEVICES	Geräte-Kopplung	int	3		1	5		envOnly	0	Höchstzahl gekoppelter Geräte.
 DASH_DEVICE_TTL_DAYS	Geräte-Kopplung	int	0	Tage	0	365		envOnly	0	Ablauf einer Kopplung; 0 = kein Ablauf.
 DASH_DEVICE_STALE_DAYS	Geräte-Kopplung	int	14	Tage	1	365		envOnly	0	Anzeige „zuletzt gesehen“ als veraltet ab.

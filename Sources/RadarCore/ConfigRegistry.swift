@@ -255,7 +255,7 @@ public enum ConfigRegistry {
         s("DASH_WARN_LA_START_RATIO_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.3", "Anteil zugestellter Live-Activity-Starts, untere Grenze rot.", .live),
         s("DASH_MIN_GROUP", "Dashboard-Schwellen", .int(min: 3, max: 50), "5", "k-Unterdrückung: Gruppen darunter erscheinen als „<k“.", .live),
         // Device link (read from the environment only; shown read-only)
-        s("DEVICE_LINK_ENABLED", "Geräte-Kopplung", .bool, "false", "Geräte-Kopplung für TestFlight-Geräte einschalten (braucht Push).", .envOnly),
+        s("DEVICE_LINK_ENABLED", "Geräte-Kopplung", .bool, "false", "Geräte-Kopplung einschalten (braucht Push und Dashboard): Geräte koppeln sich nur in einem vom Betreiber im Dashboard geöffneten Kopplungsfenster.", .envOnly),
         s("DEVICE_LINK_BUNDLE_ID", "Geräte-Kopplung", .text(maxLength: 155, rule: .bundleIdentifier), "", "Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.", .envOnly),
         s("DEVICE_LINK_ALLOWED_ENVS", "Geräte-Kopplung", any, "Sandbox", "Erlaubte receiptType-Werte (Sandbox, Xcode, LocalTesting; Production nie).", .envOnly),
         s("DEVICE_LINK_MAX_AGE_HOURS", "Geräte-Kopplung", .int(min: 0, max: 8760), "24", unit: "h", "Höchstalter des AppTransaction-Belegs.", .envOnly),
