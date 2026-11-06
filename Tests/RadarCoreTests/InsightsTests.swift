@@ -61,7 +61,7 @@ private func shapeDiffs(_ mine: Any, _ fixture: Any, path: String = "$") -> [Str
         // Heterogeneous arrays (e.g. objects with optional members) are compared element-wise by first element.
         return shapeDiffs(x, y, path: path + "[0]")
     case let (a as NSNumber, b as NSNumber):
-        let aBool = CFGetTypeID(a) == CFBooleanGetTypeID(), bBool = CFGetTypeID(b) == CFBooleanGetTypeID()
+        let aBool = isJSONBool(a), bBool = isJSONBool(b)
         return aBool == bBool ? [] : ["\(path): bool vs number"]
     case (is String, is String): return []
     default: return ["\(path): type \(type(of: mine)) vs \(type(of: fixture))"]

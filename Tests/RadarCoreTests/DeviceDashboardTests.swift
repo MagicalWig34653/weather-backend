@@ -30,7 +30,7 @@ private func sameShape(_ actual: Any, _ expected: Any, path: String = "$") -> [S
         return []
     }
     func kind(_ v: Any) -> String {
-        if let n = v as? NSNumber { return CFGetTypeID(n) == CFBooleanGetTypeID() ? "bool" : "number" }
+        if let n = v as? NSNumber { return isJSONBool(n) ? "bool" : "number" }
         return v is String ? "string" : "other"
     }
     return kind(actual) == kind(expected) ? [] : ["\(path): \(kind(actual)) vs \(kind(expected))"]
