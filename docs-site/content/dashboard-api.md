@@ -142,7 +142,9 @@ Abfrage-Parameter `range` (alle Insights-Routen außer `findings`): `24h` (Stand
 
 **Teilausfall:** Fällt ein Abschnitt aus (z. B. Gauge-Abfrage), antwortet die Route trotzdem `200`, der Abschnitt ist `null` und sein Schlüssel steht in `partial: ["cache"]`. `503 data_unavailable` nur, wenn gar nichts berechnet werden kann.
 
-**Push deaktiviert** (`PUSH_ENABLED=false`): Push-Abschnitte sind `null`, `pushEnabled: false`; `GET insights/push` antwortet `200` mit `pushEnabled: false` und nur `prerequisites`.
+**Push-Zustand** (additiv, 6. November 2026): Die Wahrheit über Push kommt aus der geteilten Datenbank (Heartbeat der `radar`-Replikate, Push-Leader-Lease), nicht aus der Konfiguration des Dashboard-Prozesses (der Dashboard-Dienst läuft bewusst mit `PUSH_ENABLED=false`). `pushState`: `"on"` (mindestens ein frisches Replikat meldet Push aktiv oder ein Leader-Lease ist gültig), `"off"` (frische Replikate melden, keines hat Push an, kein Leader) oder `"unknown"` (kein Replikat hat sich in den letzten ca. 105 Sekunden gemeldet; weder an noch aus bekannt). Bei `unknown` ist `pushEnabled: false`, in `prerequisites` hat `push_enabled` `detail: "unknown"`. `apns_env_match`, `apns_topic_set`, `apns_key_present`, `capability_live_activity` folgen den Replikaten.
+
+**Push aus oder unbekannt** (`pushState` `off`/`unknown`): Push-Abschnitte sind `null`, `pushEnabled: false`; `GET insights/push` antwortet `200` mit `pushEnabled: false` und nur `prerequisites`.
 
 ## Insights
 
@@ -345,7 +347,7 @@ Keine Zellen, keine Koordinaten, keine Tokens, keine Abo-IDs. `lockUntil`: Ende 
               level: Level, reason: string, params: { <name>: string|number|bool|null } } ] }
 ```
 
-Immer neun Prüfungen in fester Reihenfolge (`order`). `verdict` = erste Prüfung mit `critical`, sonst erste mit `warning`, sonst `null` (alles in Ordnung). `reason`: feste Kennung je Prüfung: `server`: `ok`, `push_disabled`, `capability_missing`, `push_paused`; `environment`: `ok`, `env_not_allowed`; `device_token`: `ok`, `missing`, `old`, `invalidated_recently`; `start_token`: `ok`, `missing`, `old`; `subscription`: `ok`, `no_subscription`, `disabled`, `live_activity_off`; `slot`: `ok`, `reservation_open`, `activity_running`; `lock`: `ok`, `lock_active`, `hysteresis`; `trigger`: `would_trigger`, `below_threshold`, `no_slot`, `stale_run`; `last_result`: `none`, `delivered`, `rejected`, `unregistered`, `retry`, `dropped`. `params` (feste Schlüssel, z. B. `ageDays`, `lockUntil`, `apnsReason`, `thresholdClass`, `currentMaxClass`) enthalten keine Tokens oder Zellen.
+Immer neun Prüfungen in fester Reihenfolge (`order`). `verdict` = erste Prüfung mit `critical`, sonst erste mit `warning`, sonst `null` (alles in Ordnung). `reason`: feste Kennung je Prüfung: `server`: `ok`, `push_disabled`, `push_unknown` (Level `warning`: kein Replikat meldet sich), `capability_missing`, `push_paused`; `environment`: `ok`, `env_not_allowed`; `device_token`: `ok`, `missing`, `old`, `invalidated_recently`; `start_token`: `ok`, `missing`, `old`; `subscription`: `ok`, `no_subscription`, `disabled`, `live_activity_off`; `slot`: `ok`, `reservation_open`, `activity_running`; `lock`: `ok`, `lock_active`, `hysteresis`; `trigger`: `would_trigger`, `below_threshold`, `no_slot`, `stale_run`; `last_result`: `none`, `delivered`, `rejected`, `unregistered`, `retry`, `dropped`. `params` (feste Schlüssel, z. B. `ageDays`, `lockUntil`, `apnsReason`, `thresholdClass`, `currentMaxClass`) enthalten keine Tokens oder Zellen.
 
 ### `GET /dash/api/devices/{id}/events?limit=`
 
@@ -390,7 +392,7 @@ Ergebnisformen (`result`, nur bei `status: "done"`):
 | `reeval` (`dryRun: false`) | 3 pro Stunde | wie oben |
 | `reset-slot` | 6 pro Stunde | wie oben |
 
-Weitere Fehler: `400 validation` (unbekannte Aktion, falscher Typ von `dryRun`), `404 not_found`, `409 command_pending` (für dieselbe Art läuft bereits ein Auftrag dieses Geräts), `409 link_disabled`. Jede Aktion erzeugt einen Audit-Eintrag `device_action` und einen Ereigniseintrag.
+Weitere Fehler: `400 validation` (unbekannte Aktion, falscher Typ von `dryRun`), `404 not_found`, `409 command_pending` (für dieselbe Art läuft bereits ein Auftrag dieses Geräts), `409 link_disabled`, `503 push_leader_missing` (Push läuft, aber kein Leader-Lease: der Auftrag würde nicht ausgeführt), `503 push_disabled` (alle frischen Replikate melden Push aus), `503 push_state_unknown` (kein Replikat meldet sich). Jede Aktion erzeugt einen Audit-Eintrag `device_action` und einen Ereigniseintrag.
 
 Tabelle `dashboard_command` (Migration 011 oder 012): `id CHAR(36) PK`, `device_id CHAR(36)` (FK `dashboard_device`, `ON DELETE CASCADE`), `kind VARCHAR(16)`, `dry_run TINYINT NULL`, `status VARCHAR(8)`, `created_at`, `started_at NULL`, `finished_at NULL`, `result JSON NULL` (nur die festen Felder oben), `error VARCHAR(32) NULL`. Index `(status, created_at)` für den Leader.
 
@@ -413,4 +415,4 @@ Tabelle `dashboard_command` (Migration 011 oder 012): `id CHAR(36) PK`, `device_
 
 ## Zusammenfassung Fehlercodes dieses Vertrags
 
-`validation` 400; `unauthorized` 401; `forbidden` 403; `not_found` 404; `code_unknown` 404; `conflict` 409; `device_limit` 409; `link_disabled` 409; `command_pending` 409; `locked_by_env` 409; `rate_limited` 429; `action_rate_limited` 429; `data_unavailable` 503.
+`validation` 400; `unauthorized` 401; `forbidden` 403; `not_found` 404; `code_unknown` 404; `conflict` 409; `device_limit` 409; `link_disabled` 409; `command_pending` 409; `locked_by_env` 409; `rate_limited` 429; `action_rate_limited` 429; `data_unavailable` 503; `push_leader_missing`, `push_disabled`, `push_state_unknown` 503 (nur Geräteaktionen).
