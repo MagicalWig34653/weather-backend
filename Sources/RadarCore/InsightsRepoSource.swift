@@ -72,7 +72,7 @@ public final class RepoInsightsDataSource: InsightsDataSource {
             guard let spec = LayerCatalog.specs[id] else { continue }
             let enabled = enabledLayers.contains(id)
             let run = enabled ? try await repo.layerLatestPublished(layer: id) : nil
-            out.append(InsightsLayerState(id: id, enabled: enabled, latestRun: run?.runID, publishedAt: run?.publishedAt, cadenceSeconds: Int(spec.stepSeconds),
+            out.append(InsightsLayerState(id: id, enabled: enabled, latestRun: run?.runID, publishedAt: run?.publishedAt, cadenceSeconds: spec.publishCadenceSeconds,
                                           runs: enabled ? runs(id) : nil, lag: enabled ? await lag(id) : nil))
         }
         return out

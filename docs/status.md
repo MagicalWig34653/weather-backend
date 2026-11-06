@@ -341,3 +341,7 @@ Offen: (1) Fehlermeldung des Servers bei `PUSH_ENABLED=true` ohne lesbare `APNS_
 - Neu: `GET devices/{id}/subscriptions`, `GET cache`, `cache/{layer}/slots`, `cache/{layer}/preview`, `POST cache/refresh` (+ Polling), Migration 014 (`dashboard_refresh`, Cache-Fuellstand in `config_replica`, Indizes). Vertrag: dashboard-api.md, Fixtures `docs/fixtures/dashboard/cache*.json`, `device-subscriptions*.json`.
 - Punkt 5: Insights-Routen mit Single-Flight, 10-s-Timeout und stale-while-error (letzte gute Antwort bis 10 min, `stale`/`staleSeconds`), `503` mit `Retry-After: 5`; Eimer `other` 600 -> 3000/min; einmalige Wiederholung bei toter Pool-Verbindung.
 - Geprueft: gezielte Tests (Memory + Wegwerf-MariaDB fuer CacheAdminRepo, tote Verbindung). Nicht geprueft: echter Listener/Proxy-Idle-Timeout, volle Suite, Last mit Produktivdatenmenge. Worker (`CacheRefreshWorker`) nur mit Fake-Executor getestet, kein echter DWD-Abruf.
+
+## Staleness-Kadenz (6. November 2026)
+
+`InsightsRepoSource.layers` und `DashboardCache.cadence` nutzen `LayerSpec.publishCadenceSeconds` (Luftdruck 21600 statt 3600); `cadenceSeconds`-Beschreibung in `dashboard-api.md` angeglichen, neuer Test `InsightsLayerCadenceTests`. Die roten DB-Tests (`radar_run already exists`, `schema_migration doesn't exist`) kamen von `PushImmediateStartTests` außerhalb der seriellen `DatabaseSuites` (Commit e157593 verschiebt sie). Geprüft: `swift test --filter Insights|Dashboard` (105 Tests, ohne MariaDB), `npm test` im dashboard/. Nicht lokal geprüft: MariaDB-Suite (CI).

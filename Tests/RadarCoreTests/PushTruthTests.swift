@@ -108,3 +108,14 @@ struct PushTruthTests {
     }
 }
 }
+
+@Suite("Insights layer cadence")
+struct InsightsLayerCadenceTests {
+    @Test func forecastLayersReportThePublishCadenceNotTheStepSize() async throws {
+        let repo = MemoryRepo()
+        let source = RepoInsightsDataSource(repo: repo, enabledLayers: ["pressure", "lightning"], context: { .make(config: Config()) })
+        let layers = try await source.layers(now: Date())
+        #expect(layers.first { $0.id == "pressure" }?.cadenceSeconds == 21600)
+        #expect(layers.first { $0.id == "lightning" }?.cadenceSeconds == 300)
+    }
+}

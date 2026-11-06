@@ -70,7 +70,7 @@ final class DashboardCache: Sendable {
     private func cadence(_ id: String) -> Int {
         if id == "radar" { return 300 }
         guard let spec = LayerCatalog.specs[id] else { return 300 }
-        return spec.kind == .forecast ? Int(LayerIngestor.forecastRunInterval) : Int(spec.stepSeconds)
+        return spec.publishCadenceSeconds
     }
 
     private func kind(_ id: String) -> String {
