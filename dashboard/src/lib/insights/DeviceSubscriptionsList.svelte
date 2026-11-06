@@ -10,8 +10,8 @@
 		kindLabel,
 		measureText,
 		radarStatusLabel,
-		subscriptionStateDetail,
-		subscriptionStateLabel,
+		evalReasonName,
+		subscriptionStateView,
 		thresholdText
 	} from './text.js';
 	import type { CellState, DeviceSubscriptions } from './types.js';
@@ -29,6 +29,17 @@
 		{radarStatusLabel(data.radar.status)}{data.radar.runAgeSeconds !== null
 			? ` (Lauf ${formatDuration(data.radar.runAgeSeconds)} alt)`
 			: ''}: Die aktuelle Intensität der Zellen ist deshalb unbekannt.
+	</p>
+{/if}
+
+{#if data.evaluation && !data.evaluation.latestRunEvaluated && radarOk && (data.radar.runAgeSeconds ?? 0) > 120}
+	<p class="bg-warn-soft text-warn mb-3 rounded-lg px-3 py-2 text-[13px]" role="status">
+		Die Push-Auswertung hat den neuesten Radarlauf noch nicht verarbeitet (zuletzt {data.evaluation
+			.lastRun
+			? formatDateTime(data.evaluation.lastRun)
+			: 'nie'}{data.evaluation.lastRunAgeSeconds !== null
+			? `, ${formatDuration(data.evaluation.lastRunAgeSeconds)} her`
+			: ''}). Läuft ein Push-Leader und ist er nicht pausiert?
 	</p>
 {/if}
 
@@ -68,12 +79,14 @@
 					<div class="col-span-2 sm:col-span-1">
 						<dt class="text-muted-foreground">Zustand</dt>
 						<dd class="font-medium">
-							{subscriptionStateLabel(s.state)}
-							{#if s.hysteresis}<span class="text-muted-foreground font-normal">
+							{subscriptionStateView(s).label}
+							{#if s.hysteresis && s.activity === 'none'}<span
+									class="text-muted-foreground font-normal"
+								>
 									· Regen gesehen (Hysterese)</span
 								>{/if}
 						</dd>
-						<dd class="text-muted-foreground text-[12px]">{subscriptionStateDetail(s.state)}</dd>
+						<dd class="text-muted-foreground text-[12px]">{subscriptionStateView(s).detail}</dd>
 					</div>
 					{#if s.place}
 						<div class="col-span-2">
@@ -90,6 +103,35 @@
 								Mitte der Zelle, gerundet (Zellgröße etwa {s.place.cellKm
 									.toFixed(1)
 									.replace('.', ',')} km). Karte oben: Abo {s.index + 1}.
+							</dd>
+						</div>
+					{/if}
+					{#if s.lastEval}
+						<div class="col-span-2">
+							<dt class="text-muted-foreground">Letzte Auswertung (echter Lauf)</dt>
+							<dd class="font-medium">{evalReasonName[s.lastEval.reason] ?? s.lastEval.reason}</dd>
+							<dd class="text-muted-foreground text-[12px]">
+								{#if s.lastEval.class !== null}Klasse {s.lastEval.class}{:else}Pixel unbekannt{/if}
+								{#if s.lastEval.run}· seit Lauf {formatDateTime(s.lastEval.run)}{/if}
+								{#if s.instantStart}· Sofortstart scharf{/if}
+								{#if s.startAttempts}· {s.startAttempts} Fehlversuch(e){/if}
+							</dd>
+						</div>
+					{:else if s.liveActivity && data.subscriptions.length > 0}
+						<div class="col-span-2">
+							<dt class="text-muted-foreground">Letzte Auswertung (echter Lauf)</dt>
+							<dd class="text-muted-foreground">
+								Noch kein Ergebnis gespeichert{s.instantStart ? ' · Sofortstart scharf' : ''}.
+							</dd>
+						</div>
+					{/if}
+					{#if s.createdAt}
+						<div class="col-span-2">
+							<dt class="text-muted-foreground">Angelegt / zuletzt geändert</dt>
+							<dd class="font-medium num">
+								<time datetime={s.createdAt}>{formatDateTime(s.createdAt)}</time>
+								/ {#if s.changedAt}<time datetime={s.changedAt}>{formatDateTime(s.changedAt)}</time
+									>{:else}nie geändert{/if}
 							</dd>
 						</div>
 					{/if}

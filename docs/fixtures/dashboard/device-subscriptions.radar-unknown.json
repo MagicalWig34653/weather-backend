@@ -42,7 +42,22 @@
       "wetCells": null,
       "cells": null,
       "neededCells": null,
-      "sharePercent": null
+      "sharePercent": null,
+      "createdAt": "2026-11-05T18:02:11Z",
+      "changedAt": "2026-11-06T08:55:40Z",
+      "instantStart": false,
+      "startAttempts": 0,
+      "lastEval": {
+        "run": "2026-11-06T09:18:00Z",
+        "reason": "started_now",
+        "class": 6,
+        "mmPerHour": 3
+      }
     }
-  ]
+  ],
+  "evaluation": {
+    "lastRun": "2026-11-06T08:10:00Z",
+    "lastRunAgeSeconds": 4200,
+    "latestRunEvaluated": false
+  }
 }

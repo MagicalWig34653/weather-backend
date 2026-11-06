@@ -10,7 +10,9 @@ Anlass: Neuauswertung meldete für alle Abos „unter der Schwelle“ trotz Rege
 
 **Erledigt:** `reeval` und `GET devices/{id}/subscriptions` liefern Lauf, Slot, Alter, Zelle/Ort, gemessene Klasse und mm/h, Vorlauf, Umkreis-Zellen und einen festen Grund; zu alter oder fehlender Lauf endet nicht mehr in `failed: internal`. Dashboard: Karte (SVG über Radar-Vorschau, Gradnetz, Zelle, Umkreis), Ort und Messwert je Abo, Klartexte. Tests: `PushChainTests` (7; synthetische 1024 x 1311-Bilder, 15 Legendenfarben, Achsen, Umkreis, veralteter Lauf, erneutes Scharfstellen bei Update), erweiterte `DeviceDashboardTests`, Dashboard `grid.test.ts` und Vertragstests.
 
-**Nicht geprüft:** Verhalten am echten Server und Gerät (kein Zugriff); Neuauswertung mit echtem APNs.
+**Nachtrag (Live-Activity-Verzögerung):** Ergebnis der echten Auswertung je Abo (Migration 015, `lastEval`), Anlage-/Änderungszeit, `evaluation.lastRun`, Zustandsanzeige korrigiert; Befund und Vermutungen getrennt in [decisions.md](decisions.md#nachtrag-7-november-2026-echte-auswertung-sichtbar-machen-zustandsanzeige). **Migration 015 muss vor dem Start der neuen Replikate laufen (`radar migrate`).** Tests gegen Wegwerf-MariaDB 12.3 (Docker, entfernt) inklusive Persistenz von Trace und Zeitstempeln.
+
+**Nicht geprüft:** Verhalten am echten Server und Gerät (kein Zugriff); Neuauswertung mit echtem APNs; warum der Start am echten Gerät erst um 00:19 kam (nur Hypothese, siehe oben).
 
 ## Stand 6. November 2026: Dashboard-Port veröffentlicht
 

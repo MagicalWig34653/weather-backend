@@ -196,4 +196,27 @@ struct PushChainTests {
         let after = try await stored()
         #expect(after.threshold == 3 && after.instantStart && after.startAttempts == 0 && !after.wetSeen)
     }
+
+    @Test(arguments: RepoKind.allCases)
+    func traceAndTimestampsArePersisted(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        _ = try await repo.upsertInstallation(id: installID, secretHash: secretHash, token: deviceToken, env: .sandbox, locale: "de", now: Date(), maxInstallations: 10)
+        let id = "33333333-3333-4333-8333-333333333333"
+        let input = PushSubscriptionInput(gridVersion: 1, cellX: 10, cellY: 20, threshold: 3, leadMinutes: 20, enabled: true, liveActivity: true)
+        let created = Date()
+        _ = try await repo.addSubscription(installationID: installID, id: id, input, maxPerInstallation: 10, now: created)
+        var stored = try #require(try await repo.subscriptions(installationID: installID).first)
+        #expect(stored.trace == nil && stored.changedAt == nil)
+        #expect(abs((stored.createdAt ?? .distantPast).timeIntervalSince(created)) < 2)
+        let runID = TimeUtil.toID(TimeUtil.floorStep(created))
+        #expect(try await repo.commitEvaluation(runID: runID, updates: [SubscriptionUpdate(id: id, state: .dry, lastSentAt: nil, trace: EvalTrace(run: runID, reason: "hysteresis", cls: 3))], outbox: [], now: created))
+        stored = try #require(try await repo.subscriptions(installationID: installID).first)
+        #expect(stored.trace == EvalTrace(run: runID, reason: "hysteresis", cls: 3))
+        #expect(try await repo.activityTargets(subscriptionIDs: [id]).first?.subscription.trace?.reason == "hysteresis")
+        // A change by the owner drops the old trace and stamps the change time.
+        #expect(try await repo.updateSubscription(installationID: installID, id: id, input, regionLimits: .standard))
+        stored = try #require(try await repo.subscriptions(installationID: installID).first)
+        #expect(stored.trace == nil && stored.instantStart)
+        #expect(abs((stored.changedAt ?? .distantPast).timeIntervalSinceNow) < 5)
+    }
 }

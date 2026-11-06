@@ -22,6 +22,8 @@ import {
 	commandErrorName,
 	commandResultText,
 	eventKindName,
+	evalReasonName,
+	subscriptionStateView,
 	levelLabel,
 	measureText,
 	outcomeName,
@@ -294,6 +296,37 @@ describe.skipIf(!present)('Darstellung deckt die Fixtures ab (keine Rohcodes)', 
 		expect(text).toContain('Anteil 0 % (0 von 4301 Zellen, nötig 44) gegen 1 %');
 		expect(text).toContain('Slot 0 (Analyse), 2 min alt');
 		expect(measureText({ reason: 'pixel_unknown', measuredClass: null })).toBe('Pixel unbekannt');
+	});
+	it('Abos: Grund der echten Auswertung hat Klartext, Zustand widerspricht nicht der laufenden Live Activity', () => {
+		for (const file of files('device-subscriptions.')) {
+			const d = read(file) as {
+				subscriptions: {
+					state: string;
+					cell: string;
+					activity: string;
+					hysteresis: boolean;
+					liveActivity: boolean;
+					lastEval?: { reason: string } | null;
+				}[];
+			};
+			for (const s of d.subscriptions) {
+				if (s.lastEval)
+					expect(evalReasonName[s.lastEval.reason], s.lastEval.reason).toBeTypeOf('string');
+				if (s.activity === 'active')
+					expect(subscriptionStateView(s).label).toBe('Live Activity läuft');
+			}
+		}
+		const view = (cell: string, hysteresis: boolean) =>
+			subscriptionStateView({
+				state: 'dry',
+				cell,
+				activity: 'none',
+				hysteresis,
+				liveActivity: true
+			}).label;
+		expect(view('dry', false)).toBe('Trocken');
+		expect(view('wet', false)).toBe('Regen erkannt');
+		expect(view('wet', true)).toBe('Regen läuft, noch nicht gestartet');
 	});
 	it('Reeval zeigt "gesendet" und nummeriert nach index', () => {
 		expect(

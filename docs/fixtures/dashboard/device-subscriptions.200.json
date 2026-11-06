@@ -42,7 +42,17 @@
       "wetCells": null,
       "cells": null,
       "neededCells": null,
-      "sharePercent": null
+      "sharePercent": null,
+      "createdAt": "2026-11-05T18:02:11Z",
+      "changedAt": "2026-11-06T08:55:40Z",
+      "instantStart": false,
+      "startAttempts": 0,
+      "lastEval": {
+        "run": "2026-11-06T09:18:00Z",
+        "reason": "started_now",
+        "class": 6,
+        "mmPerHour": 3
+      }
     },
     {
       "index": 1,
@@ -77,7 +87,22 @@
       "wetCells": 0,
       "cells": 113,
       "neededCells": 12,
-      "sharePercent": 0.0
+      "sharePercent": 0.0,
+      "createdAt": "2026-11-05T18:02:11Z",
+      "changedAt": null,
+      "instantStart": false,
+      "startAttempts": 0,
+      "lastEval": {
+        "run": "2026-11-06T09:18:00Z",
+        "reason": "below_threshold",
+        "class": 1,
+        "mmPerHour": 0.1
+      }
     }
-  ]
+  ],
+  "evaluation": {
+    "lastRun": "2026-11-06T09:18:00Z",
+    "lastRunAgeSeconds": 210,
+    "latestRunEvaluated": true
+  }
 }

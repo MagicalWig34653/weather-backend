@@ -26,11 +26,16 @@ extension MariaRepo {
         sub.wetSeen = (raw & wetSeenBit) != 0
         sub.instantStart = (raw & instantBit) != 0
         sub.startAttempts = (raw >> attemptShift) & 3
+        sub.createdAt = row.column("created_s")?.string.flatMap { TimeUtil.fromSQL($0) }
+        sub.changedAt = row.column("changed_s")?.string.flatMap { TimeUtil.fromSQL($0) }
+        if let run = row.column("eval_run")?.string, let reason = row.column("eval_reason")?.string {
+            sub.trace = EvalTrace(run: run, reason: reason, cls: row.column("eval_class")?.int ?? 0)
+        }
         return sub
     }
 
     private static let subColumns = "id, grid_version, cell_x, cell_y, threshold, lead_min, enabled, state, time_sensitive, live_activity, kind, radius_cells, min_share, "
-        + "DATE_FORMAT(last_sent_at, \(dateOut)) AS last_sent_s"
+        + "eval_run, eval_reason, eval_class, DATE_FORMAT(created_at, \(dateOut)) AS created_s, DATE_FORMAT(changed_at, \(dateOut)) AS changed_s, DATE_FORMAT(last_sent_at, \(dateOut)) AS last_sent_s"
 
     public func upsertInstallation(id: String, secretHash: String, token: String, env: PushEnvironment, locale: String, now: Date,
                                    maxInstallations: Int) async throws -> UpsertResult {
@@ -156,7 +161,7 @@ extension MariaRepo {
                 throw violation
             }
             _ = try await query(conn,
-                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, live_activity=?, kind=?, radius_cells=?, min_share=?, state=? WHERE id=? AND install_id=?",
+                "UPDATE push_sub SET grid_version=?, cell_x=?, cell_y=?, threshold=?, lead_min=?, enabled=?, time_sensitive=?, live_activity=?, kind=?, radius_cells=?, min_share=?, state=?, eval_run=NULL, eval_reason=NULL, eval_class=NULL, changed_at=UTC_TIMESTAMP() WHERE id=? AND install_id=?",
                 [MySQLData(int: input.gridVersion), MySQLData(int: input.cellX), MySQLData(int: input.cellY), MySQLData(int: input.threshold),
                  MySQLData(int: input.leadMinutes), MySQLData(int: input.enabled ? 1 : 0), MySQLData(int: input.timeSensitive ? 1 : 0),
                  MySQLData(int: input.liveActivity ? 1 : 0), MySQLData(int: input.kind.rawValue), optional(input.radiusCells), optional(input.minSharePercent),
@@ -212,6 +217,10 @@ extension MariaRepo {
                 _ = try await query(conn, "UPDATE push_sub SET state=?, last_sent_at=? WHERE id=?",
                                     [MySQLData(int: update.state.rawValue | (update.wetSeen ? Self.wetSeenBit : 0)
                                               | (update.instantStart ? Self.instantBit : 0) | ((update.startAttempts & 3) << Self.attemptShift)), update.lastSentAt.map { ts($0) } ?? .null, str(update.id)])
+                if let trace = update.trace {
+                    _ = try await query(conn, "UPDATE push_sub SET eval_run=?, eval_reason=?, eval_class=? WHERE id=?",
+                                        [str(trace.run), str(trace.reason), MySQLData(int: trace.cls), str(update.id)])
+                }
             }
             for item in outbox {
                 // INSERT ... SELECT skips subscriptions that were deleted meanwhile; the unique key ignores duplicates.
@@ -321,7 +330,7 @@ extension MariaRepo {
     }
 
     private static let targetSelect = "SELECT s.id, s.grid_version, s.cell_x, s.cell_y, s.threshold, s.lead_min, s.enabled, s.state, s.time_sensitive, "
-        + "s.live_activity, s.kind, s.radius_cells, s.min_share, DATE_FORMAT(s.last_sent_at, \(dateOut)) AS last_sent_s"
+        + "s.live_activity, s.kind, s.radius_cells, s.min_share, s.eval_run, s.eval_reason, s.eval_class, DATE_FORMAT(s.created_at, \(dateOut)) AS created_s, DATE_FORMAT(s.changed_at, \(dateOut)) AS changed_s, DATE_FORMAT(s.last_sent_at, \(dateOut)) AS last_sent_s"
         + ", s.install_id, i.token, i.env, i.locale, i.la_start_token, a.subscription_id AS act_id, a.activity_token, "
         + "DATE_FORMAT(a.started_at, \(dateOut)) AS started, DATE_FORMAT(a.ends_at, \(dateOut)) AS ends "
         + "FROM push_sub s JOIN push_install i ON i.id=s.install_id LEFT JOIN push_activity a ON a.subscription_id=s.id "

@@ -8,5 +8,10 @@
     "gridWidth": 1024,
     "gridHeight": 1311
   },
-  "subscriptions": []
+  "subscriptions": [],
+  "evaluation": {
+    "lastRun": "2026-11-06T09:18:00Z",
+    "lastRunAgeSeconds": 210,
+    "latestRunEvaluated": true
+  }
 }

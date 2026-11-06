@@ -511,6 +511,60 @@ export const subscriptionState: Record<string, { label: string; detail: string }
 		detail: 'Für den aktuellen Regen wurde bereits gesendet; neue Sendung erst nach Trockenphase.'
 	}
 };
+/** Grund der echten Auswertung (`lastEval.reason`, Migration 015). */
+export const evalReasonName: Record<string, string> = {
+	dry: 'trocken, nichts zu tun',
+	below_threshold: 'Regen im Radar, aber unter der Schwelle',
+	unknown_pixel: 'Pixel unbekannt, kein Regen bestätigt',
+	forecast_pending: 'Regenbeginn erkannt, wartet auf den zweiten Lauf',
+	rearm_wait: 'Regen käme wieder, aber die Trockenphase fehlt noch',
+	hysteresis: 'Regen jetzt, erster nasser Lauf: der Start folgt im nächsten Lauf',
+	started_now: 'Live Activity gestartet (Regen läuft)',
+	started_forecast: 'Live Activity gestartet (Regenbeginn)',
+	no_start_token: 'Start nicht möglich: Start-Token fehlt',
+	lock_60min: 'Start gesperrt (60-Minuten-Sperre)',
+	activity_slot_busy: 'Platz belegt, kein neuer Start',
+	reservation_pending: 'Reservierung offen, kein neuer Start',
+	activity_running: 'Live Activity läuft bereits',
+	no_target: 'Gerät nicht auffindbar'
+};
+
+/**
+ * Zustand fuer die Anzeige. Der Automat `state` betrifft nur den Regenbeginn und bleibt "dry", solange es schon regnet;
+ * deshalb zaehlen hier zuerst laufende Live Activity und aktueller Regen.
+ */
+export function subscriptionStateView(s: {
+	state: string;
+	cell: string;
+	activity: string;
+	hysteresis: boolean;
+	liveActivity: boolean;
+}): { label: string; detail: string } {
+	if (s.activity === 'active')
+		return {
+			label: 'Live Activity läuft',
+			detail: 'Der Start ist erfolgt; der Regenbeginn-Automat ruht.'
+		};
+	if (s.activity === 'reserved')
+		return {
+			label: 'Start unterwegs',
+			detail: 'Der Platz ist reserviert, die Live Activity meldet sich noch.'
+		};
+	if (s.cell === 'wet' && s.state === 'dry')
+		return s.liveActivity && !s.hysteresis
+			? {
+					label: 'Regen erkannt',
+					detail:
+						'Die Zelle ist nass, der erste nasse Lauf ist noch nicht verarbeitet; die Live Activity startet im nächsten Lauf.'
+				}
+			: {
+					label: 'Regen läuft, noch nicht gestartet',
+					detail: s.liveActivity
+						? 'Regen wurde schon im vorigen Lauf gesehen (Hysterese erfüllt): der nächste Lauf startet, sofern Token, Platz und Sperre es erlauben. Gründe siehe „Letzte Auswertung“.'
+						: 'Es regnet bereits; Mitteilungen gibt es nur beim Beginn von Regen nach einer Trockenphase.'
+				};
+	return subscriptionState[s.state] ?? { label: s.state, detail: '' };
+}
 export const subscriptionStateLabel = (s: string): string => subscriptionState[s]?.label ?? s;
 export const subscriptionStateDetail = (s: string): string => subscriptionState[s]?.detail ?? '';
 

@@ -107,6 +107,7 @@ extension MemoryRepo {
             leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive,
             kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity), createdAt: now)
         push.subs[id]?.value.instantStart = input.liveActivity && input.enabled && input.kind == .point
+        push.subs[id]?.value.createdAt = now
         return .created
     }
 
@@ -123,6 +124,8 @@ extension MemoryRepo {
                                      state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive,
                                      kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity)
         sub.value.instantStart = input.liveActivity && input.enabled && input.kind == .point
+        sub.value.createdAt = sub.createdAt
+        sub.value.changedAt = Date()
         push.subs[id] = sub
         return true
     }
@@ -160,6 +163,7 @@ extension MemoryRepo {
             sub.value.instantStart = update.instantStart
             sub.value.startAttempts = update.startAttempts & 3
             sub.value.lastSentAt = update.lastSentAt
+            if let trace = update.trace { sub.value.trace = trace }
             push.subs[update.id] = sub
         }
         for item in outbox where push.subs[item.subID] != nil && !push.outbox.values.contains(where: { $0.dedupeKey == item.dedupeKey }) {

@@ -210,11 +210,33 @@ public final class PushService: Sendable {
                                                                  reference: run.nominal, trigger: wetStart ? .laRainingNow : .laRainStart))
                             }
                         }
+                        // Why this run did or did not start: persisted (only on change) so the dashboard can show the real decision.
+                        let cls0 = entry.classes.first ?? 0
+                        let target = targets[sub.id]
+                        let hasToken = target?.installation.liveActivityStartToken != nil
+                        let reason: String
+                        if target == nil { reason = TraceReason.noTarget }
+                        else if entry.notify || wetStart {
+                            if let activity = target?.activity { reason = activity.activityToken == nil ? TraceReason.reservationPending : TraceReason.activitySlotBusy }
+                            else if !hasToken { reason = TraceReason.noStartToken }
+                            else { reason = wetStart ? TraceReason.startedNow : TraceReason.startedForecast }
+                        } else if cls0 == PushIntensity.unknown { reason = TraceReason.unknownPixel }
+                        else if wetNow {
+                            if target?.activity != nil { reason = TraceReason.activityRunning }
+                            else if !sub.wetSeen && !sub.instantStart { reason = TraceReason.hysteresis }
+                            else if !hasToken { reason = TraceReason.noStartToken }
+                            else { reason = TraceReason.lock60min }
+                        } else if entry.state == .pending { reason = TraceReason.forecastPending }
+                        else if entry.state == .notified, PushEvaluator.isBeginning(threshold: sub.threshold, leadMinutes: sub.leadMinutes, classes: entry.classes) { reason = TraceReason.rearmWait }
+                        else { reason = cls0 > 0 ? TraceReason.belowThreshold : TraceReason.dry }
+                        let traceChanged = sub.trace?.reason != reason || sub.trace?.cls != cls0
                         // The bit stays set while a start is in flight (cleared by the send outcome); any run without a start clears it.
                         if entry.state != sub.state || sentAt != sub.lastSentAt || wetNow != sub.wetSeen || wetStart != sub.instantStart
-                            || (!wetStart && sub.startAttempts != 0) {
-                            updates.append(SubscriptionUpdate(id: sub.id, state: entry.state, lastSentAt: sentAt, wetSeen: wetNow,
-                                                              instantStart: wetStart, startAttempts: wetStart ? sub.startAttempts : 0))
+                            || (!wetStart && sub.startAttempts != 0) || traceChanged {
+                            var update = SubscriptionUpdate(id: sub.id, state: entry.state, lastSentAt: sentAt, wetSeen: wetNow,
+                                                            instantStart: wetStart, startAttempts: wetStart ? sub.startAttempts : 0)
+                            if traceChanged { update.trace = EvalTrace(run: run.runID, reason: reason, cls: cls0) }
+                            updates.append(update)
                         }
                     }
                 }
@@ -291,6 +313,14 @@ public final class PushService: Sendable {
             if !progressed || items.count < Self.batchSize { return }
         }
     }
+}
+
+/// Fixed words of `EvalTrace.reason` (documented in dashboard-api.md; at most 24 characters).
+enum TraceReason {
+    static let startedNow = "started_now", startedForecast = "started_forecast", hysteresis = "hysteresis", unknownPixel = "unknown_pixel"
+    static let noStartToken = "no_start_token", lock60min = "lock_60min", activitySlotBusy = "activity_slot_busy"
+    static let reservationPending = "reservation_pending", activityRunning = "activity_running", forecastPending = "forecast_pending"
+    static let rearmWait = "rearm_wait", belowThreshold = "below_threshold", dry = "dry", noTarget = "no_target"
 }
 
 struct ActivityWork: Sendable {

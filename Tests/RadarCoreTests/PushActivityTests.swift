@@ -84,6 +84,37 @@ private enum ActivityFixture {
 struct PushActivityLifecycleTests {
     private typealias F = ActivityFixture
 
+    @Test func realRunLeavesATraceWithTheReasonOfEachDecision() async throws {
+        let repo = try await F.prepared()           // activated long ago: no immediate start pending
+        let sender = FakeApnsSender()
+        let now = Locked(run0)
+        let config = F.config()
+        let service = PushService(config: config, repo: repo, sender: sender, owner: "trace-test", clock: { now.withLock { $0 } })
+        func run(_ index: Int, _ classes: [Int]) async throws -> EvalTrace? {
+            let date = run0.addingTimeInterval(Double(index * 300))
+            now.withLock { $0 = date }
+            try await F.publish(repo, config: config, at: date, classes: classes)
+            _ = try await service.tick()
+            return try await repo.subscriptions(installationID: F.installation).first?.trace
+        }
+        let dry = [Int](repeating: 0, count: TimeUtil.forecastSlots)
+        var trace = try await run(0, dry)
+        #expect(trace?.reason == "dry" && trace?.cls == 0 && trace?.run == TimeUtil.toID(run0))
+        trace = try await run(1, dry.enumerated().map { $0.offset == 0 ? 2 : 0 })       // rain below the threshold class 3
+        #expect(trace?.reason == "below_threshold" && trace?.cls == 2)
+        trace = try await run(2, F.wet(onset: 0))                                         // first wet run: hysteresis, no start
+        #expect(trace?.reason == "hysteresis" && trace?.cls == 3)
+        #expect(await sender.requests.isEmpty)
+        let sub = try #require(try await repo.subscriptions(installationID: F.installation).first)
+        #expect(sub.wetSeen && sub.state == .dry)       // the automaton stays "dry" while it rains: this is not "no rain"
+        trace = try await run(3, F.wet(onset: 0))                                         // second wet run: start
+        #expect(trace?.reason == "started_now")
+        #expect(await sender.requests.contains { $0.activityEvent == .start })
+        // Unchanged result writes nothing new: the run of the trace is the run in which the reason last changed.
+        trace = try await run(4, F.wet(onset: 0))
+        #expect(trace?.run == TimeUtil.toID(run0.addingTimeInterval(1200)) || trace?.reason == "activity_running")
+    }
+
     @Test func committedRunsStartUpdateEndAndPreserveRepeatLock() async throws {
         let repo = try await F.prepared()
         let sender = FakeApnsSender()

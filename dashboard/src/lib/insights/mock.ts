@@ -428,6 +428,11 @@ function deviceSubscriptions(state: MockState) {
 					gridWidth: 1024,
 					gridHeight: 1311
 				},
+		evaluation: {
+			lastRun: iso(210_000),
+			lastRunAgeSeconds: 210,
+			latestRunEvaluated: true
+		},
 		subscriptions:
 			state === 'empty'
 				? []
@@ -449,6 +454,11 @@ function deviceSubscriptions(state: MockState) {
 							cell: stale ? 'unknown' : 'wet',
 							leadCell: stale ? 'unknown' : 'wet',
 							activity: 'active',
+							createdAt: iso(26 * 3600_000),
+							changedAt: iso(3 * 3600_000),
+							instantStart: false,
+							startAttempts: 0,
+							lastEval: { run: iso(16 * 60_000), reason: 'started_now', class: 6, mmPerHour: 3 },
 							place: { lat: 50.0, lon: 10.0, x: 456, y: 851, cellKm: 0.71 },
 							thresholdMmPerHour: 2,
 							measuredClass: 6,
@@ -478,6 +488,11 @@ function deviceSubscriptions(state: MockState) {
 							cell: stale ? 'unknown' : 'dry',
 							leadCell: stale ? 'unknown' : 'dry',
 							activity: 'none',
+							createdAt: iso(26 * 3600_000),
+							changedAt: null,
+							instantStart: false,
+							startAttempts: 0,
+							lastEval: null,
 							place: { lat: 50.05, lon: 10.1, x: 466, y: 844, cellKm: 0.71 },
 							thresholdMmPerHour: 0.4,
 							measuredClass: 1,

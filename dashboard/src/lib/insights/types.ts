@@ -381,9 +381,25 @@ export interface DeviceSubscription extends SubscriptionMeasure {
 	cell: CellState;
 	leadCell: CellState;
 	activity: 'none' | 'reserved' | 'active' | (string & {});
+	createdAt?: string | null;
+	changedAt?: string | null;
+	instantStart?: boolean;
+	startAttempts?: number;
+	/** Ergebnis der echten Auswertung (nur Live-Activity-Abos). */
+	lastEval?: {
+		run: string | null;
+		reason: string;
+		class: number | null;
+		mmPerHour: number | null;
+	} | null;
 }
 export interface DeviceSubscriptions extends StaleInfo {
 	generatedAt: string;
+	evaluation?: {
+		lastRun: string | null;
+		lastRunAgeSeconds: number | null;
+		latestRunEvaluated: boolean;
+	};
 	radar: {
 		status: RadarStatus;
 		runAgeSeconds: number | null;

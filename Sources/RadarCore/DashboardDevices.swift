@@ -163,6 +163,8 @@ final class DashboardDevices: Sendable {
         let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
         let view = subs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: config(), subs: subs, now: now, allowStale: true)
         let run = try? await repo.latestPublished()
+        // The push leader's own progress: when did the real evaluation last handle a run (nil = never or unknown)?
+        let lastEvaluated = (try? await repo.lastEvaluatedRun()).flatMap { $0 }.flatMap { TimeUtil.fromID($0) }
         let status: String
         switch view.status { case .ok: status = "ok"; case .noSlot: status = "no_slot"; case .staleRun: status = "stale_run" }
         let rows: [[String: Any]] = subs.enumerated().map { index, s in
@@ -181,6 +183,14 @@ final class DashboardDevices: Sendable {
                     "radiusCells": circle ? (s.radiusCells as Any? ?? NSNull()) : NSNull(), "minSharePercent": circle ? (s.minSharePercent as Any? ?? NSNull()) : NSNull(),
                     "state": s.state == .pending ? "pending" : (s.state == .notified ? "notified" : "dry"), "hysteresis": s.wetSeen,
                     "lastSentAt": Self.iso(s.lastSentAt), "lockUntil": Self.iso(lock), "cell": cell, "leadCell": leadCell, "activity": activity]
+            row["createdAt"] = Self.iso(s.createdAt)
+            row["changedAt"] = Self.iso(s.changedAt)
+            row["instantStart"] = s.instantStart
+            row["startAttempts"] = s.startAttempts
+            row["lastEval"] = s.trace.map { t -> [String: Any] in
+                ["run": TimeUtil.fromID(t.run).map { TimeUtil.toISO($0) } as Any? ?? NSNull(), "reason": t.reason,
+                 "class": t.cls < 0 ? NSNull() : t.cls as Any, "mmPerHour": t.cls < 0 ? NSNull() : PushMeasureJSON.mmPerHour(t.cls)]
+            } as Any? ?? NSNull()
             row.merge(PushMeasureJSON.fields(s, measures: view.measures[s.id], radarOK: view.status != .noSlot, width: config().width)) { _, new in new }
             return row
         }
@@ -188,6 +198,9 @@ final class DashboardDevices: Sendable {
                                          "radar": ["status": status, "runAgeSeconds": run.flatMap { $0 }.map { max(0, Int(now.timeIntervalSince($0.nominal))) } as Any? ?? NSNull(),
                                                   "runNominal": view.runNominal.map { TimeUtil.toISO($0) } as Any? ?? NSNull(), "slotIndex": 0,
                                                   "gridWidth": config().width, "gridHeight": config().height] as [String: Any],
+                                         "evaluation": ["lastRun": Self.iso(lastEvaluated),
+                                                        "lastRunAgeSeconds": lastEvaluated.map { max(0, Int(now.timeIntervalSince($0))) } as Any? ?? NSNull(),
+                                                        "latestRunEvaluated": (lastEvaluated != nil && lastEvaluated == run.flatMap { $0 }?.nominal) as Bool] as [String: Any],
                                          "subscriptions": rows])
     }
 

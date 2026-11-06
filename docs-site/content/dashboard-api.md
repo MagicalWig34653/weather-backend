@@ -450,6 +450,8 @@ Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=fal
 
 ```
 { generatedAt,
+  evaluation: { lastRun: ISO|null, lastRunAgeSeconds: int|null,         // letzter Lauf, den die echte Push-Auswertung verarbeitet hat (7.11.)
+                latestRunEvaluated: bool },                              // false: die Auswertung hinkt hinterher oder läuft nicht (Leader prüfen)
   radar: { status: "ok"|"no_slot"|"stale_run", runAgeSeconds: int|null,     // Quelle von cell/leadCell
            runNominal: ISO|null, slotIndex: 0,                              // ausgewerteter Lauf; Slot 0 = Analyse zu dieser Zeit (7.11.: neu)
            gridWidth: int, gridHeight: int },                               // Raster der Zellindizes
@@ -463,12 +465,18 @@ Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=fal
                      cell: "wet"|"dry"|"unknown",                               // Zelle jetzt (Slot 0) gegen Schwelle
                      leadCell: "wet"|"dry"|"unknown",                           // irgendein Slot bis zum Vorlauf gegen Schwelle (würde auslösen)
                      activity: "none"|"reserved"|"active",
+                     createdAt: ISO|null, changedAt: ISO|null,                  // Anlage / letzte Änderung durch die App (7.11.)
+                     instantStart: bool, startAttempts: 0..3,                   // Sofortstart scharf (Bit 0x20) und Fehlversuche
+                     lastEval: { run: ISO|null, reason: <Auslösegrund>, class: int|null, mmPerHour: number|null }|null,
+                                                                                 // Ergebnis der ECHTEN Auswertung (nur Live-Activity-Abos), wird bei Änderung geschrieben
                      // additiv 7.11.2026, Felder wie ReevalRow (siehe Aktionen/reeval): Ort und Messung
                      place: Place|null, thresholdMmPerHour: number,
                      measuredClass: int|null, measuredMmPerHour: number|null, pixel: "rain"|"dry"|"unknown"|null,
                      leadMaxClass: int|null, leadOnsetMinutes: int|null,
                      wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null } ] }
 ```
+
+`lastEval.reason` (feste Wörter der echten Auswertung, Migration 015): `dry`, `below_threshold` (Regen unter der Schwelle), `unknown_pixel`, `forecast_pending` (Regenbeginn erkannt, wartet auf den zweiten Lauf), `rearm_wait`, `hysteresis` (Regen jetzt, erster nasser Lauf; der Start folgt im nächsten Lauf, wenn kein Sofortstart scharf ist), `started_now`, `started_forecast`, `no_start_token`, `lock_60min`, `activity_slot_busy`, `reservation_pending`, `activity_running`, `no_target`. `run` ist der Lauf, in dem sich der Grund zuletzt geändert hat. `state` ist nur der Automat für den *Regenbeginn* und bleibt `dry`, solange es regnet; ob es regnet, sagen `cell`/`measuredClass`, ob eine Live Activity läuft, sagt `activity`.
 
 Das Dashboard zeigt den Ort als Karte (eigene SVG-Darstellung, keine Kartenkacheln): Ausschnitt der Radar-Vorschau des Caches (`GET cache/radar/preview?slot=<radar.runNominal>&run=<radar.runNominal>`, derselbe Slot 0 wie die Auswertung) mit Rasterzelle, Umkreis und Gradnetz. Es gehen keine Koordinaten an Dritte.
 

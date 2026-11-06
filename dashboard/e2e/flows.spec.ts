@@ -386,7 +386,7 @@ test.describe('Geräte-Abos', () => {
 		await page.goto('/dash/geraete?mock=auth');
 		await expect(page.getByRole('heading', { name: 'Abos dieses Geräts' }).first()).toBeVisible();
 		await expect(page.getByText('Abo 1: Punkt').first()).toBeVisible();
-		await expect(page.getByText('Benachrichtigt').first()).toBeVisible();
+		await expect(page.getByText('Live Activity gestartet (Regen läuft)').first()).toBeVisible();
 		await expect(page.getByText('Live Activity läuft').first()).toBeVisible();
 	});
 

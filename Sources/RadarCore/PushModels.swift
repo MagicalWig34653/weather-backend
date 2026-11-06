@@ -77,6 +77,11 @@ public struct PushSubscription: Sendable, Equatable {
     /// Immediate Live Activity start (decision 6 Nov 2026, persisted as bit 5 of `state`): armed by activation (subscription with
     /// Live Activity, new start token) or while a rain-now start is in flight; a single wet run then starts, without the 60-minute lock.
     public var instantStart: Bool = false
+    /// Last real evaluation result (Live Activity subscriptions only; `nil` before the first run after the migration).
+    public var trace: EvalTrace?
+    /// Creation and last change by the owner (diagnosis only; `nil` when unknown).
+    public var createdAt: Date?
+    public var changedAt: Date?
     /// Failed start attempts of the current immediate start (bits 6-7 of `state`, 0...3).
     public var startAttempts: Int = 0
     public init(id: String, gridVersion: Int, cellX: Int, cellY: Int, threshold: Int, leadMinutes: Int,
@@ -126,14 +131,26 @@ public struct PushInstallation: Sendable, Equatable {
 public enum UpsertResult: Sendable, Equatable { case created, updated, forbidden, serverFull }
 public enum AddSubscriptionResult: Sendable, Equatable { case created, limitReached, unknownInstallation, regionLimit, regionCapacity, serverFull, activityCapacity }
 
+/// Result of the last real evaluation of one Live Activity subscription (diagnosis, persisted in `eval_*` columns).
+public struct EvalTrace: Sendable, Equatable {
+    public var run: String
+    /// Fixed word, see `PushService.TraceReason`.
+    public var reason: String
+    /// Class of slot 0 (0 dry, -1 unknown pixel).
+    public var cls: Int
+    public init(run: String, reason: String, cls: Int) { self.run = run; self.reason = reason; self.cls = cls }
+}
+
 public struct SubscriptionUpdate: Sendable, Equatable {
+    public var trace: EvalTrace?
     public var id: String
     public var state: PushState
     public var lastSentAt: Date?
     public var wetSeen: Bool
     public var instantStart: Bool
     public var startAttempts: Int
-    public init(id: String, state: PushState, lastSentAt: Date?, wetSeen: Bool = false, instantStart: Bool = false, startAttempts: Int = 0) {
+    public init(id: String, state: PushState, lastSentAt: Date?, wetSeen: Bool = false, instantStart: Bool = false, startAttempts: Int = 0, trace: EvalTrace? = nil) {
+        self.trace = trace
         self.id = id; self.state = state; self.lastSentAt = lastSentAt; self.wetSeen = wetSeen
         self.instantStart = instantStart; self.startAttempts = startAttempts
     }
