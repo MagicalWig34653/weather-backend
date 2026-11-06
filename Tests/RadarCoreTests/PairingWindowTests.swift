@@ -204,7 +204,12 @@ struct PairingWindowTests {
         for _ in 0..<7 { last = await dash.call("POST", "/dash/api/devices/pairing", body: "{}").status }
         #expect(last == 429)
     }
+}
 
+// The shared test database: must run inside the serialized DatabaseSuites parent (as a stand-alone suite it raced with the others).
+extension DatabaseSuites {
+@Suite("Pairing window repo", .serialized)
+struct PairingWindowRepoTests {
     @Test(arguments: RepoKind.allCases) func repoContract(kind: RepoKind) async throws {
         let repo = try await kind.make(); let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         #expect(try await repo.pairingWindowEnd(now: now) == nil)
@@ -220,6 +225,7 @@ struct PairingWindowTests {
         try await repo.appendDeviceAudit(action: .devicePairingClose, deviceRef: nil, outcome: "redeemed", now: now)
         #expect(try await repo.auditEntries(limit: 2).map(\.action) == [.devicePairingClose, .devicePairingOpen])
     }
+}
 }
 
 /// Dashboard API over a given repository and clock (session with CSRF).
