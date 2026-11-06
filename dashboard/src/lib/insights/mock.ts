@@ -275,6 +275,7 @@ export function mockInsights(
 			range,
 			resolution,
 			pushEnabled: !empty,
+			pushState: empty ? 'off' : 'on',
 			pushPaused: false,
 			status: { level: empty ? 'unknown' : 'warning', findingCount: findings(empty).length },
 			kpis: {
@@ -547,6 +548,7 @@ export function mockInsights(
 			range,
 			resolution,
 			pushEnabled: !empty,
+			pushState: empty ? 'off' : 'on',
 			pushPaused: false,
 			partial: [],
 			prerequisites: empty
