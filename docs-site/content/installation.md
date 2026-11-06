@@ -268,11 +268,23 @@ deploy/swarm/update.sh
 | `--dry-run` | Zeigt, was passieren würde; keine Dateiänderung, keine Docker-Aufrufe. Die Tag-Suche auf ghcr.io läuft dennoch (nur lesend). |
 | `--pull-scripts` | Zuerst die Deploy-Skripte aktualisieren (`git pull --ff-only` im Klon des Branches `deploy`), dann `update.sh` aus den neuen Dateien neu starten. Die `.env` ist nicht versioniert und bleibt unberührt. Ohne Git-Klon bricht die Option mit einer Meldung ab. |
 | `--force` | Auch dann neu ausrollen, wenn sich das Tag nicht geändert hat. |
+| `--no-dashboard-force` | Nur mit `DASH_ENABLED=true`: Läuft der Dienst `<stack>_dashboard` nach dem Rollout nicht mit dem Zielimage, bricht `update.sh` mit Fehler und Befehl ab, statt ihn per `docker service update --force --image …` selbst auf das Zielimage zu zwingen (Standard). |
 | `--yes` | Rückfrage („Database backed up?“) überspringen. |
 
 Neue Migrationen (z. B. `012`, `013`) laufen im Migrationsjob des Updates automatisch mit; es ist kein eigener Schritt nötig. Wird beim Update das Dashboard neu eingeschaltet, zuerst das Proxy-Token-Secret anlegen: Reihenfolge unter [Update-Reihenfolge](dashboard.html#update-reihenfolge-proxy-token-kopplungsfenster).
 
+Mit `DASH_ENABLED=true` wartet `update.sh` zusätzlich auf den Rollout von `<stack>_dashboard` (eine Replik, kurze Unterbrechung), zeigt die Image-Tags beider Dienste und prüft, dass das Dashboard das Zielimage nutzt. `docker stack deploy` startet einen Dienst nur neu, wenn sich seine Spezifikation ändert; bei gleichem Tag (z. B. `edge`) oder einem Deploy ohne Dashboard-Overlay bleibt ein bestehendes Dashboard auf dem alten Image und zeigt die alte Oberfläche. Weicht das Image ab, zwingt das Skript den Dienst auf das Zielimage. Ist das Tag bereits aktiv, prüft es bei aktivem Dashboard nur dieses (Reparaturweg) und ändert sonst nichts. Ohne `DASH_ENABLED=true` bleibt ein vorhandener Dashboard-Dienst unberührt.
+
 Ist das ermittelte Tag bereits aktiv, beendet sich das Skript ohne Änderung. Die Skriptausgabe von `update.sh` ist englisch, die von `setup.sh` deutsch.
+
+### Prüfen, ob das Dashboard das neue Image nutzt
+
+```sh
+docker service inspect radar_radar radar_dashboard --format '{{.Spec.Name}}  {{.Spec.TaskTemplate.ContainerSpec.Image}}'
+docker service ps radar_dashboard --filter desired-state=running --format 'table {{.Name}}\t{{.Image}}\t{{.CurrentState}}'
+```
+
+(`radar` durch den Stack-Namen ersetzen.) Beide Dienste sollten dasselbe Tag zeigen. Weicht das Dashboard ab: `docker service update --force --image ghcr.io/magicalwig34653/weather-backend-radar:<tag> radar_dashboard`. Danach im Browser hart neu laden (Cache).
 
 ## Rollback
 

@@ -11,6 +11,9 @@
 #   --pull-scripts    first update the deploy scripts: `git pull --ff-only` in this checkout (clone of the deploy branch),
 #                     then restart update.sh from the new files; .env is untracked and stays untouched
 #   --force           also redeploy when the tag did not change
+#   --no-dashboard-force  with DASH_ENABLED=true the dashboard service is checked after the rollout and, if it still runs another
+#                     image than the target, forced onto it (docker service update --force --image ...); with this option the
+#                     script only stops with an error and the command instead
 #   --yes             do not ask for confirmation
 #
 # How the newest tag is found: the Docker workflow pushes `edge` (newest main build) together with `sha-<commit>`
@@ -28,6 +31,7 @@ ENV_FILE=""
 TAG=""
 DRY=0
 FORCE=0
+DASH_FORCE=1
 PULL=0
 YES=0
 FOLLOW_TAG=edge # used by lib.sh
@@ -42,8 +46,9 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; shift ;;
     --pull-scripts) PULL=1; shift ;;
     --force) FORCE=1; shift ;;
+    --no-dashboard-force) DASH_FORCE=0; shift ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -121,11 +126,20 @@ echo "Current:   ${CURRENT_IMAGE}"
 echo "New:       ${NEW_IMAGE}"
 
 if [ "$TAG" = "$CURRENT_TAG" ] && [ "$FORCE" = 0 ]; then
+  # The dashboard is a separate service that a deploy without the overlay or with an unchanged spec leaves on its old image: check it anyway.
+  if [ "$DRY" = 0 ] && dashboard_enabled "$ENV_FILE"; then
+    step "Check the dashboard service (tag unchanged)"
+    check_dashboard_rollout "$STACK" "$NEW_IMAGE" "$DASH_FORCE" "$WAIT_SECONDS"
+  fi
   echo "Already on the newest tag. Nothing to do (use --force to redeploy anyway)."
   exit 0
 fi
 if [ "$DRY" = 1 ]; then
   echo "Dry run: would (with PUSH_ENABLED=true: check the APNs key secret; with DASH_ENABLED=true: the dashboard proxy token secret; then) set RADAR_IMAGE_TAG=${TAG}, run the migration job, then roll ${STACK}_radar."
+  if dashboard_enabled "$ENV_FILE"; then
+    if [ "$DASH_FORCE" = 1 ]; then force_txt="forced onto the target image if it still runs another one"; else force_txt="error with the command if it runs another image (--no-dashboard-force)"; fi
+    echo "Dry run: DASH_ENABLED=true -> afterwards wait for ${STACK}_dashboard, show the image tags of both services, dashboard ${force_txt}."
+  fi
   exit 0
 fi
 
@@ -163,6 +177,11 @@ step "Watch the rollout and check the result"
 SERVICE="${STACK}_radar"
 wait_for_rollout "$SERVICE" "$WAIT_SECONDS"
 docker service ps "$SERVICE" --filter desired-state=running --format 'table {{.Name}}\t{{.Node}}\t{{.Image}}\t{{.CurrentState}}'
+if dashboard_enabled "$ENV_FILE"; then
+  check_dashboard_rollout "$STACK" "$NEW_IMAGE" "$DASH_FORCE" "$WAIT_SECONDS"
+else
+  say "DASH_ENABLED is not true: the dashboard service is not touched (an existing ${STACK}_dashboard keeps its old image)."
+fi
 
 BASE_URL="${PUBLIC_BASE_URL:-}"
 if [ -n "$BASE_URL" ]; then

@@ -125,3 +125,51 @@ require_dashboard_secret() {
       || die "DASH_ENABLED=true, but the Swarm secret '${name}' (dashboard proxy token) does not exist. Create it first: umask 077; openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > proxy-token.txt; docker secret create ${name} proxy-token.txt; put the same value into the reverse proxy as header X-Dashboard-Proxy-Token; rm proxy-token.txt (see docs-site dashboard.md). The Swarm stack always enforces the token (DASH_PROXY_TOKEN_REQUIRED=false has no effect there). Nothing was changed."
   done
 }
+
+# Dashboard (DASH_ENABLED=true): true when the dashboard is enabled. Shell variable wins over the env file (like require_dashboard_overlay).
+# Usage: dashboard_enabled ENV_FILE
+dashboard_enabled() {
+  local file="${1:-}" enabled="${DASH_ENABLED-}"
+  if [ -z "${DASH_ENABLED+x}" ] && [ -n "$file" ] && [ -f "$file" ]; then enabled="$(env_value "$file" DASH_ENABLED)"; fi
+  [ "$enabled" = true ]
+}
+
+# Image reference a service is configured with, without the @sha256 digest that `docker stack deploy` may append; empty when the service is missing.
+service_image() {
+  docker service inspect "$1" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' 2>/dev/null | head -n 1 | sed 's/@sha256:[0-9a-f]*$//'
+}
+
+# Dashboard rollout check (single replica, short restart): waits for the rollout of STACK_dashboard, prints the image tags of BOTH services
+# and verifies that the dashboard runs the target image. `docker stack deploy` only restarts a service when its spec changed: with an
+# unchanged tag (e.g. edge), a deploy without the dashboard overlay (DASH_ENABLED unset) or an older deploy, the dashboard silently
+# keeps its old image. On a mismatch the dashboard is forced onto the target image (FORCE=1, default) or the script stops with the command.
+# Prints no secrets and calls no dashboard URL (the published port needs the proxy token); the health state is the task state of the service.
+# Usage: check_dashboard_rollout STACK TARGET_IMAGE FORCE(1|0) WAIT_SECONDS. Needs docker; uses say/die/wait_for_rollout.
+check_dashboard_rollout() {
+  local stack="$1" target="$2" force="$3" limit="$4" svc="${1}_dashboard" have cmd
+  have="$(service_image "$svc")"
+  [ -n "$have" ] || die "DASH_ENABLED=true, but the service ${svc} does not exist. Deploy it with the overlay: deploy/swarm/swarm-deploy.sh (DASH_ENABLED=true in the env file or the shell)."
+  if [ "$have" = "$target" ]; then
+    wait_for_rollout "$svc" "$limit"
+  else
+    cmd="docker service update --force --image ${target} ${svc}"
+    if [ "$force" = 1 ]; then
+      say "WARNING: ${svc} still runs ${have}, target is ${target}. Forcing the update: ${cmd}"
+      docker service update --detach --force --image "$target" "$svc" >/dev/null || die "could not update ${svc}; run by hand: ${cmd}"
+      sleep 2
+      wait_for_rollout "$svc" "$limit"
+    else
+      echo "[$(elapsed)] error: ${svc} runs ${have}, target is ${target} (the dashboard would show the old frontend). Run: ${cmd}" >&2
+      exit 1
+    fi
+  fi
+  say "Images:  ${stack}_radar -> $(service_image "${stack}_radar")"
+  say "         ${svc} -> $(service_image "$svc")"
+  have="$(service_image "$svc")"
+  if [ "$have" != "$target" ]; then
+    echo "[$(elapsed)] error: ${svc} runs ${have} instead of ${target} after the update. Run: docker service update --force --image ${target} ${svc}" >&2
+    exit 1
+  fi
+  docker service ps "$svc" --filter desired-state=running --format 'table {{.Name}}\t{{.Node}}\t{{.Image}}\t{{.CurrentState}}'
+  say "Dashboard health: a task only counts as Running after its healthcheck passed (start-first update); no request is sent to the dashboard port."
+}

@@ -16,7 +16,16 @@ case "$1 $2" in
 esac
 case "$1 $2" in
   "secret inspect") [ "${STUB_SECRET:-yes}" = yes ] || exit 1 ;;
-  "service inspect") exit 1 ;;
+  "service inspect")
+    case "$*" in
+      *ContainerSpec.Image*) case "$3" in
+          *_dashboard) [ "${STUB_DASH_MISSING:-no}" = yes ] && exit 1; cat "$STUB_LOG.dashimg" 2>/dev/null || echo "${STUB_DASH_IMAGE:-}" ;;
+          *) echo "${STUB_RADAR_IMAGE:-}" ;; esac ;;
+      *UpdateStatus*) echo completed ;;
+      *) exit 1 ;;
+    esac ;;
+  "service ls") echo 1/1 ;;
+  "service update") case "$*" in *_dashboard*) while [ $# -gt 0 ]; do [ "$1" != --image ] || echo "$2" > "$STUB_LOG.dashimg"; shift; done ;; esac ;;
   "service ps")
     n=$(cat "$STUB_LOG.n" 2>/dev/null || echo 0); echo $((n + 1)) > "$STUB_LOG.n"
     echo old; [ "$n" -eq 0 ] || echo new ;;
@@ -133,4 +142,41 @@ upd update-dash-missing no $'DASH_ENABLED=true\n'
 upd update-dash-off yes $'DASH_ENABLED=false\n'
 echo 'services: {}' > "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
 upd update-dash-present yes $'DASH_ENABLED=true\n'
+
+# ---- update.sh: rollout check of the dashboard service (full run against the stub, no network: --tag given) ----
+# Target image = IMAGE_BASE:TAG. Old tag -> forced (docker service update --force --image); new tag -> nothing forced;
+# DASH_ENABLED=false -> the dashboard is not touched; --no-dashboard-force -> error with the command, no update.
+IMG=ghcr.io/magicalwig34653/weather-backend-radar
+dupd() { # name, expect(ok|force|error|untouched), dashboard image, update.sh args..., env: DASH_ENABLED line in $WORK/d.env
+  local name="$1" expect="$2" dimg="$3" rc=0; shift 3
+  export STUB_LOG="$WORK/$name.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n" "$STUB_LOG.dashimg"
+  ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" DB_HOST=db STUB_RADAR_IMAGE="$IMG:sha-new1234" STUB_DASH_IMAGE="$dimg" \
+      ./update.sh --env-file "$WORK/d.env" --tag sha-new1234 --yes "$@" ) >"$WORK/$name.out" 2>&1 || rc=$?
+  local forced=0 ok=0
+  grep -q "service update.*--image $IMG:sha-new1234.*_dashboard" "$STUB_LOG" && forced=1
+  case "$expect" in
+    ok) [ "$rc" = 0 ] && [ "$forced" = 0 ] && grep -q "_dashboard -> $IMG:sha-new1234" "$WORK/$name.out" && ok=1 ;;
+    force) [ "$rc" = 0 ] && [ "$forced" = 1 ] && grep -q 'WARNING: .*_dashboard still runs' "$WORK/$name.out" && ok=1 ;;
+    error) [ "$rc" != 0 ] && [ "$forced" = 0 ] && grep -q 'docker service update --force --image .*_dashboard' "$WORK/$name.out" && ok=1 ;;
+    untouched) [ "$rc" = 0 ] && [ "$forced" = 0 ] && ! grep -q '_dashboard' "$STUB_LOG" && ok=1 ;;
+  esac
+  if [ "$ok" = 1 ]; then echo "ok   $name"; else echo "FAIL $name (rc=$rc, forced=$forced)"; cat "$WORK/$name.out"; fail=1; fi
+}
+cp "$SRC/stack.dashboard.yaml" "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
+printf 'DASH_ENABLED=true\nDASH_ORIGIN=https://dash.example.internal\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/d.env"
+dupd dash-update-new-tag-ok ok "$IMG:sha-new1234@sha256:0123abcd"
+dupd dash-update-old-tag-forced force "$IMG:sha-old0000"
+dupd dash-update-no-force-errors error "$IMG:sha-old0000" --no-dashboard-force
+printf 'DASH_ENABLED=false\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/d.env"
+dupd dash-update-off-untouched untouched "$IMG:sha-old0000"
+# Tag already current in the env file: the dashboard is still checked (repair path) and forced when it is behind.
+printf 'DASH_ENABLED=true\nDASH_ORIGIN=https://dash.example.internal\nRADAR_IMAGE_TAG=sha-new1234\n' > "$WORK/d.env"
+export STUB_LOG="$WORK/same-tag.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.dashimg"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" STUB_DASH_IMAGE="$IMG:sha-old0000" ./update.sh --env-file "$WORK/d.env" --tag sha-new1234 --yes ) >"$WORK/same-tag.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ] && grep -q "service update.*--image $IMG:sha-new1234.*_dashboard" "$STUB_LOG" && ! grep -q 'stack deploy' "$STUB_LOG"; then echo "ok   dash-same-tag-repaired"
+else echo "FAIL dash-same-tag-repaired"; cat "$WORK/same-tag.out"; fail=1; fi
+# Dry run mentions the dashboard check and calls no docker.
+printf 'DASH_ENABLED=true\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/d.env"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" ./update.sh --env-file "$WORK/d.env" --tag sha-new1234 --dry-run ) >"$WORK/dry.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ] && grep -q 'wait for .*_dashboard' "$WORK/dry.out"; then echo "ok   dash-dry-run-text"; else echo "FAIL dash-dry-run-text"; cat "$WORK/dry.out"; fail=1; fi
 exit $fail
