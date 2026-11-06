@@ -30,7 +30,7 @@ run() { # name, expect_overlay(yes|no|abort), env assignments...
   local name="$1" expect="$2"; shift 2
   export STUB_LOG="$WORK/$name.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n"
   local rc=0
-  ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u APNS_KEY_SECRET -u DASH_ENABLED -u ENV_FILE PATH="$WORK/bin:$PATH" DB_HOST=db "$@" ./swarm-deploy.sh ) >"$WORK/$name.out" 2>&1 || rc=$?
+  ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u APNS_KEY_SECRET -u DASH_ENABLED -u DASH_PROXY_TOKEN_SECRET -u DASH_PROXY_TOKEN_PREVIOUS_SECRET -u ENV_FILE PATH="$WORK/bin:$PATH" DB_HOST=db "$@" ./swarm-deploy.sh ) >"$WORK/$name.out" 2>&1 || rc=$?
   local deploys overlay
   deploys=$(grep -c 'stack deploy' "$STUB_LOG" || true); overlay=$(grep 'stack deploy' "$STUB_LOG" | grep -c "${CHECK:-stack.push.yaml}" || true)
   case "$expect" in
@@ -94,6 +94,29 @@ grep -q '\[rp=\]' "$WORK/dash-off-no-rp.log" || { echo "FAIL RP ID derived altho
 run dash-push-and-dash yes DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 CHECK=stack.push.yaml
 run dash-push-and-dash-push yes DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+unset CHECK
+
+# ---- dashboard proxy token secret (DASH_ENABLED=true): checked before any deploy, names from shell or env file ----
+CHECK=stack.dashboard.yaml
+run dash-token-secret-missing abort STUB_SECRET=no DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+grep -q "secret 'showernow_dashboard_proxy_token' (dashboard proxy token) does not exist" "$WORK/dash-token-secret-missing.out" || { echo "FAIL message for the missing proxy token secret"; fail=1; }
+run dash-token-secret-present yes DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+grep -q 'secret inspect showernow_dashboard_proxy_token' "$WORK/dash-token-secret-present.log" || { echo "FAIL default token secret name not checked"; fail=1; }
+run dash-off-no-token-check no DASH_ENABLED=false STUB_SECRET=no
+! grep -q 'secret inspect' "$WORK/dash-off-no-token-check.log" || { echo "FAIL secret checked although the dashboard is off"; fail=1; }
+printf 'DASH_ENABLED=true\nDASH_ORIGIN=https://dash.example.internal\nDASH_PROXY_TOKEN_SECRET=tok_new\nDASH_PROXY_TOKEN_PREVIOUS_SECRET=tok_old\n' > "$WORK/rot.env"
+run dash-token-rotation-names yes ENV_FILE="$WORK/rot.env"
+if ! { grep -q 'secret inspect tok_new' "$WORK/dash-token-rotation-names.log" && grep -q 'secret inspect tok_old' "$WORK/dash-token-rotation-names.log"; }; then
+  echo "FAIL rotation: both secret names must be checked"; fail=1
+fi
+printf 'DASH_ENABLED=true\nDASH_ORIGIN=https://dash.example.internal\nDASH_PROXY_TOKEN_SECRET=tok_only\n' > "$WORK/one.env"
+run dash-token-previous-defaults-to-current yes ENV_FILE="$WORK/one.env"
+[ "$(grep -c 'secret inspect tok_only' "$WORK/dash-token-previous-defaults-to-current.log")" = 2 ] || { echo "FAIL previous token secret must default to the current one"; fail=1; }
+run dash-token-shell-wins yes ENV_FILE="$WORK/one.env" DASH_PROXY_TOKEN_SECRET=tok_shell
+grep -q 'secret inspect tok_shell' "$WORK/dash-token-shell-wins.log" || { echo "FAIL shell secret name must win over the env file"; fail=1; }
+# The real overlay mounts exactly the proxy token secrets besides db_password and no APNs key.
+if ! { grep -q 'DASH_PROXY_TOKEN_FILE: /run/secrets/dashboard_proxy_token$' "$ov" && grep -q 'secrets: \[db_password, dashboard_proxy_token, dashboard_proxy_token_previous\]' "$ov" \
+  && ! grep -v '^ *#' "$ov" | grep -qiE 'apns_key_file|secrets:.*apns'; }; then echo "FAIL dashboard overlay secrets"; fail=1; fi
 unset CHECK
 
 # ---- update.sh stops before any change when the overlay is missing (dry run, no network: --tag given) ----

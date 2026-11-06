@@ -23,6 +23,18 @@ version: '3.8'
 # The environment repeats the one of radar (same keys, so the dashboard sees which values the operator set through the environment
 # and shows them as locked; empty means: not set by the operator); check-config-tables.sh keeps both lists in sync. Two deliberate differences: PUSH_ENABLED is fixed
 # `false` and there is no APNS_KEY_FILE (the dashboard never sends push and does not mount the APNs secret).
+#
+# PROXY TOKEN (decision 2026-11-06): the published port only answers requests that carry the header X-Dashboard-Proxy-Token with
+# the shared secret (otherwise a plain 404). The token is a Swarm SECRET, not an environment variable: it stays out of the env file,
+# `docker service inspect` and `docker stack config`, exactly like db_password and the APNs key. Only the dashboard gets it (radar
+# does not need it). Create it once (before the first deploy with DASH_ENABLED=true; swarm-deploy.sh/update.sh check that):
+#   umask 077; openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > proxy-token.txt; docker secret create showernow_dashboard_proxy_token proxy-token.txt
+# put the SAME value as header into the reverse proxy (docs-site dashboard.md), then `rm proxy-token.txt` (a secret cannot be read back). Docker secrets are immutable. ROTATION:
+# create a new secret (e.g. showernow_dashboard_proxy_token_2), set DASH_PROXY_TOKEN_SECRET=<new> and DASH_PROXY_TOKEN_PREVIOUS_SECRET=<old>
+# in the env file, deploy (both tokens are accepted), switch the proxy header to the new value, then remove DASH_PROXY_TOKEN_PREVIOUS_SECRET
+# again (the scripts then use the current secret for both). Without a rotation both names are the same secret (harmless: a duplicate
+# digest). A manual `docker stack deploy` must export both names (or neither). DASH_PROXY_TOKEN_REQUIRED=false has no effect in the
+# stack: the secret is always mounted and therefore always enforced.
 services:
   dashboard:
     image: ghcr.io/magicalwig34653/weather-backend-radar:${RADAR_IMAGE_TAG:-edge}
@@ -54,6 +66,9 @@ services:
       DB_NAME: ${DB_NAME:-showernow}
       DB_USER: ${DB_USER:-showernow}
       DB_PASSWORD_FILE: /run/secrets/db_password
+      # Proxy token (file, Swarm secret): without it the dashboard does not start. The previous token stays valid during a rotation.
+      DASH_PROXY_TOKEN_FILE: /run/secrets/dashboard_proxy_token
+      DASH_PROXY_TOKEN_PREVIOUS_FILE: /run/secrets/dashboard_proxy_token_previous
       DB_POOL_SIZE: ${DB_POOL_SIZE:-4}
       CACHE_MAX_MB: ${CACHE_MAX_MB:-}
       RETENTION_RUNS: ${RETENTION_RUNS:-}
@@ -119,10 +134,12 @@ services:
       DEVICE_LINK_BUNDLE_ID: ${DEVICE_LINK_BUNDLE_ID:-}
       DEVICE_LINK_ALLOWED_ENVS: ${DEVICE_LINK_ALLOWED_ENVS:-}
       DEVICE_LINK_MAX_AGE_HOURS: ${DEVICE_LINK_MAX_AGE_HOURS:-}
+      DEVICE_LINK_REQUIRE_TESTFLIGHT: ${DEVICE_LINK_REQUIRE_TESTFLIGHT:-}
+      DEVICE_LINK_WINDOW_MINUTES: ${DEVICE_LINK_WINDOW_MINUTES:-}
       DASH_MAX_DEVICES: ${DASH_MAX_DEVICES:-}
       DASH_DEVICE_TTL_DAYS: ${DASH_DEVICE_TTL_DAYS:-}
       DASH_DEVICE_STALE_DAYS: ${DASH_DEVICE_STALE_DAYS:-}
-    secrets: [db_password]
+    secrets: [db_password, dashboard_proxy_token, dashboard_proxy_token_previous]
     healthcheck:
       # Liveness: TCP connect plus any HTTP status line (the Host check of the dashboard answers 403 for "localhost", that is fine).
       test: [CMD, /bin/bash, -c, 'exec 3<>/dev/tcp/127.0.0.1/$${DASH_PORT:-9090} && printf "GET /dash/api/session HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && IFS= read -r status <&3 && [[ "$$status" == HTTP/* ]]']
@@ -148,3 +165,10 @@ services:
       restart_policy:
         condition: any
         delay: 5s
+secrets:
+  dashboard_proxy_token:
+    external: true
+    name: ${DASH_PROXY_TOKEN_SECRET:-showernow_dashboard_proxy_token}
+  dashboard_proxy_token_previous:
+    external: true
+    name: ${DASH_PROXY_TOKEN_PREVIOUS_SECRET:-showernow_dashboard_proxy_token}

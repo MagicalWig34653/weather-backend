@@ -104,3 +104,24 @@ require_dashboard_overlay() {
   [ -f "$SCRIPT_DIR/stack.dashboard.yaml" ] \
     || die "Dashboard-Overlay fehlt: diese Version enthält das Dashboard noch nicht (deploy/swarm/stack.dashboard.yaml nicht gefunden). DASH_ENABLED=true in der .env entfernen oder auf false setzen, oder zuerst update.sh --pull-scripts. Nothing was changed."
 }
+
+# Dashboard proxy token (DASH_ENABLED=true): the overlay always mounts the Swarm secrets dashboard_proxy_token (+ _previous). A missing
+# secret would make `docker stack deploy` fail late (or the container abort at start), so stop early with the creation hint.
+# Names: DASH_PROXY_TOKEN_SECRET (default showernow_dashboard_proxy_token); DASH_PROXY_TOKEN_PREVIOUS_SECRET defaults to the current one.
+# Shell variables win over the env file. Usage: require_dashboard_secret [ENV_FILE]; exports both names for `docker stack deploy`.
+require_dashboard_secret() {
+  local file="${1:-}" enabled="${DASH_ENABLED-}" cur prev name
+  if [ -z "${DASH_ENABLED+x}" ] && [ -n "$file" ] && [ -f "$file" ]; then enabled="$(env_value "$file" DASH_ENABLED)"; fi
+  [ "$enabled" = true ] || return 0
+  cur="${DASH_PROXY_TOKEN_SECRET-}"; prev="${DASH_PROXY_TOKEN_PREVIOUS_SECRET-}"
+  if [ -n "$file" ] && [ -f "$file" ]; then
+    [ -n "$cur" ] || cur="$(env_value "$file" DASH_PROXY_TOKEN_SECRET)"
+    [ -n "$prev" ] || prev="$(env_value "$file" DASH_PROXY_TOKEN_PREVIOUS_SECRET)"
+  fi
+  cur="${cur:-showernow_dashboard_proxy_token}"; prev="${prev:-$cur}"
+  export DASH_PROXY_TOKEN_SECRET="$cur" DASH_PROXY_TOKEN_PREVIOUS_SECRET="$prev"
+  for name in "$cur" "$prev"; do
+    docker secret inspect "$name" >/dev/null 2>&1 \
+      || die "DASH_ENABLED=true, but the Swarm secret '${name}' (dashboard proxy token) does not exist. Create it first: umask 077; openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > proxy-token.txt; docker secret create ${name} proxy-token.txt; put the same value into the reverse proxy as header X-Dashboard-Proxy-Token; rm proxy-token.txt (see docs-site dashboard.md). The Swarm stack always enforces the token (DASH_PROXY_TOKEN_REQUIRED=false has no effect there). Nothing was changed."
+  done
+}
