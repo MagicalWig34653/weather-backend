@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-11-06T09:21:30Z",
+  "partial": [],
+  "layers": [
+    {
+      "id": "radar", "kind": "radar", "enabled": true, "state": "current",
+      "runs": 36, "slots": 900, "bytes": 52428800,
+      "oldestNominal": "2026-11-05T09:10:00Z", "newestNominal": "2026-11-06T09:15:00Z", "spanSeconds": 86100,
+      "latestPublishedAt": "2026-11-06T09:18:42Z", "ageSeconds": 168, "cadenceSeconds": 300,
+      "lastAttemptAt": "2026-11-06T09:15:03Z", "lastAttemptResult": "ok", "errors24h": 2
+    },
+    {
+      "id": "pressure", "kind": "forecast", "enabled": true, "state": "stale",
+      "runs": 4, "slots": 192, "bytes": 9437184,
+      "oldestNominal": "2026-11-05T12:00:00Z", "newestNominal": "2026-11-06T06:00:00Z", "spanSeconds": 64800,
+      "latestPublishedAt": "2026-11-06T06:42:10Z", "ageSeconds": 10760, "cadenceSeconds": 3600,
+      "lastAttemptAt": "2026-11-06T09:10:00Z", "lastAttemptResult": "error", "errors24h": 14
+    },
+    {
+      "id": "lightning", "kind": "observation", "enabled": true, "state": "current",
+      "runs": 288, "slots": 288, "bytes": 4194304,
+      "oldestNominal": "2026-11-05T09:20:00Z", "newestNominal": "2026-11-06T09:15:00Z", "spanSeconds": 85500,
+      "latestPublishedAt": "2026-11-06T09:21:15Z", "ageSeconds": 15, "cadenceSeconds": 300,
+      "lastAttemptAt": "2026-11-06T09:20:00Z", "lastAttemptResult": "running", "errors24h": 0
+    },
+    {
+      "id": "clouds", "kind": "observation", "enabled": false, "state": "disabled",
+      "runs": 0, "slots": 0, "bytes": 0,
+      "oldestNominal": null, "newestNominal": null, "spanSeconds": null,
+      "latestPublishedAt": null, "ageSeconds": null, "cadenceSeconds": 600,
+      "lastAttemptAt": null, "lastAttemptResult": null, "errors24h": null
+    }
+  ],
+  "process": { "scope": "thisReplica", "bytes": 31457280, "maxBytes": 134217728, "entries": 212 },
+  "replicas": [
+    { "id": "3fa9c1d2", "cacheBytes": 31457280, "cacheEntries": 212, "cacheMaxBytes": 134217728 },
+    { "id": "b81e07aa", "cacheBytes": null, "cacheEntries": null, "cacheMaxBytes": null }
+  ]
+}

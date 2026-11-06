@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-11-06T09:21:30Z",
+  "radar": { "status": "ok", "runAgeSeconds": 210 },
+  "subscriptions": [
+    {
+      "index": 0, "kind": "point", "enabled": true, "liveActivity": true, "timeSensitive": false,
+      "thresholdClass": 5, "leadMinutes": 20, "radiusCells": null, "minSharePercent": null,
+      "state": "notified", "hysteresis": true,
+      "lastSentAt": "2026-11-06T09:05:00Z", "lockUntil": "2026-11-06T10:05:00Z",
+      "cell": "wet", "leadCell": "wet", "activity": "active"
+    },
+    {
+      "index": 1, "kind": "circle", "enabled": true, "liveActivity": false, "timeSensitive": true,
+      "thresholdClass": 3, "leadMinutes": 30, "radiusCells": 6, "minSharePercent": 20,
+      "state": "dry", "hysteresis": false,
+      "lastSentAt": null, "lockUntil": null,
+      "cell": "dry", "leadCell": "dry", "activity": "none"
+    }
+  ]
+}

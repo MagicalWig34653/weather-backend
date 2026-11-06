@@ -1,0 +1,8 @@
+{
+  "layer": "radar",
+  "slots": [
+    { "slot": "2026-11-06T09:15:00Z", "run": "2026-11-06T09:15:00Z", "index": 0, "bytes": 61440, "contentType": "image/webp", "published": true, "publishedAt": "2026-11-06T09:18:42Z" },
+    { "slot": "2026-11-06T09:20:00Z", "run": "2026-11-06T09:15:00Z", "index": 1, "bytes": 59392, "contentType": "image/webp", "published": true, "publishedAt": "2026-11-06T09:18:42Z" }
+  ],
+  "next": "2026-11-06T09:15:00Z"
+}

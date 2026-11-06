@@ -411,8 +411,99 @@ Tabelle `dashboard_command` (Migration 011 oder 012): `id CHAR(36) PK`, `device_
 | `GET /dash/api/restart` | `{"generation":int,"pending":["KEY"],"replicas":[{"id":"<8 hex>","appliedGeneration":int,"startedAt":ISO,"state":"current"\|"waiting"}]}` |
 | `POST /dash/api/restart` | Body `{}` → `202 {"generation":int}`, Limit 2 pro Minute und 6 pro Stunde |
 
-`AuditEntry` = `{id:int, at:ISO, action:"set"|"reset"|"restart"|"login"|"setup"|"reset_cli"|"device_pair"|"device_unpair"|"device_action"|"push_pause"|"cache_clear"|"device_pairing_open"|"device_pairing_close", configKey:string|null, oldValue:string|null, newValue:string|null, deviceRef:string|null, outcome:string|null}`. `deviceRef` sind die ersten 8 Hexzeichen von `SHA-256(Kopplungs-ID)`; `outcome` bei `device_action` z. B. `test:delivered`, bei `device_pairing_close` `manual` oder `redeemed`. Aufbewahrung 365 Tage.
+`AuditEntry` = `{id:int, at:ISO, action:"set"|"reset"|"restart"|"login"|"setup"|"reset_cli"|"device_pair"|"device_unpair"|"device_action"|"push_pause"|"cache_clear"|"cache_refresh"|"device_pairing_open"|"device_pairing_close", configKey:string|null, oldValue:string|null, newValue:string|null, deviceRef:string|null, outcome:string|null}`. `deviceRef` sind die ersten 8 Hexzeichen von `SHA-256(Kopplungs-ID)`; `outcome` bei `device_action` z. B. `test:delivered`, bei `device_pairing_close` `manual` oder `redeemed`. Aufbewahrung 365 Tage.
+
+## Erweiterung 6. November 2026: Abos, Cache, Vorschau, Auffrischen, Fehlerverhalten
+
+Additiv zum eingefrorenen Vertrag (neue Routen, neue Felder). Beispiele: `docs/fixtures/dashboard/device-subscriptions.*`, `cache.*`, `cache-slots.*`, `cache-refresh.*`.
+
+### `GET /dash/api/devices/{id}/subscriptions`
+
+Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=false` ebenfalls `404`). Sitzung erforderlich, kein CSRF (Lesen). Limit wie die übrigen Geräte-Lesezugriffe (60 pro Minute). Der Ort gehört dem eigenen, vom Betreiber gekoppelten Gerät; trotzdem gilt: **keine Koordinaten, keine Zellindizes, keine Tokens, keine IDs**; das Backend speichert außerdem keine Ortsnamen, deshalb gibt es kein Namensfeld (die App-Anzeige „Ort/Region“ wird über `kind` ersetzt). Reihenfolge und `index` wie in `GET devices/{id}`.
+
+```
+{ generatedAt,
+  radar: { status: "ok"|"no_slot"|"stale_run", runAgeSeconds: int|null },     // Quelle von cell/leadCell
+  subscriptions: [ { index: int, kind: "point"|"circle",
+                     enabled: bool, liveActivity: bool, timeSensitive: bool,
+                     thresholdClass: 1..15, leadMinutes: 10|20|30,
+                     radiusCells: int|null, minSharePercent: int|null,          // nur kind "circle"; Radius in Rasterzellen, Anteil in Prozent
+                     state: "dry"|"pending"|"notified",                         // Automat des Regenbeginns
+                     hysteresis: bool,                                          // Bit "wetSeen" (Live-Activity-Hysterese)
+                     lastSentAt: ISO|null, lockUntil: ISO|null,
+                     cell: "wet"|"dry"|"unknown",                               // Zelle jetzt (Slot 0) gegen Schwelle
+                     leadCell: "wet"|"dry"|"unknown",                           // irgendein Slot bis zum Vorlauf gegen Schwelle (würde auslösen)
+                     activity: "none"|"reserved"|"active" } ] }
+```
+
+`cell`/`leadCell`: `unknown`, wenn `radar.status` nicht `ok` ist oder der Pixel unbekannt ist (Live-Activity-Abos); `wet` heißt Intensitätsklasse mindestens `thresholdClass`. Für `circle` gilt der Anteilsschwellwert (`minSharePercent`). `activity` gilt für den (einzigen) Live-Activity-Platz der Installation und wird bei dem Abo gezeigt, das ihn belegt, sonst `none`.
+
+### Cache-Inventar `GET /dash/api/cache`
+
+```
+{ generatedAt, partial: [string],
+  layers: [ { id, kind: "radar"|"forecast"|"observation", enabled: bool,
+              state: "current"|"stale"|"failed"|"empty"|"disabled",
+              runs: int, slots: int, bytes: int|null,
+              oldestNominal: ISO|null, newestNominal: ISO|null, spanSeconds: int|null,
+              latestPublishedAt: ISO|null, ageSeconds: int|null, cadenceSeconds: int,
+              lastAttemptAt: ISO|null, lastAttemptResult: "ok"|"error"|"missed"|"running"|null,
+              errors24h: int|null } ],
+  process: { scope: "thisReplica", bytes: int, maxBytes: int, entries: int }|null,
+  replicas: [ { id: "<8 hex>", cacheBytes: int|null, cacheEntries: int|null, cacheMaxBytes: int|null } ] }
+```
+
+- `id`: `radar` und die Kennungen aus `LayerCatalog`. `enabled` gilt für den Ingest (Register `LAYERS`); deaktivierte Ebenen mit Daten bleiben sichtbar (`state: "disabled"`), solange die Daten aufbewahrt werden.
+- `runs`/`slots`/`bytes`/Zeiten: **veröffentlichte** Läufe und deren Slots in der Datenbank (`radar_*`, `layer_*`). `bytes` ist die Summe der Bildgrößen. `spanSeconds` = `newestNominal - oldestNominal`.
+- `state`: `empty` (aktiviert, nichts veröffentlicht), `current` (`ageSeconds` höchstens 3 × `cadenceSeconds` seit der letzten Veröffentlichung, mindestens 900 s), `stale` (älter, bis 12 × `cadenceSeconds`), `failed` (älter als das oder jüngster Versuch `error` ohne neue Veröffentlichung), `disabled`. Die Schwellen sind feste Zahlen im Server, keine Konfiguration.
+- `lastAttemptAt`: jüngster Lauf-Eintrag beliebigen Status (`claimed`/`failed`/`published`) bzw. Versuchsbeginn; `lastAttemptResult`: `running` (Lauf gerade geclaimt), `error` (fehlgeschlagen), `ok` (veröffentlicht), `missed` (Slot nicht verfügbar; wie Insights); `null` ohne Eintrag. `errors24h`: Zähler `ingest_run` mit Ergebnis `error` und `missed` der letzten 24 Stunden aus den Stundenzählern, `null` ohne Stundendaten.
+- `process`: Füllstand des Prozess-Caches des antwortenden Prozesses (`null`, wenn dieser Prozess keinen hat, z. B. der Dashboard-Dienst); `replicas`: jedes frische `radar`-Replikat meldet seinen Füllstand mit dem Heartbeat (Werte `null` bei älteren Versionen). Der Prozess-Cache enthält nur Bilder, die bereits abgerufen wurden.
+- Teilausfall: wie bei Insights (`partial`, Abschnitt `null`/leer, `200`).
+
+### `GET /dash/api/cache/{layer}/slots?limit=&before=`
+
+`{layer}`: `radar` oder Ebenenkennung (sonst `404 not_found`). `limit` 1 bis 200 (Standard 50), `before` ISO-Zeit (exklusiv, Standard: jetzt + 1 Tag): Seiten absteigend nach Slot-Zeit.
+
+```
+{ layer, slots: [ { slot: ISO, run: ISO, index: int, bytes: int, contentType: string, published: bool, publishedAt: ISO|null } ],
+  next: ISO|null }                     // next = Wert für before der nächsten Seite, null am Ende
+```
+
+`slot` = Zeit des Bildes (`slot_time`), `run` = Nominalzeit des Laufs, `index` = Slot-Nummer im Lauf (0 = Analyse). Sortierung: `slot` absteigend, bei gleicher Zeit `run` absteigend. Lesen, 60 pro Minute.
+
+### Vorschau `GET /dash/api/cache/{layer}/preview?slot=<ISO>&run=<ISO>`
+
+Liefert das gespeicherte Bild (nicht den Prozess-Cache; veröffentlichte Slots der eigenen Datenbank). `slot` Pflicht (ISO, Sekunden), `run` optional (Standard: neuester veröffentlichter Lauf, der diesen Slot enthält). Sitzungs-Cookie Pflicht (kein CSRF, GET). Antwort `200` mit dem Bild als Rumpf; `Content-Type` aus dem Cache, nur `image/webp`, `image/png`, `image/jpeg` (anderes: `415 unsupported_media`), `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`, `Content-Disposition: inline`. Größenlimit 8 MB (größer: `413 too_large`). Fehler: `400 validation` (Slot fehlt/ungültig), `404 not_found` (unbekannte Ebene oder Slot, auch unveröffentlicht), `429 rate_limited` (eigener Eimer, 120 pro Minute), 503 `data_unavailable`. Das Frontend darf `<img src>` mit der URL verwenden (CSP `img-src 'self'`).
+
+### Ebene neu abrufen `POST /dash/api/cache/refresh`
+
+Unterscheidung: `POST cache/clear` leert nur den **Prozess-Cache** der Replikate (Daten werden aus der Datenbank neu geladen); `POST cache/refresh` stößt einen **außerplanmäßigen Ingest-Lauf** an (neue Daten von DWD/EUMETSAT holen). Body `{"layer":"all"|"radar"|"<Ebenen-ID>"}`, Sitzung + CSRF, Limit 6 pro Minute (`429 rate_limited`), Audit `cache_refresh` (`outcome` = Ebenenkennung).
+
+Die Aufträge liegen in der Tabelle `dashboard_refresh` (Migration 014); jedes `radar`-Replikat mit laufendem Ingest fragt alle 2 Sekunden ab und führt Aufträge aus, deren Ebene es bearbeiten darf (Radar: jedes Replikat per Lauf-Claim; Zusatzebene: der Inhaber der Leader-Lease der Ebene). Es läuft höchstens ein Auftrag je Ebene. Der Lauf nutzt die normale Ingest-Logik (Wartezeiten, Wiederholungen, Vollständigkeitsprüfung) und holt nur, was fehlt.
+
+`202 {"jobs":[{"id":"<uuid>","layer":"radar","status":"queued","createdAt":ISO}]}`; `all` erzeugt je ein Auftrag für `radar` und jede aktivierte Ebene (ohne bereits offene). Fehler: `400 validation` (unbekannte Ebene), `409 layer_disabled` (Ebene nicht aktiviert; bei `all` übersprungen), `409 refresh_pending` (für die Ebene läuft schon ein Auftrag; bei `all` übersprungen, `409` nur wenn gar nichts angelegt wurde), `429 rate_limited`, `503 ingest_unavailable` (kein frisches `radar`-Replikat meldet sich).
+
+Ergebnis per Polling (1 bis 2 s, höchstens 5 Minuten): `GET /dash/api/cache/refresh/{id}` und `GET /dash/api/cache/refresh?limit=` (1 bis 30, Standard 10, neueste zuerst, `{"jobs":[…]}`):
+
+```
+{ id, layer, status: "queued"|"running"|"ok"|"failed"|"expired",
+  createdAt, startedAt: ISO|null, finishedAt: ISO|null,
+  result: { stored: int, failed: int, published: bool }|null,       // nur bei "ok"
+  error: "<code>"|null }
+```
+
+`error` (bei `failed`/`expired`): `source_unavailable` (Quelle antwortet nicht oder liefert ungültige Bilder), `incomplete` (Bilder unvollständig), `layer_disabled` (zwischenzeitlich abgeschaltet), `no_ingest_replica` (`expired`: kein Replikat hat den Auftrag binnen 120 s übernommen), `timeout` (`failed`: Auftrag lief über 300 s ohne Ergebnis), `internal`. `ok` mit `stored: 0` heißt: es fehlte nichts (`nothing new`). Aufbewahrung 24 Stunden, höchstens 100 Aufträge.
+
+### Fehlerverhalten der Insights-Routen (Antwort auf „Aktualisierung fehlgeschlagen“)
+
+Verbindlich für Server und Frontend (6. November 2026):
+
+1. **Teilausfall ist kein Fehler**: fällt ein Abschnitt aus, bleibt es bei `200` mit `partial` (siehe oben). Neu: Schlägt die ganze Berechnung fehl, liefert der Server innerhalb von 10 Minuten nach dem letzten Erfolg dieser Route und dieses Bereichs **die letzte gute Antwort** mit `200` und den zusätzlichen Feldern `stale: true` und `staleSeconds: int` (Alter der Antwort); `generatedAt` bleibt der ursprüngliche Zeitpunkt. Erst danach (oder ohne frühere Antwort) kommt `503 data_unavailable` mit `Retry-After: 5`.
+2. **Ratenlimit**: Lesezugriffe mit gültiger Sitzung zählen in einem großzügigen Eimer (3000 pro Minute je Prozess statt 600); Insights-Routen sind darin enthalten. `GET session` behält seinen eigenen Eimer. Ein `429` trägt `Retry-After` (Sekunden).
+3. **Frontend**: Bei Netzwerkfehler, Timeout oder `5xx` (außer `503` mit `Retry-After` größer 30) einmal nach 2 s wiederholen, parallel laufende Abfragen nicht abbrechen, die zuletzt angezeigten Daten behalten und nur „Stand HH:MM:SS“ mit dezentem Hinweis zeigen. `401` heißt Sitzung weg (Anmeldung), niemals „Aktualisierung fehlgeschlagen“. `429`/`503` mit `Retry-After`: bis dahin warten. Der Hinweis „Veraltet“ erscheint erst, wenn zwei aufeinanderfolgende Zyklen fehlgeschlagen sind oder `stale: true` gemeldet wird. Serverseitiges Timeout der Insights-Berechnung: 10 s (dann Regel 1); empfohlenes Client-Timeout 20 s.
 
 ## Zusammenfassung Fehlercodes dieses Vertrags
 
 `validation` 400; `unauthorized` 401; `forbidden` 403; `not_found` 404; `code_unknown` 404; `conflict` 409; `device_limit` 409; `link_disabled` 409; `command_pending` 409; `locked_by_env` 409; `rate_limited` 429; `action_rate_limited` 429; `data_unavailable` 503; `push_leader_missing`, `push_disabled`, `push_state_unknown` 503 (nur Geräteaktionen).
+
+Erweiterung 6. November 2026: `layer_disabled` 409; `refresh_pending` 409; `unsupported_media` 415; `too_large` 413; `ingest_unavailable` 503.

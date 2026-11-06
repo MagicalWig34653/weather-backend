@@ -609,6 +609,132 @@
       "status": 200,
       "file": "dashboard/pairing-close.200.json",
       "description": "Kopplungsfenster geschlossen."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/subscriptions",
+      "status": 200,
+      "file": "dashboard/device-subscriptions.200.json",
+      "description": "Abos des gekoppelten Geraets: Radius, Anteil, Zustand, Zelle jetzt/im Vorlauf, Sperre, Platz."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/subscriptions",
+      "status": 200,
+      "file": "dashboard/device-subscriptions.radar-unknown.json",
+      "description": "Radarlauf veraltet: cell/leadCell unknown."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/subscriptions",
+      "status": 200,
+      "file": "dashboard/device-subscriptions.empty.json",
+      "description": "Keine Abos."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache",
+      "status": 200,
+      "file": "dashboard/cache.200.json",
+      "description": "Cache-Inventar je Ebene, Prozess-Cache, Replikate."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache",
+      "status": 200,
+      "file": "dashboard/cache.partial.json",
+      "description": "Teilausfall: partial [layers]."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/{layer}/slots",
+      "status": 200,
+      "file": "dashboard/cache-slots.200.json",
+      "description": "Slot-Liste, Seite mit Cursor next."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/{layer}/slots",
+      "status": 200,
+      "file": "dashboard/cache-slots.last-page.json",
+      "description": "Letzte Seite (leer, next null)."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/refresh",
+      "status": null,
+      "file": "dashboard/cache-refresh.request.json",
+      "description": "Request-Body (layer all|radar|<Ebene>)."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/refresh",
+      "status": 202,
+      "file": "dashboard/cache-refresh.202.json",
+      "description": "Auftrag angelegt."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/refresh",
+      "status": 409,
+      "file": "dashboard/cache-refresh.409-refresh_pending.json",
+      "description": "Fuer die Ebene laeuft schon ein Auftrag."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/refresh",
+      "status": 409,
+      "file": "dashboard/cache-refresh.409-layer_disabled.json",
+      "description": "Ebene nicht aktiviert."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/cache/refresh",
+      "status": 503,
+      "file": "dashboard/cache-refresh.503-ingest_unavailable.json",
+      "description": "Kein frisches radar-Replikat."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/refresh/{id}",
+      "status": 200,
+      "file": "dashboard/cache-refresh.running.json",
+      "description": "Auftrag laeuft."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/refresh/{id}",
+      "status": 200,
+      "file": "dashboard/cache-refresh.done-ok.json",
+      "description": "Auftrag fertig (ok)."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/refresh/{id}",
+      "status": 200,
+      "file": "dashboard/cache-refresh.failed.json",
+      "description": "Auftrag fehlgeschlagen (source_unavailable)."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/refresh/{id}",
+      "status": 200,
+      "file": "dashboard/cache-refresh.expired.json",
+      "description": "Auftrag abgelaufen (no_ingest_replica)."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/cache/refresh",
+      "status": 200,
+      "file": "dashboard/cache-refresh-list.200.json",
+      "description": "Letzte Auftraege, neueste zuerst."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/insights/overview",
+      "status": 200,
+      "file": "dashboard/insights-overview.stale.json",
+      "description": "stale-while-error: letzte gute Antwort mit stale true und staleSeconds (alle uebrigen Felder wie 200)."
     }
   ]
 }

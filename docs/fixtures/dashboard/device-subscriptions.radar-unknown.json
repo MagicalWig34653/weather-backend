@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-11-06T09:21:30Z",
+  "radar": { "status": "stale_run", "runAgeSeconds": 4100 },
+  "subscriptions": [
+    {
+      "index": 0, "kind": "point", "enabled": true, "liveActivity": true, "timeSensitive": false,
+      "thresholdClass": 5, "leadMinutes": 20, "radiusCells": null, "minSharePercent": null,
+      "state": "pending", "hysteresis": false,
+      "lastSentAt": null, "lockUntil": null,
+      "cell": "unknown", "leadCell": "unknown", "activity": "reserved"
+    }
+  ]
+}
