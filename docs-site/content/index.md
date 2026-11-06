@@ -16,6 +16,7 @@ Der Radar-Cache ist das Backend der Regen-App Showers. Er holt alle 5 Minuten de
 - [Architektur](architektur.html): Replikate, MariaDB, Claim und Lease, Cache.
 - [Installationsanleitung](installation.html): vom leeren Swarm zum laufenden Dienst.
 - [Betrieb und Fehlersuche](betrieb.html): Kommandos, typische Fehlerbilder, Stellschrauben.
+- [Betreiber-Dashboard](dashboard.html): Aktivierung, Befunde, Live-Activity-Diagnose, Geräte-Kopplung.
 - [API-Referenz](api.html): Endpunkte, Felder, Header.
 - [Entwicklung](entwicklung.html) und [Roadmap](roadmap.html).
 

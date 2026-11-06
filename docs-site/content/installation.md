@@ -247,6 +247,7 @@ Gruppe „Dashboard“ im Menü (oder `--set DASH_ENABLED=true --set DASH_ORIGIN
 
 - Das Dashboard läuft als eigener Dienst `dashboard` nur im Overlay-Netz, ohne veröffentlichten Port (Overlay `stack.dashboard.yaml`). Ihr interner Reverse Proxy terminiert TLS, leitet an `dashboard:9090` weiter und muss den `Host`-Header unverändert durchreichen.
 - **Erster Passkey:** Die Registrierung ist nur beim ersten Start ohne vorhandenes Credential offen. Richten Sie ihn nur im internen Netz direkt nach dem Start ein. Notfall-Reset: `radar dashboard-reset --yes`.
+- Ausführliche Anleitung (Setup-Fenster, Passkey, Schwellen, Kopplung, Diagnose lesen): [Betreiber-Dashboard](dashboard.html). Zusätzliche Variablen: `DASH_PORT`, `DASH_SETUP_WINDOW_MINUTES`, `DASH_SESSION_HOURS`, `DASH_IDLE_MINUTES`, `DASH_MIN_GROUP`, `DASH_WARN_*` und `DEVICE_LINK_*` (siehe `.env.example`).
 - **Stand dieser Version:** `swarm-deploy.sh` und `update.sh` binden bei `DASH_ENABLED=true` (Shell vor `.env`, wie bei `PUSH_ENABLED`) das Overlay `deploy/swarm/stack.dashboard.yaml` ein. Es wird mit dem Dashboard-Arbeitspaket geliefert und fehlt noch: bis dahin brechen beide Skripte mit „Dashboard-Overlay fehlt“ ab, bevor etwas geändert wird, `settings.sh --check` warnt („Dashboard noch nicht verfügbar in dieser Version“) und das Menü zeigt „vorbereitet (Overlay noch nicht vorhanden)“. Die Warnungen entfallen, sobald die Datei existiert.
 
 ## Update
