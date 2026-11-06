@@ -288,6 +288,22 @@ public final class MariaRepo: Repo, @unchecked Sendable {
         }
     }
 
+    /// Name of the newest applied migration (e.g. `011_stats_hourly`); nil if none is recorded.
+    public func latestMigration() async throws -> String? {
+        try await connection { conn in
+            try await query(conn, "SELECT MAX(version) AS v FROM schema_migration").rows.first?.column("v")?.string
+        }
+    }
+
+    public func leaderLease(name: String) async throws -> LeaderLease? {
+        try await connection { conn in
+            let result = try await query(conn,
+                "SELECT owner, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), lease_until) AS left_s FROM radar_lock WHERE name = ?", [MySQLData(string: name)])
+            guard let row = result.rows.first, let owner = row.column("owner")?.string else { return nil }
+            return LeaderLease(owner: owner, secondsLeft: row.column("left_s")?.int ?? 0)
+        }
+    }
+
     public func releaseLeader(name: String, owner: String) async throws {
         try await connection { conn in
             _ = try await query(conn, "DELETE FROM radar_lock WHERE name=? AND owner=?", [MySQLData(string: name), MySQLData(string: owner)])

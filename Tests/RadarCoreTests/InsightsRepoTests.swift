@@ -63,7 +63,7 @@ struct InsightsRepoTests {
         let prereq = push["prerequisites"] as? [[String: Any]] ?? []
         #expect(prereq.first { $0["key"] as? String == "apns_env_match" }?["ok"] as? Bool == false)
         #expect(prereq.first { $0["key"] as? String == "apns_env_match" }?["detail"] as? String == "sandbox_installs_with_production_env")
-        #expect(push["triggers"] is NSNull && push["delivery"] is NSNull)
+        #expect((push["triggers"] as? [Any])?.isEmpty == true && (push["delivery"] as? [String: Any])?["ratio"] is NSNull)   // counters exist, nothing counted yet
 
         let dist = try await engine.distribution()
         let per = dist["subscriptionsPerInstallation"] as? [[String: Any]] ?? []
@@ -74,7 +74,8 @@ struct InsightsRepoTests {
         let layers = ops["layers"] as? [[String: Any]] ?? []
         #expect(layers.count == 1 + LayerCatalog.order.count && layers.first?["id"] as? String == "radar" && layers.first?["hasData"] as? Bool == false)
         #expect((ops["replicas"] as? [[String: Any]])?.first?["id"] as? String == DashboardApi.shortID("replica-one"))
-        #expect(ops["generation"] as? Int == 0 && ops["leader"] is NSNull && ops["latency"] is NSNull)
+        // Push is on but nobody holds the leader lease: the leader is reported as missing (holder null), not as unknown.
+        #expect(ops["generation"] as? Int == 0 && (ops["leader"] as? [String: Any])?["holder"] is NSNull && ops["latency"] is NSNull)
         let cache = ops["cache"] as? [String: Any]
         #expect(cache?["hitRatio"] as? Double == 0.8 && cache?["dbReads"] as? Int == 20)
 
@@ -94,6 +95,7 @@ struct InsightsRepoTests {
         let now = TimeUtil.floor(Date(), to: 60)
         try await repo.heartbeat(replicaID: "replica-one", slot: 1, appliedGeneration: 0, now: now)
         var config = Config(); config.push.enabled = true
+        _ = try await repo.acquireLeader(name: PushService.leaderName, owner: "replica-one", leaseSeconds: 30)
         let source = RepoInsightsDataSource(repo: repo, enabledLayers: [], context: { [config = config] in .make(config: config) })
         let engine = InsightsEngine(source: source, clock: { now })
         let g = try #require(try await source.pushGauges(now: now))

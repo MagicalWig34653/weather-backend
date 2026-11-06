@@ -244,7 +244,7 @@ public final class InsightsEngine: Sendable {
         do {
             if let f = try await source.cacheFill() {
                 fill = .object(["bytes": .int(f.bytes), "maxBytes": .int(f.maxBytes), "entries": .int(f.entries), "evictions": .int(f.evictions),
-                                "scope": .string("maxOfReplicas")])
+                                "scope": .string(f.scope)])
             }
         } catch { partial.append("cache") }
         out["cache"] = .object([
@@ -284,7 +284,7 @@ public final class InsightsEngine: Sendable {
             }
             generation = .int(info.generation)
             if let lead = info.leader {
-                leader = .object(["holder": .opt(holderID), "leaseSecondsLeft": .opt(lead.leaseSecondsLeft), "changes24h": .int(lead.changes24h)])
+                leader = .object(["holder": .opt(holderID), "leaseSecondsLeft": .opt(lead.leaseSecondsLeft), "changes24h": .opt(lead.changes24h)])
             }
         } catch { partial.append("replicas") }
         out["replicas"] = .array(replicas); out["generation"] = generation; out["leader"] = leader

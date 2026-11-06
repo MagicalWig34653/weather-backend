@@ -220,7 +220,8 @@ enum DashboardValidation {
         let metric = Array(delta.metric.utf8)
         guard let first = metric.first, (97...122).contains(first) else { return false }
         for b in metric where !((97...122).contains(b) || (48...57).contains(b) || b == 95) { return false }
-        for b in delta.label.utf8 where !((97...122).contains(b) || (48...57).contains(b) || b == 95 || b == 58 || b == 46 || b == 45) { return false }
+        // Upper case letters: APNs reasons (`BadDeviceToken`) are part of the `apns_error` labels.
+        for b in delta.label.utf8 where !((97...122).contains(b) || (65...90).contains(b) || (48...57).contains(b) || b == 95 || b == 58 || b == 46 || b == 45) { return false }
         return true
     }
 

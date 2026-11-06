@@ -120,6 +120,10 @@ public actor MemoryRepo: Repo {
         return true
     }
 
+    public func leaderLease(name: String) async throws -> LeaderLease? {
+        leaders[name].map { LeaderLease(owner: $0.owner, secondsLeft: Int($0.until.timeIntervalSince(clock()).rounded(.down))) }
+    }
+
     public func releaseLeader(name: String, owner: String) async throws {
         if leaders[name]?.owner == owner { leaders[name] = nil }
     }

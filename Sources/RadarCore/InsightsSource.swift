@@ -150,8 +150,9 @@ public struct InsightsLeader: Sendable, Equatable {
     /// Raw replica id of the lease holder (hashed in the answer), nil without holder.
     public var holder: String?
     public var leaseSecondsLeft: Int?
-    public var changes24h: Int
-    public init(holder: String?, leaseSecondsLeft: Int?, changes24h: Int) {
+    /// nil = leader changes are not counted (answer: `changes24h: null`).
+    public var changes24h: Int?
+    public init(holder: String?, leaseSecondsLeft: Int?, changes24h: Int? = nil) {
         self.holder = holder; self.leaseSecondsLeft = leaseSecondsLeft; self.changes24h = changes24h
     }
 }
@@ -168,8 +169,10 @@ public struct InsightsReplicaInfo: Sendable, Equatable {
 
 public struct InsightsCacheFill: Sendable, Equatable {
     public var bytes: Int, maxBytes: Int, entries: Int, evictions: Int
-    public init(bytes: Int, maxBytes: Int, entries: Int, evictions: Int) {
-        self.bytes = bytes; self.maxBytes = maxBytes; self.entries = entries; self.evictions = evictions
+    /// `maxOfReplicas` (contract) or `thisReplica` (only the replica that answers the dashboard request is known).
+    public var scope: String
+    public init(bytes: Int, maxBytes: Int, entries: Int, evictions: Int, scope: String = "maxOfReplicas") {
+        self.bytes = bytes; self.maxBytes = maxBytes; self.entries = entries; self.evictions = evictions; self.scope = scope
     }
 }
 

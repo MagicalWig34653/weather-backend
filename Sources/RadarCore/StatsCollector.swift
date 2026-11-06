@@ -112,6 +112,7 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     static let hourlyMetrics: Set<String> = [
         "requests", "errors_5xx", "ingest_run", "ingest_lag", "ingest_dur", "latency", "cache_hit", "cache_miss", "cache_evict",
         "push_sent", "push_failed", "la_event", "apns_error", "token_invalidated", "push_trigger", "push_skipped",
+        "push_created", "push_attempt", "la_reservation", "push_api_reject",
     ]
     static func isHourly(_ metric: String) -> Bool { hourlyMetrics.contains(metric) }
 

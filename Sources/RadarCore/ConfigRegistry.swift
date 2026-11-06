@@ -230,6 +230,32 @@ public enum ConfigRegistry {
         s("PUSH_RATE_GLOBAL_REQUESTS", "Push-Ratenlimits", .int(min: 300, max: 30_000), "3000", unit: "pro Minute", "Alle Push-Anfragen je Replikat (Überlastschutz).", .live),
         s("PUSH_RATE_FAILED_AUTH", "Push-Ratenlimits", .int(min: 3, max: 60), "10", unit: "pro Minute", "Fehlgeschlagene Anmeldungen je Installation.", .live),
         s("PUSH_TEST_LIMIT_PER_HOUR", "Push-Ratenlimits", .int(min: 1, max: 10), "3", unit: "pro Stunde", "Testmeldungen je Installation.", .live),
+        // Dashboard thresholds (insights findings; read per request from the live values, no field in `Config`)
+        s("DASH_WARN_LAYER_AGE_FACTOR_YELLOW", "Dashboard-Schwellen", .number(min: 1, max: 100), "2", "Ebene veraltet, gelb: Alter als Vielfaches des Takts.", .live),
+        s("DASH_WARN_LAYER_AGE_FACTOR_RED", "Dashboard-Schwellen", .number(min: 1, max: 100), "4", "Ebene veraltet, rot: Alter als Vielfaches des Takts.", .live),
+        s("DASH_WARN_ERROR_RATE_5XX_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.005", "5xx-Anteil der letzten Stunde, gelb.", .live),
+        s("DASH_WARN_ERROR_RATE_5XX_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.02", "5xx-Anteil der letzten Stunde, rot.", .live),
+        s("DASH_WARN_OUTBOX_AGE_SECONDS_YELLOW", "Dashboard-Schwellen", .number(min: 1, max: 86400), "120", unit: "s", "Ältester Outbox-Eintrag, gelb.", .live),
+        s("DASH_WARN_OUTBOX_AGE_SECONDS_RED", "Dashboard-Schwellen", .number(min: 1, max: 86400), "600", unit: "s", "Ältester Outbox-Eintrag, rot.", .live),
+        s("DASH_WARN_APNS_REJECTION_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.05", "Anteil abgelehnter APNs-Sendungen, gelb.", .live),
+        s("DASH_WARN_APNS_REJECTION_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.25", "Anteil abgelehnter APNs-Sendungen, rot.", .live),
+        s("DASH_WARN_TOKEN_INVALIDATION_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.05", "Anteil ungültig gewordener Token (24 h), gelb.", .live),
+        s("DASH_WARN_TOKEN_INVALIDATION_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.2", "Anteil ungültig gewordener Token (24 h), rot.", .live),
+        s("DASH_WARN_CACHE_HIT_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.8", "Cache-Trefferquote, untere Grenze gelb.", .live),
+        s("DASH_WARN_CACHE_HIT_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.5", "Cache-Trefferquote, untere Grenze rot.", .live),
+        s("DASH_WARN_CAP_FILL_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.8", "Füllgrad einer Obergrenze, gelb.", .live),
+        s("DASH_WARN_CAP_FILL_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.95", "Füllgrad einer Obergrenze, rot.", .live),
+        s("DASH_WARN_LA_START_RATIO_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.7", "Anteil zugestellter Live-Activity-Starts, untere Grenze gelb.", .live),
+        s("DASH_WARN_LA_START_RATIO_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.3", "Anteil zugestellter Live-Activity-Starts, untere Grenze rot.", .live),
+        s("DASH_MIN_GROUP", "Dashboard-Schwellen", .int(min: 3, max: 50), "5", "k-Unterdrückung: Gruppen darunter erscheinen als „<k“.", .live),
+        // Device link (read from the environment only; shown read-only)
+        s("DEVICE_LINK_ENABLED", "Geräte-Kopplung", .bool, "false", "Geräte-Kopplung für TestFlight-Geräte einschalten (braucht Push).", .envOnly),
+        s("DEVICE_LINK_BUNDLE_ID", "Geräte-Kopplung", .text(maxLength: 155, rule: .bundleIdentifier), "", "Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.", .envOnly),
+        s("DEVICE_LINK_ALLOWED_ENVS", "Geräte-Kopplung", any, "Sandbox", "Erlaubte receiptType-Werte (Sandbox, Xcode, LocalTesting; Production nie).", .envOnly),
+        s("DEVICE_LINK_MAX_AGE_HOURS", "Geräte-Kopplung", .int(min: 0, max: 8760), "24", unit: "h", "Höchstalter des AppTransaction-Belegs.", .envOnly),
+        s("DASH_MAX_DEVICES", "Geräte-Kopplung", .int(min: 1, max: 5), "3", "Höchstzahl gekoppelter Geräte.", .envOnly),
+        s("DASH_DEVICE_TTL_DAYS", "Geräte-Kopplung", .int(min: 0, max: 365), "0", unit: "Tage", "Ablauf einer Kopplung; 0 = kein Ablauf.", .envOnly),
+        s("DASH_DEVICE_STALE_DAYS", "Geräte-Kopplung", .int(min: 1, max: 365), "14", unit: "Tage", "Anzeige „zuletzt gesehen“ als veraltet ab.", .envOnly),
     ]
 
     private static let index: [String: ConfigSetting] = Dictionary(settings.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
@@ -479,6 +505,8 @@ extension Config {
             case "PUSH_RATE_GLOBAL_REQUESTS": c.push.rateLimits.globalRequest = try int(key, raw)
             case "PUSH_RATE_FAILED_AUTH": c.push.rateLimits.failedAuth = try int(key, raw)
             case "PUSH_TEST_LIMIT_PER_HOUR": c.push.rateLimits.testPerHour = try int(key, raw)
+            case _ where key.hasPrefix("DASH_WARN_") || key == "DASH_MIN_GROUP":
+                break  // validated by the register; read from the live values by the insights (`InsightsThresholds`)
             default: throw ConfigError(description: "\(key) has no dashboard mapping")
             }
         }

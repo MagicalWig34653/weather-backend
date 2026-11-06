@@ -28,6 +28,13 @@ public struct PublishedRun: Sendable, Equatable {
     }
 }
 
+/// Read model of a leader lease (dashboard insights).
+public struct LeaderLease: Sendable, Equatable {
+    public let owner: String
+    public let secondsLeft: Int
+    public init(owner: String, secondsLeft: Int) { self.owner = owner; self.secondsLeft = secondsLeft }
+}
+
 /// State storage. Contract (see tests): claim/renew/fail/publish are atomic and owner-checked;
 /// readers only see published runs. All times are UTC with second resolution.
 public protocol Repo: PushRepo, LayerRepo, DashboardRepo, DeviceLinkRepo, DeviceCommandRepo, PushOperatorRepo {
@@ -51,6 +58,8 @@ public protocol Repo: PushRepo, LayerRepo, DashboardRepo, DeviceLinkRepo, Device
     /// Cross-replica leader lease (acquire or renew). Exactly one owner holds a non-expired lease per name.
     func acquireLeader(name: String, owner: String, leaseSeconds: Int) async throws -> Bool
     func releaseLeader(name: String, owner: String) async throws
+    /// Current holder of the lease `name` and the seconds left (negative = expired); nil without any holder row. Read only.
+    func leaderLease(name: String) async throws -> LeaderLease?
     func getSlot(runID: String, slotID: String) async throws -> SlotBlob?
     /// Keeps the newest `keepPublished` full runs completely; older published runs keep only their analysis slot
     /// until `keepAnalysisSince` and are deleted entirely before it. Unpublished leftovers expire after `staleAfter`.
@@ -152,6 +161,8 @@ extension PushRepo {
 }
 
 extension Repo {
+    public func leaderLease(name: String) async throws -> LeaderLease? { nil }
+
     func tryClaim(runID: String, nominal: Date, owner: String, leaseSeconds: Int, maxAttempts: Int) async throws -> Bool {
         try await tryClaim(runID: runID, nominal: nominal, owner: owner, leaseSeconds: leaseSeconds, maxAttempts: maxAttempts, backfill: false)
     }
