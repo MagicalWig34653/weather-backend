@@ -49,24 +49,27 @@ struct PushTruthTests {
         #expect(truth.status == .on && truth.environments == [.production, .sandbox] && truth.liveActivity)
     }
 
+    // `kind.make()` resets the shared database, so every case builds and checks its repo in turn.
     @Test(arguments: RepoKind.allCases) func offVersusUnknown(kind: RepoKind) async throws {
         let now = Date()
         let empty = try await kind.make()
         #expect(await PushTruth.resolve(repo: empty, now: now).status == .unknown)
-        let off = try await kind.make()
-        try await off.heartbeat(replicaID: "radar-1", slot: 1, appliedGeneration: 0, push: report(false, nil), now: now)
-        #expect(await PushTruth.resolve(repo: off, now: now).status == .off)
-        // Heartbeat without a report (older replica): not evidence for "off".
-        let old = try await kind.make()
-        try await old.heartbeat(replicaID: "radar-1", slot: 1, appliedGeneration: 0, now: now)
-        #expect(await PushTruth.resolve(repo: old, now: now).status == .unknown)
         let engine = dashboardEngine(empty, now: now)
         let overview = try await engine.overview(range: .h24)
         #expect(overview["pushEnabled"] as? Bool == false && overview["pushState"] as? String == "unknown")
         let push = try await engine.push(range: .h24)
         let first = (push["prerequisites"] as? [[String: Any]])?.first
         #expect(first?["ok"] as? Bool == false && first?["detail"] as? String == "unknown")
+
+        let off = try await kind.make()
+        try await off.heartbeat(replicaID: "radar-1", slot: 1, appliedGeneration: 0, push: report(false, nil), now: now)
+        #expect(await PushTruth.resolve(repo: off, now: now).status == .off)
         #expect(try await dashboardEngine(off, now: now).overview(range: .h24)["pushState"] as? String == "off")
+
+        // Heartbeat without a report (older replica): not evidence for "off".
+        let old = try await kind.make()
+        try await old.heartbeat(replicaID: "radar-1", slot: 1, appliedGeneration: 0, now: now)
+        #expect(await PushTruth.resolve(repo: old, now: now).status == .unknown)
     }
 
     @Test func freshnessBoundary() {
