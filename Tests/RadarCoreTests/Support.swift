@@ -55,11 +55,19 @@ final class FakeDwd: @unchecked Sendable {
     private let config: Config
     private let failures: [Int: Failure]
     private let failAll: Bool
-    // Building a PNG is slow in debug builds: one image per instance is enough for the contract tests.
+    // Building a PNG is slow in debug builds: one image per size is enough for the contract tests.
     private let cachedPNG: [UInt8]
+    private static let pngCache = Locked<[String: [UInt8]]>([:])
     init(_ config: Config, failures: [Int: Failure] = [:], failAll: Bool = false) {
         self.config = config; self.failures = failures; self.failAll = failAll
-        cachedPNG = pngBytes(makeImage(width: config.width, height: config.height, seed: 1))
+        let key = "\(config.width)x\(config.height)"
+        if let hit = Self.pngCache.withLock({ $0[key] }) {
+            cachedPNG = hit
+        } else {
+            let made = pngBytes(makeImage(width: config.width, height: config.height, seed: 1))
+            Self.pngCache.withLock { $0[key] = made }
+            cachedPNG = made
+        }
     }
     var callCount: Int { lock.withLock { calls } }
     var fetch: Fetch {
@@ -70,6 +78,31 @@ final class FakeDwd: @unchecked Sendable {
             return cachedPNG
         }
     }
+}
+
+/// Real validation and lossless WebP encoding, memoized per distinct input. A debug build needs seconds per slot
+/// (PNG decode plus method-6 encode), the contract tests ingest thousands of identical slots; the encoding itself
+/// is covered by UnitTests/ImagePipeline tests, so the repeated work adds nothing.
+let memoizedTranscode: Ingestor.Transcode = {
+    let cache = Locked<[String: [UInt8]]>([:])
+    return { bytes, width, height in
+        let key = "\(width)x\(height):\(bytes.count):\(bytes.hashValue)"
+        if let hit = cache.withLock({ $0[key] }) { return hit }
+        let webp = try Ingestor.productionTranscode(bytes, width, height)
+        cache.withLock { $0[key] = webp }
+        return webp
+    }
+}()
+
+/// `ImagePipeline.toWebP` (lossless, method 6) memoized per image content. Tests that only need stored slots call this;
+/// the encoder itself is exercised by UnitTests.
+private let webpCache = Locked<[String: [UInt8]]>([:])
+func cachedWebP(_ image: RGBAImage) throws -> [UInt8] {
+    let key = "\(image.width)x\(image.height):\(image.pixels.hashValue)"
+    if let hit = webpCache.withLock({ $0[key] }) { return hit }
+    let webp = try ImagePipeline.toWebP(image)
+    webpCache.withLock { $0[key] = webp }
+    return webp
 }
 
 enum RepoKind: CaseIterable, CustomTestStringConvertible, Sendable {
@@ -104,6 +137,8 @@ enum RepoKind: CaseIterable, CustomTestStringConvertible, Sendable {
                 holder = created
                 return created
             }
+            // A stuck lock must end as a clear test failure within seconds, not as an endless wait (default 50 s per statement).
+            try? await repo.rawExecute("SET GLOBAL innodb_lock_wait_timeout = 10")
             try await repo.dropAllForTests()
             try await repo.migrate()
             return repo
@@ -120,4 +155,4 @@ final class Locked<Value>: @unchecked Sendable {
 }
 
 /// All suites that share the one test database run inside this parent so that they never overlap.
-@Suite("Database", .serialized) enum DatabaseSuites {}
+@Suite("Database", .serialized, .timeLimit(.minutes(10))) enum DatabaseSuites {}

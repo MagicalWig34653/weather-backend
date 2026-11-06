@@ -26,18 +26,29 @@ public final class Ingestor: Sendable {
     let sleep: @Sendable (Double) async -> Void
     let stats: any StatsSink
     let clock: @Sendable () -> Date
+    let transcode: Transcode
+
+    /// Validates a fetched PNG and turns it into the stored WebP. Tests may memoize it (same bytes, same result).
+    public typealias Transcode = @Sendable (_ bytes: [UInt8], _ width: Int, _ height: Int) throws -> [UInt8]
+
+    public static let productionTranscode: Transcode = { bytes, width, height in
+        try ImagePipeline.toWebP(try ImagePipeline.validatePNG(bytes, width: width, height: height))
+    }
 
     public convenience init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                            stats: any StatsSink = NoStatsSink(), clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, stats: stats, clock: clock)
+                            stats: any StatsSink = NoStatsSink(), clock: @escaping @Sendable () -> Date = { Date() },
+                            transcode: @escaping Transcode = Ingestor.productionTranscode) {
+        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, stats: stats, clock: clock,
+                  transcode: transcode)
     }
 
     public init(configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                stats: any StatsSink = NoStatsSink(), clock: @escaping @Sendable () -> Date = { Date() }) {
+                stats: any StatsSink = NoStatsSink(), clock: @escaping @Sendable () -> Date = { Date() },
+                transcode: @escaping Transcode = Ingestor.productionTranscode) {
         self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner; self.sleep = sleep; self.stats = stats
-        self.clock = clock
+        self.clock = clock; self.transcode = transcode
     }
 
     private func renew(_ runID: String) async throws {
@@ -52,8 +63,7 @@ public final class Ingestor: Sendable {
             try await renew(runID)
             do {
                 let bytes = try await fetch(url)
-                let image = try ImagePipeline.validatePNG(bytes, width: config.width, height: config.height)
-                return try ImagePipeline.toWebP(image)
+                return try transcode(bytes, config.width, config.height)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {

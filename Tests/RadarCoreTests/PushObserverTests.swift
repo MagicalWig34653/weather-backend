@@ -28,7 +28,7 @@ private func publish(_ repo: MemoryRepo, _ config: Config, at date: Date, classe
             pixels[o] = UInt8(c.r); pixels[o + 1] = UInt8(c.g); pixels[o + 2] = UInt8(c.b); pixels[o + 3] = 255
         }
         try await repo.putSlot(.init(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot),
-                               contentType: "image/webp", data: ImagePipeline.toWebP(RGBAImage(width: config.width, height: config.height, pixels: pixels)))
+                               contentType: "image/webp", data: cachedWebP(RGBAImage(width: config.width, height: config.height, pixels: pixels)))
     }
     #expect(try await repo.publish(runID: id, owner: "fx", expectedSlots: TimeUtil.forecastSlots))
 }

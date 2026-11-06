@@ -73,7 +73,7 @@ struct HistoryTests {
         let cfg = smallConfig { $0.retentionRuns = 15; $0.historyHours = 1 }
         let dwd = FakeDwd(cfg)
         for i in 0..<20 {  // 11:05 ... 12:40
-            let ing = Ingestor(config: cfg, repo: repo, fetch: dwd.fetch, owner: "a", sleep: { _ in })
+            let ing = Ingestor(config: cfg, repo: repo, fetch: dwd.fetch, owner: "a", sleep: { _ in }, transcode: memoizedTranscode)
             _ = try await ing.process(run: run0.addingTimeInterval(Double(i) * tick5))
         }
         func has(_ run: String, _ slot: String) async throws -> Bool { try await repo.getSlot(runID: run, slotID: slot) != nil }
@@ -107,7 +107,7 @@ struct HistoryTests {
         let cfg = smallConfig { $0.retentionRuns = 15; $0.historyHours = 1 }
         let dwd = FakeDwd(cfg)
         for i in 0..<20 {
-            let ing = Ingestor(config: cfg, repo: repo, fetch: dwd.fetch, owner: "a", sleep: { _ in })
+            let ing = Ingestor(config: cfg, repo: repo, fetch: dwd.fetch, owner: "a", sleep: { _ in }, transcode: memoizedTranscode)
             _ = try await ing.process(run: run0.addingTimeInterval(Double(i) * tick5))
             manifests.append((try json(try #require(try await Manifest.build(repo: repo, config: cfg))),
                               try json(try #require(try await Manifest.buildHistory(repo: repo, config: cfg)))))

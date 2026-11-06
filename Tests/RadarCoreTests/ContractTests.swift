@@ -5,7 +5,7 @@ import Testing
 private func ingestor(_ repo: any Repo, owner: String = "a", fetch: Fetch? = nil, edit: (inout Config) -> Void = { _ in })
     -> (Ingestor, Config) {
     let cfg = smallConfig(edit)
-    return (Ingestor(config: cfg, repo: repo, fetch: fetch ?? FakeDwd(cfg).fetch, owner: owner, sleep: { _ in }), cfg)
+    return (Ingestor(config: cfg, repo: repo, fetch: fetch ?? FakeDwd(cfg).fetch, owner: owner, sleep: { _ in }, transcode: memoizedTranscode), cfg)
 }
 
 private func sleepSeconds(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }

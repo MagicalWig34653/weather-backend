@@ -72,7 +72,7 @@ private enum ActivityFixture {
             }
             let image = RGBAImage(width: config.width, height: config.height, pixels: pixels)
             try await repo.putSlot(.init(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot),
-                                   contentType: "image/webp", data: ImagePipeline.toWebP(image))
+                                   contentType: "image/webp", data: cachedWebP(image))
         }
         #expect(try await repo.publish(runID: id, owner: "fixture", expectedSlots: TimeUtil.forecastSlots))
     }

@@ -461,7 +461,7 @@ struct PushServiceTests {
                 image = RGBAImage(width: image.width, height: image.height, pixels: pixels)
             }
             try await repo.putSlot(SlotRef(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot),
-                                   contentType: "image/webp", data: try ImagePipeline.toWebP(image))
+                                   contentType: "image/webp", data: try cachedWebP(image))
         }
         #expect(try await repo.publish(runID: id, owner: "t", expectedSlots: TimeUtil.forecastSlots))
     }
@@ -1054,7 +1054,7 @@ struct PushRegionServiceTests {
                 image = RGBAImage(width: image.width, height: image.height, pixels: pixels)
             }
             try await repo.putSlot(SlotRef(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot),
-                                   contentType: "image/webp", data: try ImagePipeline.toWebP(image))
+                                   contentType: "image/webp", data: try cachedWebP(image))
         }
         #expect(try await repo.publish(runID: id, owner: "t", expectedSlots: TimeUtil.forecastSlots))
     }
