@@ -265,7 +265,7 @@ func makeDashboardApi(repo: any Repo, store: ConfigStore, authConfig: DashboardA
     let auth = DashboardAuth(repo: repo, config: authConfig, log: { logger.notice("\($0)") })
     let root = ProcessInfo.processInfo.environment["DASH_STATIC_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? "/app/dashboard"
     let extra = chainedRoutes([registerInsightsRoutes(engine: makeInsightsEngine(repo: repo, store: store, cache: cache))])
-    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment(), proxyGuard: proxyGuard, extra: extra), auth)
+    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment(), proxyGuard: proxyGuard, processCache: { await cache.snapshot() }, extra: extra), auth)
 }
 
 /// Slot cache of the public `Api` of this process (set once it exists; the dashboard-only mode has none).
@@ -392,6 +392,8 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     var backfill: Task<Void, Never>?
     var layerLoops: [Task<Void, Never>] = []
     var restartTask: Task<Void, Never>?
+    var refreshTask: Task<Void, Never>?
+    var cacheFillTask: Task<Void, Never>?
     if pushApi {
         let activity = ActivityFlag()
         loop = Task { await runIngestLoop(config: config, provider: provider, stats: stats, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
@@ -399,6 +401,22 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         pushTask = Task { await runPushLoop(config: config, stats: stats, repo: repo, sender: sender, owner: selfID, logger: logger) }
         layerLoops = config.layers.compactMap { id in
             LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, provider: provider, stats: stats, repo: repo, logger: logger) } }
+        }
+        // Manual ingest jobs of the dashboard ("Ebene neu abrufen") and the cache fill level for the cache page.
+        let refreshWorker = CacheRefreshWorker(repo: repo, configProvider: provider, fetch: httpFetch(config: config), owner: replicaID(), stats: stats)
+        refreshTask = Task {
+            while !Task.isCancelled {
+                await refreshWorker.processJobs()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+        cacheFillTask = Task {
+            while !Task.isCancelled {
+                if let snap = await cacheRef.snapshot() {
+                    try? await repo.reportCacheFill(replicaID: selfID, fill: ReplicaCacheFill(bytes: snap.bytes, entries: snap.entries, maxBytes: snap.maxBytes), now: Date())
+                }
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+            }
         }
         // Controlled restart (plan 5.3): the leader flag is not known here, so replicas leave in slot order.
         let coordinator = try? await RestartCoordinator.make(
@@ -409,7 +427,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         else { logger.warning("restart coordinator not started (database)") }
     }
     let setupHint = dashAuth.map { auth in Task { await runSetupHintLoop(auth: auth, warning: proxyGuard.flatMap { $0.isEnabled ? nil : DashboardProxyGuard.disabledWarning }, logger: logger) } }
-    tasks = [loop, backfill, pushTask, restartTask, setupHint, cacheClearTask].compactMap { $0 } + layerLoops
+    tasks = [loop, backfill, pushTask, restartTask, setupHint, cacheClearTask, refreshTask, cacheFillTask].compactMap { $0 } + layerLoops
 
     func stopAll() async {
         tasks.forEach { $0.cancel() }

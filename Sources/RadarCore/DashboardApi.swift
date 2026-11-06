@@ -24,6 +24,7 @@ public final class DashboardApi: Sendable {
     let repo: any Repo
     let devices: DashboardDevices
     let pushActions: DashboardPushActions
+    let cacheTools: DashboardCache
     let store: ConfigStore
     let env: [String: String]
     let site: StaticSite
@@ -36,10 +37,12 @@ public final class DashboardApi: Sendable {
     public init(auth: DashboardAuth, repo: any Repo, store: ConfigStore,
                 env: [String: String] = ProcessInfo.processInfo.environment, staticRoot: String = "/app/dashboard",
                 restartPolicy: RestartPolicy = RestartPolicy(), proxyGuard: DashboardProxyGuard? = nil, clock: @escaping @Sendable () -> Date = { Date() },
+                processCache: @escaping @Sendable () async -> SlotCacheSnapshot? = { nil },
                 extra: (@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?)? = nil) {
         self.auth = auth; self.repo = repo; self.store = store; self.env = env; self.site = StaticSite(root: staticRoot)
         self.restartPolicy = restartPolicy; self.proxyGuard = proxyGuard; self.clock = clock; self.extra = extra
         pushActions = DashboardPushActions(repo: repo)
+        cacheTools = DashboardCache(repo: repo, config: { store.snapshot() }, processCache: processCache)
         devices = DashboardDevices(repo: repo, config: { store.snapshot() }, clock: clock)
     }
 
@@ -133,6 +136,7 @@ public final class DashboardApi: Sendable {
             return try await writeConfig(key: key, put: m == "PUT", body: req.body, now: now)
         }
         if let response = try await devices.handle(req, sub, now: now, audit: repo) { return response }
+        if let response = try await cacheTools.handle(req, sub, now: now) { return response }
         if let response = try await pushActions.handle(req, sub, now: now) { return response }
         if let extra, let response = try await extra(req, session) { return response }
         return Self.error(404, "not_found")

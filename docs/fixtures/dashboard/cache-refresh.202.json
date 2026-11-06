@@ -1,1 +1,14 @@
-{ "jobs": [ { "id": "6c1d0b7e-3a52-4f0e-8d11-0e9f2b4c7a55", "layer": "radar", "status": "queued", "createdAt": "2026-11-06T09:22:00Z" } ] }
+{
+  "jobs": [
+    {
+      "id": "6c1d0b7e-3a52-4f0e-8d11-0e9f2b4c7a55",
+      "layer": "radar",
+      "status": "queued",
+      "createdAt": "2026-11-06T09:22:00Z",
+      "startedAt": null,
+      "finishedAt": null,
+      "result": null,
+      "error": null
+    }
+  ]
+}

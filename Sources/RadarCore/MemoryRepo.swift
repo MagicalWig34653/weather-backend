@@ -15,6 +15,7 @@ public actor MemoryRepo: Repo {
     var dashboard = MemoryDashboardStore()
     var deviceStore = MemoryDeviceStore()
     var commandStore = MemoryCommandStore()
+    var cacheAdmin = MemoryCacheAdminStore()
     /// Repository calls by name (tests assert that the activity work needs a constant number of calls, review A1).
     var callCounts: [String: Int] = [:]
     func note(_ name: String) { callCounts[name, default: 0] += 1 }
@@ -24,8 +25,8 @@ public actor MemoryRepo: Repo {
     private var leaders: [String: (owner: String, until: Date)] = [:]
     private let clock: @Sendable () -> Date
     func clockNow() -> Date { clock() }
-    private var runs: [String: Run] = [:]
-    private var slots: [String: [String: (ref: SlotRef, type: String, sha: String, data: [UInt8])]] = [:]
+    var runs: [String: Run] = [:]
+    var slots: [String: [String: (ref: SlotRef, type: String, sha: String, data: [UInt8])]] = [:]
 
     public init(clock: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down)) }) {
         self.clock = clock

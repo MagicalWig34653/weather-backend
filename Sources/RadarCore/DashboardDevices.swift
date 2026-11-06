@@ -57,6 +57,7 @@ final class DashboardDevices: Sendable {
         guard limiter.allow("read", limit: 60, window: 60, now: now) || m == "POST" else { return Self.error(429, "rate_limited", retryAfter: 60) }
         switch (parts.count, parts[3]) {
         case (4, "diagnosis"): return try await diagnosis(id, now: now)
+        case (4, "subscriptions"): return try await subscriptionStates(id, now: now)
         case (4, "events"): return try await events(id, req.query)
         case (4, "commands"): return try await commands(id, req.query)
         case (5, "commands"): return try await oneCommand(id, parts[4])
@@ -153,6 +154,37 @@ final class DashboardDevices: Sendable {
             "subscriptions": subJSON, "activity": activity,
             "reservation": ["open": reservation != nil, "ageSeconds": reservation.map { Int(now.timeIntervalSince($0.startedAt)) } as Any? ?? NSNull()],
         ])
+    }
+
+    /// Subscriptions with their automaton state and the radar situation of their cell (no cells, coordinates, tokens or IDs in the answer).
+    private func subscriptionStates(_ id: String, now: Date) async throws -> ApiResponse {
+        guard let device = try await repo.device(id: id) else { return Self.error(404, "not_found") }
+        let subs = try await repo.subscriptions(installationID: device.installID)
+        let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
+        let view = subs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: config(), subs: subs, now: now)
+        let run = try? await repo.latestPublished()
+        let status: String
+        switch view.status { case .ok: status = "ok"; case .noSlot: status = "no_slot"; case .staleRun: status = "stale_run" }
+        let rows: [[String: Any]] = subs.enumerated().map { index, s in
+            let classes = view.classes[s.id] ?? []
+            var cell = "unknown", leadCell = "unknown"
+            if view.status == .ok, classes.count == TimeUtil.forecastSlots, classes[0] >= 0 {
+                let lead = max(1, min(s.leadMinutes / 5, classes.count - 1))
+                cell = classes[0] >= s.threshold ? "wet" : "dry"
+                leadCell = classes[0...lead].contains { $0 >= s.threshold } ? "wet" : "dry"
+            }
+            let lock = s.lastSentAt.map { $0.addingTimeInterval(PushEvaluator.repeatLock) }.flatMap { $0 > now ? $0 : nil }
+            let activity = activities[s.id].map { $0.activityToken != nil ? "active" : "reserved" } ?? "none"
+            let circle = s.kind == .circle
+            return ["index": index, "kind": circle ? "circle" : "point", "enabled": s.enabled, "liveActivity": s.liveActivity, "timeSensitive": s.timeSensitive,
+                    "thresholdClass": s.threshold, "leadMinutes": s.leadMinutes,
+                    "radiusCells": circle ? (s.radiusCells as Any? ?? NSNull()) : NSNull(), "minSharePercent": circle ? (s.minSharePercent as Any? ?? NSNull()) : NSNull(),
+                    "state": s.state == .pending ? "pending" : (s.state == .notified ? "notified" : "dry"), "hysteresis": s.wetSeen,
+                    "lastSentAt": Self.iso(s.lastSentAt), "lockUntil": Self.iso(lock), "cell": cell, "leadCell": leadCell, "activity": activity]
+        }
+        return DashboardApi.object(200, ["generatedAt": TimeUtil.toISO(now),
+                                         "radar": ["status": status, "runAgeSeconds": run.flatMap { $0 }.map { max(0, Int(now.timeIntervalSince($0.nominal))) } as Any? ?? NSNull()],
+                                         "subscriptions": rows])
     }
 
     private func diagnosis(_ id: String, now: Date) async throws -> ApiResponse {

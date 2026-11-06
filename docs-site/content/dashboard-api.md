@@ -447,7 +447,7 @@ Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=fal
               runs: int, slots: int, bytes: int|null,
               oldestNominal: ISO|null, newestNominal: ISO|null, spanSeconds: int|null,
               latestPublishedAt: ISO|null, ageSeconds: int|null, cadenceSeconds: int,
-              lastAttemptAt: ISO|null, lastAttemptResult: "ok"|"error"|"missed"|"running"|null,
+              lastAttemptAt: ISO|null, lastAttemptResult: "ok"|"error"|"running"|null,
               errors24h: int|null } ],
   process: { scope: "thisReplica", bytes: int, maxBytes: int, entries: int }|null,
   replicas: [ { id: "<8 hex>", cacheBytes: int|null, cacheEntries: int|null, cacheMaxBytes: int|null } ] }
@@ -455,8 +455,8 @@ Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=fal
 
 - `id`: `radar` und die Kennungen aus `LayerCatalog`. `enabled` gilt für den Ingest (Register `LAYERS`); deaktivierte Ebenen mit Daten bleiben sichtbar (`state: "disabled"`), solange die Daten aufbewahrt werden.
 - `runs`/`slots`/`bytes`/Zeiten: **veröffentlichte** Läufe und deren Slots in der Datenbank (`radar_*`, `layer_*`). `bytes` ist die Summe der Bildgrößen. `spanSeconds` = `newestNominal - oldestNominal`.
-- `state`: `empty` (aktiviert, nichts veröffentlicht), `current` (`ageSeconds` höchstens 3 × `cadenceSeconds` seit der letzten Veröffentlichung, mindestens 900 s), `stale` (älter, bis 12 × `cadenceSeconds`), `failed` (älter als das oder jüngster Versuch `error` ohne neue Veröffentlichung), `disabled`. Die Schwellen sind feste Zahlen im Server, keine Konfiguration.
-- `lastAttemptAt`: jüngster Lauf-Eintrag beliebigen Status (`claimed`/`failed`/`published`) bzw. Versuchsbeginn; `lastAttemptResult`: `running` (Lauf gerade geclaimt), `error` (fehlgeschlagen), `ok` (veröffentlicht), `missed` (Slot nicht verfügbar; wie Insights); `null` ohne Eintrag. `errors24h`: Zähler `ingest_run` mit Ergebnis `error` und `missed` der letzten 24 Stunden aus den Stundenzählern, `null` ohne Stundendaten.
+- `state`: `empty` (aktiviert, nichts veröffentlicht), `current` (`ageSeconds` höchstens das Größere aus 900 s und 3 × `cadenceSeconds`), `stale` (älter, bis 12 × `cadenceSeconds`), `failed` (älter als 12 × `cadenceSeconds`, oder `stale` und `lastAttemptResult` ist `error`), `disabled`. `cadenceSeconds` ist die erwartete Folge neuer Veröffentlichungen: Radar 300, Beobachtungsebenen Slot-Schritt, Vorhersageebenen 21600 (neuer Lauf alle 6 Stunden). Die Schwellen sind feste Zahlen im Server, keine Konfiguration.
+- `lastAttemptAt`: jüngster Lauf-Eintrag beliebigen Status (`claimed`/`failed`/`published`) bzw. Versuchsbeginn; `lastAttemptResult`: `running` (Lauf gerade geclaimt), `error` (fehlgeschlagen oder Lease abgelaufen ohne Veröffentlichung), `ok` (veröffentlicht); `null` ohne Eintrag. `errors24h`: Zähler `ingest_run` mit Ergebnis `error` und `missed` der letzten 24 Stunden aus den Stundenzählern, `null` ohne Stundendaten.
 - `process`: Füllstand des Prozess-Caches des antwortenden Prozesses (`null`, wenn dieser Prozess keinen hat, z. B. der Dashboard-Dienst); `replicas`: jedes frische `radar`-Replikat meldet seinen Füllstand mit dem Heartbeat (Werte `null` bei älteren Versionen). Der Prozess-Cache enthält nur Bilder, die bereits abgerufen wurden.
 - Teilausfall: wie bei Insights (`partial`, Abschnitt `null`/leer, `200`).
 
@@ -481,7 +481,7 @@ Unterscheidung: `POST cache/clear` leert nur den **Prozess-Cache** der Replikate
 
 Die Aufträge liegen in der Tabelle `dashboard_refresh` (Migration 014); jedes `radar`-Replikat mit laufendem Ingest fragt alle 2 Sekunden ab und führt Aufträge aus, deren Ebene es bearbeiten darf (Radar: jedes Replikat per Lauf-Claim; Zusatzebene: der Inhaber der Leader-Lease der Ebene). Es läuft höchstens ein Auftrag je Ebene. Der Lauf nutzt die normale Ingest-Logik (Wartezeiten, Wiederholungen, Vollständigkeitsprüfung) und holt nur, was fehlt.
 
-`202 {"jobs":[{"id":"<uuid>","layer":"radar","status":"queued","createdAt":ISO}]}`; `all` erzeugt je ein Auftrag für `radar` und jede aktivierte Ebene (ohne bereits offene). Fehler: `400 validation` (unbekannte Ebene), `409 layer_disabled` (Ebene nicht aktiviert; bei `all` übersprungen), `409 refresh_pending` (für die Ebene läuft schon ein Auftrag; bei `all` übersprungen, `409` nur wenn gar nichts angelegt wurde), `429 rate_limited`, `503 ingest_unavailable` (kein frisches `radar`-Replikat meldet sich).
+`202 {"jobs":[Job]}` (`Job` wie unten, hier `status: "queued"`); `all` erzeugt je ein Auftrag für `radar` und jede aktivierte Ebene (ohne bereits offene). Fehler: `400 validation` (unbekannte Ebene), `409 layer_disabled` (Ebene nicht aktiviert; bei `all` übersprungen), `409 refresh_pending` (für die Ebene läuft schon ein Auftrag; bei `all` übersprungen, `409` nur wenn gar nichts angelegt wurde), `429 rate_limited`, `503 ingest_unavailable` (kein frisches `radar`-Replikat meldet sich).
 
 Ergebnis per Polling (1 bis 2 s, höchstens 5 Minuten): `GET /dash/api/cache/refresh/{id}` und `GET /dash/api/cache/refresh?limit=` (1 bis 30, Standard 10, neueste zuerst, `{"jobs":[…]}`):
 
