@@ -8,6 +8,8 @@ const pages = [
 	'push',
 	'abos',
 	'geraete',
+	'cache',
+	'cache?mockstate=empty',
 	'konfiguration',
 	'protokoll',
 	'_design'
@@ -22,7 +24,7 @@ for (const scheme of ['light', 'dark'] as const) {
 			test.use({ colorScheme: scheme, viewport: size });
 			for (const p of pages) {
 				test(`axe /${p}`, async ({ page }) => {
-					await page.goto(`/dash/${p}?mock=auth`);
+					await page.goto(`/dash/${p}${p.includes('?') ? '&' : '?'}mock=auth`);
 					await page.waitForSelector('main h1');
 					await page.waitForTimeout(700);
 					const r = await new AxeBuilder({ page })

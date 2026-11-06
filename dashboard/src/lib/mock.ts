@@ -365,8 +365,10 @@ export function createMockFetch() {
 			path.startsWith('/insights') ||
 			path.startsWith('/devices') ||
 			path === '/push/pause' ||
-			path === '/cache/clear'
+			path.startsWith('/cache')
 		) {
+			if (path === '/cache/refresh' && method === 'POST')
+				log({ ...nul, action: 'cache_refresh', outcome: String(body.layer ?? '') });
 			if (path === '/devices/pairing' && method === 'POST') {
 				const m = body.minutes;
 				if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > 15)
@@ -396,9 +398,11 @@ export function createMockFetch() {
 				Record<string, unknown> | null | undefined;
 			if (out === null) return new Response(null, { status: 204 });
 			if (out !== undefined) {
+				if ('__status' in out) return err(out.__status as number, String(out.error));
 				if (path === '/insights/overview') out.pushPaused = paused;
 				const created = path === '/devices/pair';
-				const accepted = method === 'POST' && path.includes('/actions/');
+				const accepted =
+					method === 'POST' && (path.includes('/actions/') || path === '/cache/refresh');
 				return json(out, created ? 201 : accepted ? 202 : 200);
 			}
 			return err(404, 'not_found');

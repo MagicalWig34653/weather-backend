@@ -6,6 +6,7 @@ import BellRingIcon from '@lucide/svelte/icons/bell-ring';
 import PieChartIcon from '@lucide/svelte/icons/chart-pie';
 import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
 import SlidersIcon from '@lucide/svelte/icons/sliders-horizontal';
+import DatabaseIcon from '@lucide/svelte/icons/database';
 import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
 
 export interface NavItem {
@@ -83,6 +84,13 @@ export const NAV: NavGroup[] = [
 				label: 'Konfiguration',
 				title: 'Konfiguration',
 				icon: SlidersIcon,
+				range: false
+			},
+			{
+				href: '/cache',
+				label: 'Cache',
+				title: 'Cache und Karten',
+				icon: DatabaseIcon,
 				range: false
 			},
 			{

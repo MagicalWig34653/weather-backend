@@ -111,11 +111,11 @@ function findings(empty: boolean): Finding[] {
 		{
 			code: 'layer_stale',
 			level: 'warning',
-			subject: 'lightning',
-			value: 3120,
-			threshold: 1800,
+			subject: 'pressure',
+			value: 10760,
+			threshold: 7200,
 			unit: 'seconds',
-			since: iso(52 * 60_000)
+			since: iso(179 * 60_000)
 		},
 		{
 			code: 'la_start_ratio_low',
@@ -127,6 +127,18 @@ function findings(empty: boolean): Finding[] {
 			since: iso(6 * HOUR)
 		}
 	];
+}
+
+/** Nominalzeit des jueengsten Laufs: auf den Takt abgerundet, als kompakte Kennung wie im Vertrag. */
+function nominal(ageSeconds: number, cadence: number): string {
+	const t = Math.floor((Date.now() - ageSeconds * 1000) / (cadence * 1000)) * cadence * 1000;
+	return (
+		new Date(t)
+			.toISOString()
+			.replace(/[-:]/g, '')
+			.replace(/\.\d+Z$/, 'Z')
+			.slice(0, 13) + 'Z'
+	);
 }
 
 function layers(range: Range, empty: boolean): OpsLayer[] {
@@ -149,7 +161,7 @@ function layers(range: Range, empty: boolean): OpsLayer[] {
 						let result: 'ok' | 'error' | 'missed' = 'ok';
 						if (bad && rnd(i, salt) < 1 / bad)
 							result = rnd(i, salt + 5) < 0.45 ? 'error' : 'missed';
-						if (id === 'lightning' && i >= n - 10) result = i % 4 === 0 ? 'error' : 'missed';
+						if (id === 'pressure' && i >= n - 10) result = i % 4 === 0 ? 'error' : 'missed';
 						return { slot, result };
 					});
 		const { t, resolution } = grid(range);
@@ -157,7 +169,7 @@ function layers(range: Range, empty: boolean): OpsLayer[] {
 			id,
 			enabled: true,
 			hasData: age !== null && !empty,
-			latestRun: age === null || empty ? null : '20261106T0910Z',
+			latestRun: age === null || empty ? null : nominal(age, cadence),
 			publishedAt: age === null || empty ? null : iso(age * 1000),
 			ageSeconds: empty ? null : age,
 			cadenceSeconds: cadence,
@@ -181,10 +193,269 @@ function layers(range: Range, empty: boolean): OpsLayer[] {
 	};
 	return [
 		mk('radar', 300, 142, 'ok', 60, 1, 190),
-		mk('pressure', 900, 480, 'ok', 0, 2, 410),
-		mk('lightning', 600, 3120, 'warning', 14, 3, 95),
+		mk('pressure', 3600, 10760, 'critical', 14, 2, 410),
+		mk('lightning', 600, 120, 'ok', 0, 3, 95),
 		mk('clouds', 900, null, 'unknown', 0, 4, null)
 	];
+}
+
+// ---- Cache und Abos (Formen wie docs/fixtures/dashboard/cache.200.json, device-subscriptions.200.json)
+
+type MockLayerDef = {
+	id: string;
+	kind: string;
+	cadence: number;
+	ageSeconds: number | null;
+	state: string;
+	slots: number;
+	enabled: boolean;
+};
+const cacheDefs = (empty: boolean): MockLayerDef[] =>
+	empty
+		? [
+				{
+					id: 'radar',
+					kind: 'radar',
+					cadence: 300,
+					ageSeconds: null,
+					state: 'empty',
+					slots: 0,
+					enabled: true
+				},
+				{
+					id: 'pressure',
+					kind: 'forecast',
+					cadence: 3600,
+					ageSeconds: null,
+					state: 'empty',
+					slots: 0,
+					enabled: true
+				}
+			]
+		: [
+				{
+					id: 'radar',
+					kind: 'radar',
+					cadence: 300,
+					ageSeconds: 168,
+					state: 'current',
+					slots: 120,
+					enabled: true
+				},
+				{
+					id: 'pressure',
+					kind: 'forecast',
+					cadence: 3600,
+					ageSeconds: 10760,
+					state: 'stale',
+					slots: 48,
+					enabled: true
+				},
+				{
+					id: 'pressure_eu',
+					kind: 'forecast',
+					cadence: 3600,
+					ageSeconds: 54000,
+					state: 'failed',
+					slots: 36,
+					enabled: true
+				},
+				{
+					id: 'lightning',
+					kind: 'observation',
+					cadence: 300,
+					ageSeconds: 15,
+					state: 'current',
+					slots: 96,
+					enabled: true
+				},
+				{
+					id: 'clouds',
+					kind: 'observation',
+					cadence: 600,
+					ageSeconds: null,
+					state: 'disabled',
+					slots: 0,
+					enabled: false
+				},
+				{
+					id: 'cloudmask',
+					kind: 'observation',
+					cadence: 900,
+					ageSeconds: null,
+					state: 'empty',
+					slots: 0,
+					enabled: true
+				}
+			];
+
+function cacheInventory(state: MockState) {
+	const empty = state === 'empty';
+	const layers = cacheDefs(empty).map((d) => {
+		const has = d.slots > 0 && d.ageSeconds !== null;
+		const newest = has
+			? Math.floor((Date.now() - d.ageSeconds! * 1000) / (d.cadence * 1000)) * d.cadence * 1000
+			: 0;
+		const span = has ? (d.slots - 1) * d.cadence : null;
+		const bad = d.state === 'stale' || d.state === 'failed';
+		return {
+			id: d.id,
+			kind: d.kind,
+			enabled: d.enabled,
+			state: d.state,
+			runs: has ? Math.ceil(d.slots / 24) : 0,
+			slots: d.slots,
+			bytes: has ? d.slots * 61_440 : d.enabled ? 0 : 0,
+			oldestNominal: has
+				? new Date(newest - span! * 1000).toISOString().replace(/\.\d+Z$/, 'Z')
+				: null,
+			newestNominal: has ? new Date(newest).toISOString().replace(/\.\d+Z$/, 'Z') : null,
+			spanSeconds: span,
+			latestPublishedAt: has ? iso(d.ageSeconds! * 1000) : null,
+			ageSeconds: d.ageSeconds,
+			cadenceSeconds: d.cadence,
+			lastAttemptAt: has || d.enabled ? iso(has && !bad ? 120_000 : 300_000) : null,
+			lastAttemptResult: !d.enabled ? null : bad ? 'error' : has ? 'ok' : null,
+			errors24h: !d.enabled ? null : d.state === 'failed' ? 24 : d.state === 'stale' ? 14 : 0
+		};
+	});
+	return {
+		generatedAt: new Date().toISOString(),
+		partial: [] as string[],
+		layers,
+		process: empty
+			? { scope: 'thisReplica', bytes: 0, maxBytes: 134_217_728, entries: 0 }
+			: { scope: 'thisReplica', bytes: 31_457_280, maxBytes: 134_217_728, entries: 212 },
+		replicas: [
+			{
+				id: '3fa9c1d2',
+				cacheBytes: empty ? 0 : 31_457_280,
+				cacheEntries: empty ? 0 : 212,
+				cacheMaxBytes: 134_217_728
+			},
+			{ id: 'b81e07aa', cacheBytes: null, cacheEntries: null, cacheMaxBytes: null }
+		]
+	};
+}
+
+function cacheSlots(layer: string, params: URLSearchParams, state: MockState) {
+	const def = cacheDefs(state === 'empty').find((d) => d.id === layer);
+	if (!def) return undefined;
+	const limit = Math.min(200, Number(params.get('limit') ?? 50) || 50);
+	if (def.slots === 0 || def.ageSeconds === null) return { layer, slots: [], next: null };
+	const newest =
+		Math.floor((Date.now() - def.ageSeconds * 1000) / (def.cadence * 1000)) * def.cadence * 1000;
+	const before = params.get('before') ? Date.parse(params.get('before')!) : Infinity;
+	const all = Array.from({ length: def.slots }, (_, i) => newest - i * def.cadence * 1000).filter(
+		(t) => t < before
+	);
+	const page = all.slice(0, limit);
+	return {
+		layer,
+		slots: page.map((t) => ({
+			slot: new Date(t).toISOString().replace(/\.\d+Z$/, 'Z'),
+			run: new Date(Math.floor(t / 3600_000) * 3600_000).toISOString().replace(/\.\d+Z$/, 'Z'),
+			index: Math.round((t % 3600_000) / (def.cadence * 1000)),
+			bytes: 55_000 + Math.round(rnd(t / 1000, 4) * 12_000),
+			contentType: 'image/webp',
+			published: true,
+			publishedAt: new Date(t + 150_000).toISOString().replace(/\.\d+Z$/, 'Z')
+		})),
+		next:
+			all.length > limit
+				? new Date(page[page.length - 1]).toISOString().replace(/\.\d+Z$/, 'Z')
+				: null
+	};
+}
+
+const refreshJobs = new Map<
+	string,
+	{ count: number; layer: string; createdAt: string; fail: boolean }
+>();
+function startRefresh(layer: string, state: MockState): unknown {
+	const defs = cacheDefs(state === 'empty').filter((d) => d.enabled);
+	const targets =
+		layer === 'all' ? defs.map((d) => d.id) : defs.some((d) => d.id === layer) ? [layer] : [];
+	if (targets.length === 0) return { __status: 400, error: 'validation' };
+	const jobs = targets.map((l) => {
+		const id = crypto.randomUUID();
+		refreshJobs.set(id, {
+			count: 0,
+			layer: l,
+			createdAt: new Date().toISOString(),
+			fail: l === 'pressure_eu'
+		});
+		return { id, layer: l, status: 'queued', createdAt: new Date().toISOString() };
+	});
+	return { jobs };
+}
+function refreshView(id: string) {
+	const j = refreshJobs.get(id)!;
+	const status = j.count < 2 ? 'queued' : j.count < 4 ? 'running' : j.fail ? 'failed' : 'ok';
+	return {
+		id,
+		layer: j.layer,
+		status,
+		createdAt: j.createdAt,
+		startedAt: j.count >= 2 ? j.createdAt : null,
+		finishedAt: status === 'ok' || status === 'failed' ? new Date().toISOString() : null,
+		result:
+			status === 'ok'
+				? { stored: j.layer === 'radar' ? 3 : 0, failed: 0, published: j.layer === 'radar' }
+				: null,
+		error: status === 'failed' ? 'source_unavailable' : null
+	};
+}
+
+function deviceSubscriptions(state: MockState) {
+	const stale = state === 'sparse';
+	return {
+		generatedAt: new Date().toISOString(),
+		radar: stale
+			? { status: 'stale_run', runAgeSeconds: 4100 }
+			: { status: 'ok', runAgeSeconds: 210 },
+		subscriptions:
+			state === 'empty'
+				? []
+				: [
+						{
+							index: 0,
+							kind: 'point',
+							enabled: true,
+							liveActivity: true,
+							timeSensitive: false,
+							thresholdClass: 5,
+							leadMinutes: 20,
+							radiusCells: null,
+							minSharePercent: null,
+							state: 'notified',
+							hysteresis: true,
+							lastSentAt: iso(16 * 60_000),
+							lockUntil: iso(-44 * 60_000),
+							cell: stale ? 'unknown' : 'wet',
+							leadCell: stale ? 'unknown' : 'wet',
+							activity: 'active'
+						},
+						{
+							index: 1,
+							kind: 'circle',
+							enabled: true,
+							liveActivity: false,
+							timeSensitive: true,
+							thresholdClass: 3,
+							leadMinutes: 30,
+							radiusCells: 6,
+							minSharePercent: 20,
+							state: 'dry',
+							hysteresis: false,
+							lastSentAt: null,
+							lockUntil: null,
+							cell: stale ? 'unknown' : 'dry',
+							leadCell: stale ? 'unknown' : 'dry',
+							activity: 'none'
+						}
+					]
+	};
 }
 
 const cmds = new Map<
@@ -719,7 +990,33 @@ export function mockInsights(
 	if (path === '/cache/clear' && method === 'POST')
 		return { generation: 5, layer: String(body.layer ?? 'all') };
 
+	// ---- Cache
+	if (path === '/cache' && method === 'GET') return cacheInventory(state);
+	const sm = path.match(/^\/cache\/([^/]+)\/slots$/);
+	if (sm && method === 'GET') return cacheSlots(sm[1], params, state);
+	if (path === '/cache/refresh' && method === 'POST')
+		return startRefresh(String(body.layer ?? ''), state);
+	if (path === '/cache/refresh' && method === 'GET')
+		return {
+			jobs: [...refreshJobs.keys()]
+				.reverse()
+				.slice(0, 10)
+				.map((id) => refreshView(id))
+		};
+	const rm = path.match(/^\/cache\/refresh\/([^/]+)$/);
+	if (rm && method === 'GET') {
+		const j = refreshJobs.get(rm[1]);
+		if (!j) return undefined;
+		j.count++;
+		return refreshView(rm[1]);
+	}
+
 	// ---- Geraete
+	const sub = path.match(/^\/devices\/([^/]+)\/subscriptions$/);
+	if (sub && method === 'GET') {
+		if (!deviceList(false).find((d) => d.id === sub[1])) return undefined;
+		return deviceSubscriptions(state);
+	}
 	if (path === '/devices' && method === 'GET')
 		return {
 			linkEnabled: true,

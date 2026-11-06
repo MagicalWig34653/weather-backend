@@ -42,20 +42,36 @@
 		outcomeName,
 		summaryText
 	} from '#lib/insights/text.js';
-	import type { Device, DeviceAction, DeviceBundle, DeviceList } from '#lib/insights/types.js';
+	import DeviceSubscriptionsList from '#lib/insights/DeviceSubscriptionsList.svelte';
+	import type {
+		Device,
+		DeviceAction,
+		DeviceBundle,
+		DeviceList,
+		DeviceSubscriptions
+	} from '#lib/insights/types.js';
 
 	interface Loaded {
 		list: DeviceList;
 		bundles: Record<string, DeviceBundle>;
 		/** Geraete, deren Details nicht ladbar waren (z. B. 404 nach Widerruf in einem anderen Tab). */
 		failed: Record<string, string>;
+		/** Abos je Geraet; bei Fehler der Klartext (der Abruf ist Beiwerk und blockiert die Seite nicht). */
+		subs: Record<string, DeviceSubscriptions | string>;
 	}
 	const res = liveStatic<Loaded>(async () => {
 		const list = await insights.devices();
 		const bundles: Record<string, DeviceBundle> = {};
 		const failed: Record<string, string> = {};
+		const subs: Record<string, DeviceSubscriptions | string> = {};
 		await Promise.all(
 			list.devices.map(async (d) => {
+				try {
+					subs[d.id] = await insights.deviceSubscriptions(d.id);
+				} catch (e) {
+					if (e instanceof ApiError && e.code === 'unauthorized') throw e;
+					subs[d.id] = describeError(e);
+				}
 				try {
 					bundles[d.id] = await insights.deviceBundle(d.id);
 				} catch (e) {
@@ -64,7 +80,7 @@
 				}
 			})
 		);
-		return { list, bundles, failed };
+		return { list, bundles, failed, subs };
 	});
 
 	interface ActionDef {
@@ -427,6 +443,16 @@
 								</dd>
 							</div>
 						</dl>
+					{/if}
+
+					{@const sub = o.subs[d.id]}
+					<h3 class="mt-5 mb-2 text-[13px] font-semibold">Abos dieses Geräts</h3>
+					{#if typeof sub === 'string'}
+						<p role="alert" class="text-destructive text-[13px]">
+							Die Abos konnten nicht geladen werden: {sub}
+						</p>
+					{:else if sub}
+						<DeviceSubscriptionsList data={sub} />
 					{/if}
 
 					<h3 class="mt-5 mb-2 text-[13px] font-semibold">Aktionen</h3>

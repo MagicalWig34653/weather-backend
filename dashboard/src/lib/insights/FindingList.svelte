@@ -8,6 +8,12 @@
 	import type { Finding } from './types.js';
 
 	let { findings }: { findings: Finding[] } = $props();
+
+	/** Pfad plus optionale Query (z. B. /cache?layer=pressure). */
+	function hrefOf(f: Finding): string {
+		const [path, query] = findingHref(f).split('?');
+		return resolve(path as '/') + (query ? `?${query}` : '');
+	}
 </script>
 
 <ul class="divide-y">
@@ -29,10 +35,11 @@
 				{/if}
 			</div>
 			<a
-				href={resolve(findingHref(f) as '/')}
+				href={hrefOf(f)}
 				class="text-primary-ink hover:bg-primary-soft -mx-2 inline-flex h-9 items-center gap-1 self-start rounded-md px-2 text-[13px] font-medium sm:mx-0"
 			>
-				Ansehen <ArrowRightIcon class="size-3.5" aria-hidden="true" />
+				{f.code === 'layer_stale' ? 'Zur Cache-Seite' : 'Ansehen'}
+				<ArrowRightIcon class="size-3.5" aria-hidden="true" />
 			</a>
 		</li>
 	{/each}

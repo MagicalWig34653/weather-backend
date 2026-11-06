@@ -2,7 +2,7 @@
  * Deutsche Texte zu den Codes des Vertrags: Der Server sendet nur Codes und Parameter.
  * Unbekannte Codes erscheinen unveraendert (Vertrag: offene Aufzaehlungen).
  */
-import { formatDuration, formatNumber, formatPercent } from '#lib/format.js';
+import { formatDateTime, formatDuration, formatNumber, formatPercent } from '#lib/format.js';
 import type { Tone } from '#lib/design/tone.js';
 import type { Finding, Level } from './types.js';
 
@@ -54,7 +54,7 @@ export function findingText(f: Finding): { title: string; detail: string } {
 		case 'layer_stale':
 			return {
 				title: `${layerName(f.subject ?? '')}: Ebene veraltet`,
-				detail: `Der letzte Stand ist ${v} alt (Schwelle ${th}). Prüfe die Aufnahme-Läufe im Betrieb.`
+				detail: `Seit ${v} sind keine neuen Daten eingetroffen (Schwelle ${th}). Die Karten dieser Ebene gelten als veraltet oder ausgefallen. Die Cache-Seite zeigt Nominalzeit des letzten Laufs, Takt und Fehlversuche.`
 			};
 		case 'error_rate_5xx':
 			return { title: 'Hohe Fehlerquote (5xx)', detail: over };
@@ -103,8 +103,8 @@ export function findingText(f: Finding): { title: string; detail: string } {
 
 /** Ziel-Seite eines Befunds. */
 export function findingHref(f: Finding): string {
+	if (f.code === 'layer_stale') return `/cache?layer=${encodeURIComponent(f.subject ?? 'radar')}`;
 	if (
-		f.code === 'layer_stale' ||
 		f.code === 'error_rate_5xx' ||
 		f.code === 'cache_hit_low' ||
 		f.code === 'replicas_missing' ||
@@ -521,4 +521,13 @@ export function layerReason(l: {
 					: '';
 	const errors = l.errors24h ? ` ${formatNumber(l.errors24h)} Fehlversuche in 24 Stunden.` : '';
 	return `${age}${attempt}${errors} ${expect}`;
+}
+
+/** Nominalzeit eines Laufs ("20261106T0910Z" oder ISO) als lesbare Zeit; unlesbare Werte bleiben unveraendert. */
+export function nominalLabel(id: string): string {
+	const m = id.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?Z$/);
+	const d = m
+		? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] ?? 0)))
+		: new Date(id);
+	return Number.isNaN(d.getTime()) ? id : formatDateTime(d.toISOString());
 }

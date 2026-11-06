@@ -11,6 +11,7 @@
 	import Loadable from '#lib/design/Loadable.svelte';
 	import PageHeader from '#lib/design/PageHeader.svelte';
 	import Panel from '#lib/design/Panel.svelte';
+	import { resolve } from '$app/paths';
 	import StatusBadge from '#lib/design/StatusBadge.svelte';
 	import { toast } from '#lib/design/toast.svelte.js';
 	import { ctx, RANGES } from '#lib/design/context.svelte.js';
@@ -27,7 +28,14 @@
 	import NotCollected from '#lib/insights/NotCollected.svelte';
 	import Skeletons from '#lib/insights/Skeletons.svelte';
 	import { bucketLabels, unpack } from '#lib/insights/series.js';
-	import { layerName, levelLabel, levelTone, routeLabel } from '#lib/insights/text.js';
+	import {
+		layerName,
+		layerReason,
+		nominalLabel,
+		levelLabel,
+		levelTone,
+		routeLabel
+	} from '#lib/insights/text.js';
 	import type { OpsInsights, OpsLayer } from '#lib/insights/types.js';
 
 	const res = live((r) => insights.ops(r));
@@ -105,6 +113,47 @@
 		{@const labHit = bucketLabels(hit.t, o.cache.series.resolution)}
 		{@const hist = histogram(o)}
 		{@const rows = stripRows(o)}
+
+		{@const badLayers = o.layers.filter(
+			(l) => l.enabled && (l.level === 'warning' || l.level === 'critical')
+		)}
+		{#if badLayers.length > 0}
+			<Panel
+				title="Ebenen ohne frische Daten"
+				description="Warum eine Karte als veraltet oder ausgefallen gilt."
+			>
+				<ul class="divide-y">
+					{#each badLayers as l (l.id)}
+						{@const last = l.runs.length > 0 ? l.runs[l.runs.length - 1] : null}
+						<li class="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:gap-4">
+							<div class="sm:w-28 sm:shrink-0">
+								<StatusBadge tone={levelTone(l.level)} label={levelLabel[l.level]} />
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="text-sm font-medium">{layerName(l.id)}</p>
+								<p class="text-muted-foreground text-[13px] leading-5">
+									{layerReason({
+										state: 'stale',
+										ageSeconds: l.ageSeconds,
+										cadenceSeconds: l.cadenceSeconds,
+										lastAttemptResult: last?.result ?? null,
+										errors24h: l.runs.filter((r) => r.result !== 'ok').length,
+										newestNominal: null
+									})}
+									{#if l.latestRun}Nominalzeit des letzten Laufs: {nominalLabel(l.latestRun)}.{/if}
+								</p>
+							</div>
+							<a
+								href={`${resolve('/cache')}?layer=${encodeURIComponent(l.id)}`}
+								class="text-primary-ink hover:bg-primary-soft -mx-2 inline-flex h-9 items-center gap-1 self-start rounded-md px-2 text-[13px] font-medium sm:mx-0"
+							>
+								Zur Cache-Seite
+							</a>
+						</li>
+					{/each}
+				</ul>
+			</Panel>
+		{/if}
 
 		{#if (o.errors.statsFlushErrors ?? 0) > 0}
 			<Panel

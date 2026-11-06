@@ -308,9 +308,9 @@ test.describe('Aktualisierung', () => {
 		await expect(
 			page.getByRole('heading', { name: /Alles unauffällig|Befund/ }).first()
 		).toBeVisible();
-		await expect(page.getByText('Veraltet')).toHaveCount(0);
-		await page.getByRole('button', { name: 'Aktualisieren' }).click();
-		await expect(page.getByText('Veraltet')).toHaveCount(0);
+		await expect(page.getByRole('status').filter({ hasText: /^Veraltet:/ })).toHaveCount(0);
+		await page.getByRole('button', { name: 'Aktualisieren', exact: true }).click();
+		await expect(page.getByRole('status').filter({ hasText: /^Veraltet:/ })).toHaveCount(0);
 		await expect(page.getByText('Daten konnten nicht geladen werden')).toHaveCount(0);
 	});
 
@@ -319,15 +319,74 @@ test.describe('Aktualisierung', () => {
 		await expect(
 			page.getByRole('heading', { name: /Alles unauffällig|Befund/ }).first()
 		).toBeVisible();
-		const refresh = page.getByRole('button', { name: 'Aktualisieren' });
+		const refresh = page.getByRole('button', { name: 'Aktualisieren', exact: true });
 		await refresh.click();
 		await page.waitForTimeout(800);
 		// Erster fehlgeschlagener Ladevorgang: noch kein Hinweis.
-		await expect(page.getByText('Veraltet')).toHaveCount(0);
+		await expect(page.getByRole('status').filter({ hasText: /^Veraltet:/ })).toHaveCount(0);
 		await refresh.click();
 		const notice = page.getByRole('status').filter({ hasText: 'Veraltet' });
 		await expect(notice).toContainText('wiederholt fehlgeschlagen');
 		await expect(notice).toContainText('nicht verfügbar (504)');
 		expect(await axe(page)).toEqual([]);
+	});
+});
+
+test.describe('Cache-Seite', () => {
+	test('zeigt Inventar, Grund für Ausfall, Vorschau mit Slider und Auftragsstatus', async ({
+		page
+	}) => {
+		await page.goto('/dash/cache?mock=auth');
+		await expect(page.getByRole('heading', { name: 'Cache', level: 1 })).toBeVisible();
+		const table = page.getByRole('region', { name: 'Cache-Inventar je Ebene' });
+		await expect(table).toContainText('Luftdruck (Europa)');
+		await expect(table).toContainText('Ausgefallen');
+		await expect(page.getByText('Seit 15 h wurde nichts Neues veröffentlicht')).toBeVisible();
+		// Vorschau: Bild mit Alt-Text, Slider und Pfeiltasten
+		const img = page.getByRole('img', { name: /Niederschlagsradar, Bild vom/ });
+		await expect(img).toBeVisible();
+		const slider = page.getByRole('slider', { name: /Zeitpunkt wählen/ });
+		const before = await slider.inputValue();
+		await slider.focus();
+		await page.keyboard.press('ArrowLeft');
+		expect(Number(await slider.inputValue())).toBe(Number(before) - 1);
+		await page.getByRole('button', { name: 'Neuester' }).click();
+		expect(await slider.inputValue()).toBe(before);
+		// Ebene neu abrufen: Auftrag läuft, endet mit Ergebnis
+		await page.getByRole('button', { name: 'Niederschlagsradar neu abrufen' }).click();
+		await expect(page.getByRole('status').filter({ hasText: 'Auftrag' }).first()).toBeVisible();
+		await expect(
+			page.getByRole('status').filter({ hasText: 'Niederschlagsradar: Abruf abgeschlossen' })
+		).toBeVisible({ timeout: 15_000 });
+	});
+
+	test('fehlgeschlagener Abruf nennt den Grund', async ({ page }) => {
+		await page.goto('/dash/cache?mock=auth');
+		await page.getByRole('button', { name: 'Luftdruck (Europa) neu abrufen' }).click();
+		await expect(page.getByText('Luftdruck (Europa): Abruf fehlgeschlagen')).toBeVisible({
+			timeout: 15_000
+		});
+		await expect(page.getByText('Die Quelle (DWD/EUMETSAT) antwortet nicht').first()).toBeVisible();
+	});
+
+	test('Übersicht verlinkt den Luftdruck-Befund auf die Cache-Seite', async ({ page }) => {
+		await page.goto('/dash/?mock=auth');
+		await page.getByRole('link', { name: 'Zur Cache-Seite' }).first().click();
+		await expect(page).toHaveURL(/\/dash\/cache\?layer=pressure/);
+	});
+
+	test('Leerzustand', async ({ page }) => {
+		await page.goto('/dash/cache?mock=auth&mockstate=empty');
+		await expect(page.getByText(/Keine Slots für/)).toBeVisible();
+	});
+});
+
+test.describe('Geräte-Abos', () => {
+	test('zeigt Abos mit verständlichen Zuständen', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth');
+		await expect(page.getByRole('heading', { name: 'Abos dieses Geräts' }).first()).toBeVisible();
+		await expect(page.getByText('Abo 1: Punkt').first()).toBeVisible();
+		await expect(page.getByText('Benachrichtigt').first()).toBeVisible();
+		await expect(page.getByText('Live Activity läuft').first()).toBeVisible();
 	});
 });
