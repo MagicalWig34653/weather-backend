@@ -80,9 +80,8 @@
 	const yScale = $derived.by(() => {
 		const all = layers.flatMap((l) => l.hi);
 		const data = all.length ? Math.max(...all) : 1;
-		const lo = zero
-			? 0
-			: Math.min(...series.flatMap((s) => s.values.filter((v): v is number => v !== null)), 0);
+		const vals = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
+		const lo = zero || vals.length === 0 ? 0 : Math.min(...vals);
 		const unit = bytes ? bytesUnit(data) : 1;
 		const nt = niceTicks(lo / unit, (yMax ?? data * 1.04) / unit, 4);
 		const t = { ticks: nt.ticks.map((v) => v * unit), min: nt.min * unit, max: nt.max * unit };

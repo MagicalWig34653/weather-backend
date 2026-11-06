@@ -207,7 +207,9 @@ export class ApiError extends Error {
 		readonly code: ApiErrorCode,
 		message: string,
 		/** Sekunden aus dem Retry-After-Header (429), sonst null. */
-		readonly retryAfter: number | null = null
+		readonly retryAfter: number | null = null,
+		/** Fehlercode des Servers ({"error":"<code>"}), z. B. code_unknown; null wenn keiner kam. */
+		readonly serverCode: string | null = null
 	) {
 		super(message);
 		this.name = 'ApiError';
@@ -283,9 +285,11 @@ export class ApiClient {
 		}
 		if (!res.ok) {
 			let message = '';
+			let serverCode: string | null = null;
 			try {
-				const data = (await res.json()) as { message?: unknown };
+				const data = (await res.json()) as { message?: unknown; error?: unknown };
 				if (typeof data.message === 'string') message = data.message;
+				if (typeof data.error === 'string') serverCode = data.error;
 			} catch {
 				/* Fehlerantworten duerfen leer sein (z. B. 403 ohne Details). */
 			}
@@ -294,7 +298,8 @@ export class ApiClient {
 				res.status,
 				codeFor(res.status),
 				message || `Fehler ${res.status}`,
-				Number.isFinite(ra) && ra > 0 ? ra : null
+				Number.isFinite(ra) && ra > 0 ? ra : null,
+				serverCode
 			);
 		}
 		if (res.status === 204) return undefined as T;
@@ -307,6 +312,12 @@ export class ApiClient {
 	}
 	post<T>(path: string, body: unknown = {}) {
 		return this.request<T>('POST', path, body);
+	}
+	put<T>(path: string, body: unknown = {}) {
+		return this.request<T>('PUT', path, body);
+	}
+	delete<T>(path: string) {
+		return this.request<T>('DELETE', path);
 	}
 
 	// Sitzung

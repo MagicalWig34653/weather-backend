@@ -1,6 +1,6 @@
 import { isStale } from './states';
 
-export type Range = '24h' | '7d' | '30d';
+export type Range = '24h' | '72h' | '7d' | '30d';
 export const RANGES: {
 	value: Range;
 	label: string;
@@ -14,6 +14,13 @@ export const RANGES: {
 		title: 'Letzte 24 Stunden',
 		phrase: 'in den letzten 24 Stunden',
 		hours: 24
+	},
+	{
+		value: '72h',
+		label: '72 h',
+		title: 'Letzte 72 Stunden',
+		phrase: 'in den letzten 72 Stunden',
+		hours: 72
 	},
 	{
 		value: '7d',
@@ -35,7 +42,7 @@ export const REFRESH_MS = 30_000;
 const EXPECTED_INTERVAL_MS = 60_000;
 
 export function parseRange(v: string | null): Range {
-	return v === '7d' || v === '30d' ? v : '24h';
+	return v === '72h' || v === '7d' || v === '30d' ? v : '24h';
 }
 
 /**

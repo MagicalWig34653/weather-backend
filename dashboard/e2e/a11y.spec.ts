@@ -70,5 +70,7 @@ test('Bestätigungsdialog und Toast', async ({ page }) => {
 	await page.getByRole('button', { name: 'Testpush' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.getByRole('button', { name: 'Testpush', exact: true }).last().click();
-	await expect(page.getByRole('status').filter({ hasText: 'Testpush an APNs' })).toBeVisible();
+	await expect(page.getByRole('status').filter({ hasText: 'Testpush: erledigt' })).toBeVisible({
+		timeout: 10_000
+	});
 });

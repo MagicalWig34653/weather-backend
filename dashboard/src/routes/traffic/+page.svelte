@@ -10,21 +10,51 @@
 	import PageHeader from '#lib/design/PageHeader.svelte';
 	import Panel from '#lib/design/Panel.svelte';
 	import { ctx, RANGES } from '#lib/design/context.svelte.js';
-	import {
-		formatBytes,
-		formatCompact,
-		formatMs,
-		formatNumber,
-		formatPercent
-	} from '#lib/format.js';
+	import { formatBytes, formatNumber, formatPercent, formatWeekday } from '#lib/format.js';
 	import { insights } from '#lib/insights/api.js';
 	import { live } from '#lib/insights/live.svelte.js';
 	import Skeletons from '#lib/insights/Skeletons.svelte';
-	import { bucketLabels, sum } from '#lib/insights/series.js';
+	import { bucketLabels, sparkValues, sum, unpack } from '#lib/insights/series.js';
+	import { pageName, routeLabel } from '#lib/insights/text.js';
+	import type { TrafficInsights } from '#lib/insights/types.js';
 
 	const res = live((r) => insights.traffic(r));
 	const rangeTitle = $derived(RANGES.find((r) => r.value === ctx.range)?.phrase ?? '');
-	const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+	const rlName: Record<string, string> = {
+		push: 'Push',
+		dashboard: 'Dashboard',
+		other: 'Sonstige'
+	};
+	const clsName: Record<string, string> = {
+		'2xx': '2xx Erfolg',
+		'3xx': '3xx nicht geändert',
+		'4xx': '4xx Client',
+		'5xx': '5xx Server'
+	};
+	const clsColor = { '2xx': 1, '3xx': 3, '4xx': 'warn', '5xx': 'err' } as const;
+
+	/** Zeilen je Kalendertag (UTC), Spalten je Stunde; Intensitaet relativ zur staerksten Stunde. */
+	function heatRows(h: NonNullable<TrafficInsights['hourly']>) {
+		const max = Math.max(1, ...h.cells.map((c) => c.count));
+		const days = [...new Set(h.cells.map((c) => c.date))].sort();
+		return days.map((d) => {
+			const byHour = new Map(h.cells.filter((c) => c.date === d).map((c) => [c.hour, c.count]));
+			return {
+				label: formatWeekday(`${d}T12:00:00Z`),
+				cells: Array.from({ length: 24 }, (_, hour) => {
+					const n = byHour.get(hour);
+					return {
+						v: (n ?? 0) / max,
+						label:
+							n === undefined
+								? `${hour}:00 UTC: keine Daten`
+								: `${String(hour).padStart(2, '0')}:00 UTC: ${formatNumber(n)} Anfragen`
+					};
+				})
+			};
+		});
+	}
 </script>
 
 <PageHeader title="Traffic" description="Anfragen, Datenmenge, Routen und Nutzungsmuster." />
@@ -34,28 +64,34 @@
 		<div class="space-y-6"><Skeletons kind="kpis" /><Skeletons /></div>
 	{/snippet}
 	{#snippet children(o)}
-		{@const lab = bucketLabels(o.t, ctx.range)}
-		{@const total = sum(o.requests)}
-		{@const nm = sum(o.status['3xx'])}
-		{@const limited = o.rateLimited.push + o.rateLimited.dashboard + o.rateLimited.other}
+		{@const req = unpack(o.requests.series)}
+		{@const lab = bucketLabels(req.t, o.requests.series.resolution)}
+		{@const limited = sum(o.rateLimited.map((r) => r.count))}
+		{@const bytes = sum(o.requests.byRoute.map((r) => r.bytes))}
 
-		{#if total === 0}
-			<Panel
-				><EmptyState
+		{#if o.requests.total === 0}
+			<Panel>
+				<EmptyState
 					title="Noch keine Anfragen im Zeitraum"
 					reason="Zähler erscheinen nach dem ersten Flush (höchstens 60 Sekunden). Wähle einen längeren Zeitraum oder prüfe, ob der Dienst Anfragen erhält."
-				/></Panel
-			>
+				/>
+			</Panel>
 		{:else}
 			<section
 				aria-label="Kennzahlen {rangeTitle}"
 				class="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4"
 			>
-				<Kpi label="Anfragen" value={formatNumber(total)} series={o.requests} />
-				<Kpi label="Datenmenge" value={formatBytes(sum(o.bytes))} series={o.bytes} />
+				<Kpi
+					label="Anfragen"
+					value={formatNumber(o.requests.total)}
+					series={sparkValues(o.requests.series)}
+				/>
+				<Kpi label="Datenmenge" value={formatBytes(bytes)} hint="ausgehend, alle Routen" />
 				<Kpi
 					label="Nicht geändert (304)"
-					value={formatPercent(nm / total)}
+					value={o.requests.notModifiedShare === null
+						? '–'
+						: formatPercent(o.requests.notModifiedShare)}
 					hint="spart Übertragung"
 				/>
 				<Kpi
@@ -66,57 +102,34 @@
 				/>
 			</section>
 
-			<Panel title="Anfragen und Datenmenge" description="Je Zeitabschnitt, {rangeTitle}.">
-				<div class="grid grid-cols-1 gap-8 lg:grid-cols-2">
-					<div>
-						<p class="text-muted-foreground mb-1 text-[12px] font-medium">Anfragen</p>
-						<XYChart
-							label="Anfragen {rangeTitle}"
-							kind="area"
-							categories={lab.categories}
-							ticks={lab.ticks}
-							height={200}
-							series={[{ key: 'r', label: 'Anfragen', values: o.requests, color: 1 }]}
-							format={formatNumber}
-						/>
-					</div>
-					<div>
-						<p class="text-muted-foreground mb-1 text-[12px] font-medium">Datenmenge</p>
-						<XYChart
-							label="Datenmenge {rangeTitle}"
-							kind="bar"
-							categories={lab.categories}
-							ticks={lab.ticks}
-							height={200}
-							series={[{ key: 'b', label: 'Ausgehend', values: o.bytes, color: 3 }]}
-							format={formatBytes}
-							bytes
-							axisFormat={formatBytes}
-						/>
-					</div>
-				</div>
+			<Panel title="Anfragen" description="Je Zeitabschnitt (UTC), {rangeTitle}.">
+				<XYChart
+					label="Anfragen {rangeTitle}"
+					kind="area"
+					categories={lab.categories}
+					ticks={lab.ticks}
+					height={230}
+					series={[{ key: 'r', label: 'Anfragen', values: req.v, color: 1 }]}
+					format={formatNumber}
+				/>
 			</Panel>
 
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-5">
 				<Panel
 					class="lg:col-span-3"
 					title="Statusklassen"
-					description="Antworten nach HTTP-Klasse."
+					description="Antworten nach HTTP-Klasse im Zeitraum."
 				>
-					<XYChart
-						label="Statusklassen {rangeTitle}"
-						kind="bar"
-						stacked
-						categories={lab.categories}
-						ticks={lab.ticks}
-						height={210}
-						series={[
-							{ key: '2', label: '2xx Erfolg', values: o.status['2xx'], color: 1 },
-							{ key: '3', label: '3xx nicht geändert', values: o.status['3xx'], color: 3 },
-							{ key: '4', label: '4xx Client', values: o.status['4xx'], color: 'warn' },
-							{ key: '5', label: '5xx Server', values: o.status['5xx'], color: 'err' }
-						]}
+					<Donut
+						label="Statusklassen"
+						centerValue={formatNumber(o.requests.total)}
+						centerLabel="Antworten"
 						format={formatNumber}
+						parts={o.requests.byStatusClass.map((c) => ({
+							label: clsName[c.class] ?? c.class,
+							value: c.count,
+							color: clsColor[c.class as keyof typeof clsColor] ?? 5
+						}))}
 					/>
 				</Panel>
 				<Panel
@@ -131,53 +144,51 @@
 							reason="Im Zeitraum wurde keine Anfrage durch eine Begrenzung abgewiesen."
 						/>
 					{:else}
-						<Donut
+						<RankBars
 							label="Rate-Limit-Treffer nach Bereich"
-							centerValue={formatNumber(limited)}
-							centerLabel="gesamt"
 							format={formatNumber}
-							parts={[
-								{ label: 'Push', value: o.rateLimited.push, color: 1 },
-								{ label: 'Dashboard', value: o.rateLimited.dashboard, color: 3 },
-								{ label: 'Sonstige', value: o.rateLimited.other, color: 5 }
-							]}
+							color={2}
+							items={o.rateLimited.map((r) => ({
+								label: rlName[r.kind] ?? r.kind,
+								value: r.count
+							}))}
 						/>
 					{/if}
 				</Panel>
 			</div>
 
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-5">
-				<Panel
-					class="lg:col-span-2"
-					title="Routen"
-					description="Anfragen je Routenvorlage (ohne Parameterwerte)."
-				>
+				<Panel class="lg:col-span-2" title="Routen" description="Anfragen je Routengruppe.">
 					<RankBars
 						label="Routen nach Anfragen"
-						items={o.routes.map((r) => ({
-							label: r.route,
-							value: r.requests,
-							note: formatPercent(r.requests / total),
-							mono: true
+						items={o.requests.byRoute.map((r) => ({
+							label: routeLabel(r.route),
+							value: r.count,
+							note: formatPercent(r.count / o.requests.total)
 						}))}
 						format={formatNumber}
 					/>
 				</Panel>
-				<Panel class="lg:col-span-3" title="Details je Route" flush>
+				<Panel class="lg:col-span-3" title="Daten je Route" flush>
 					<DataTable
-						caption="Routen mit Datenmenge und Antwortzeit"
-						rows={o.routes}
+						caption="Routen mit Anfragen und Datenmenge"
+						rows={o.requests.byRoute}
 						rowKey={(r) => r.route}
 						columns={[
-							{ key: 'route', label: 'Route', class: 'font-mono text-xs' },
+							{ key: 'route', label: 'Route', format: (r) => routeLabel(r.route) },
 							{
-								key: 'requests',
+								key: 'count',
 								label: 'Anfragen',
 								align: 'right',
-								format: (r) => formatNumber(r.requests)
+								format: (r) => formatNumber(r.count)
 							},
 							{ key: 'bytes', label: 'Daten', align: 'right', format: (r) => formatBytes(r.bytes) },
-							{ key: 'p95', label: 'p95', align: 'right', format: (r) => formatMs(r.p95Ms) }
+							{
+								key: 'avg',
+								label: 'Ø je Anfrage',
+								align: 'right',
+								format: (r) => (r.count ? formatBytes(r.bytes / r.count) : '–')
+							}
 						]}
 					/>
 				</Panel>
@@ -185,35 +196,34 @@
 
 			<Panel
 				title="Nutzungsmuster"
-				description="Anfragen nach Wochentag und Stunde (UTC)."
+				description="Anfragen nach Tag und Stunde (UTC), höchstens die letzten 72 Stunden."
 				info="Je dunkler eine Zelle, desto mehr Anfragen im Verhältnis zur stärksten Stunde. Hilft, Wartungsfenster in ruhigen Zeiten zu planen."
 			>
-				<HeatStrip
-					label="Anfragen nach Wochentag und Stunde"
-					cellHeight={22}
-					axis={['00 Uhr', '23 Uhr']}
-					rows={o.pattern.map((row, d) => ({
-						label: days[d],
-						cells: row.map((v, h) => ({
-							v,
-							label: `${days[d]} ${String(h).padStart(2, '0')}:00 UTC: ${formatPercent(v)} der Spitze`
-						}))
-					}))}
-				/>
+				{#if o.hourly === null}
+					<EmptyState
+						compact
+						title="Noch keine Stundenwerte"
+						reason="Stundenzeilen entstehen mit dem Metriken-Paket (WP11); bis dahin gibt es nur Tageswerte."
+					/>
+				{:else}
+					<HeatStrip
+						label="Anfragen nach Tag und Stunde"
+						cellHeight={24}
+						axis={['00 Uhr', '23 Uhr']}
+						rows={heatRows(o.hourly)}
+					/>
+				{/if}
 			</Panel>
 
 			<Panel
 				title="Seitenaufrufe"
-				description="Aufrufe der öffentlichen Seiten, ohne Personenbezug."
+				description="Aufrufe der öffentlichen Textseiten, ohne Personenbezug."
 			>
-				<XYChart
-					label="Seitenaufrufe {rangeTitle}"
-					kind="line"
-					categories={lab.categories}
-					ticks={lab.ticks}
-					height={160}
-					series={[{ key: 'p', label: 'Seitenaufrufe', values: o.pageViews, color: 4 }]}
-					format={formatCompact}
+				<RankBars
+					label="Seitenaufrufe"
+					color={4}
+					format={formatNumber}
+					items={o.pageViews.map((p) => ({ label: pageName[p.page] ?? p.page, value: p.count }))}
 				/>
 			</Panel>
 		{/if}

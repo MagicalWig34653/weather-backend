@@ -31,7 +31,7 @@
 <!-- Horizontale Rangbalken, Nullbasis, direkte Beschriftung: die Liste ist zugleich die Textalternative. -->
 <ul class="flex flex-col gap-3" aria-label={label}>
 	{#each items as it (it.label)}
-		<li class="grid gap-1">
+		<li class="grid min-w-0 grid-cols-1 gap-1">
 			<div class="flex items-baseline justify-between gap-3 text-[13px]">
 				<span class="min-w-0 truncate {it.mono ? 'font-mono text-xs' : 'font-medium'}"
 					>{it.label}</span

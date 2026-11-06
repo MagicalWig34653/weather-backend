@@ -2,45 +2,27 @@
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import { resolve } from '$app/paths';
 	import XYChart from '#lib/charts/XYChart.svelte';
-	import DataTable from '#lib/design/DataTable.svelte';
+	import EmptyState from '#lib/design/EmptyState.svelte';
 	import Kpi from '#lib/design/Kpi.svelte';
 	import Loadable from '#lib/design/Loadable.svelte';
 	import PageHeader from '#lib/design/PageHeader.svelte';
 	import Panel from '#lib/design/Panel.svelte';
-	import StatusBadge from '#lib/design/StatusBadge.svelte';
-	import EmptyState from '#lib/design/EmptyState.svelte';
 	import { ctx, RANGES } from '#lib/design/context.svelte.js';
-	import type { Tone } from '#lib/design/tone.js';
-	import {
-		formatAgo,
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-		formatPercent
-	} from '#lib/format.js';
+	import { formatDateTime, formatDuration, formatNumber, formatPercent } from '#lib/format.js';
 	import { insights } from '#lib/insights/api.js';
 	import FindingList from '#lib/insights/FindingList.svelte';
 	import { live } from '#lib/insights/live.svelte.js';
 	import Skeletons from '#lib/insights/Skeletons.svelte';
-	import { bucketLabels, change } from '#lib/insights/series.js';
-	import type { LayerStatus } from '#lib/api.js';
-	import type { OverviewInsights, Severity } from '#lib/insights/types.js';
+	import { bucketLabels, deltaRatio, sparkValues, unpack } from '#lib/insights/series.js';
+	import { levelTone } from '#lib/insights/text.js';
+	import type { Kpi as KpiData } from '#lib/insights/types.js';
 
 	const res = live((r) => insights.overview(r));
 	const rangeTitle = $derived(RANGES.find((r) => r.value === ctx.range)?.phrase ?? '');
 
-	const worst = (o: OverviewInsights): Severity =>
-		o.findings.some((f) => f.severity === 'error')
-			? 'error'
-			: o.findings.some((f) => f.severity === 'warn')
-				? 'warn'
-				: o.findings.some((f) => f.severity === 'info')
-					? 'info'
-					: 'ok';
-	const actionable = (o: OverviewInsights) => o.findings.filter((f) => f.severity !== 'ok');
-
-	const layerTone: Record<string, Tone> = { ok: 'ok', stale: 'warn', missing: 'err' };
-	const layerLabel: Record<string, string> = { ok: 'Aktuell', stale: 'Veraltet', missing: 'Fehlt' };
+	const tone = (k: KpiData) => (k.level === 'unknown' ? undefined : levelTone(k.level));
+	const num = (v: number | null) => (v === null ? '–' : formatNumber(v));
+	const pct = (v: number | null) => (v === null ? '–' : formatPercent(v));
 </script>
 
 <PageHeader
@@ -53,27 +35,32 @@
 		<div class="space-y-6"><Skeletons kind="list" /><Skeletons kind="kpis" /></div>
 	{/snippet}
 	{#snippet children(o)}
-		{@const sev = worst(o)}
-		{@const open = actionable(o)}
 		{@const k = o.kpis}
-		{@const lab = bucketLabels(o.t, ctx.range)}
+		{@const req = unpack(k.requests.series)}
+		{@const hit = unpack(k.cacheHitRatio.series)}
+		{@const lab = bucketLabels(req.t, o.resolution)}
+		{@const labHit = bucketLabels(hit.t, o.resolution)}
 
 		<Panel
-			title={sev === 'ok'
+			title={o.status.level === 'ok'
 				? 'Alles unauffällig'
-				: `${open.length} ${open.length === 1 ? 'Befund' : 'Befunde'} mit Aufmerksamkeit`}
-			description="Was ist auffällig? Regeln mit Schwellen aus der Konfiguration."
+				: o.status.level === 'unknown'
+					? 'Noch keine Bewertung möglich'
+					: `${o.status.findingCount} ${o.status.findingCount === 1 ? 'Befund' : 'Befunde'} mit Aufmerksamkeit`}
+			description="Was ist auffällig? Feste Regeln mit Schwellen aus der Konfiguration."
 			info="Befunde entstehen aus festen Regeln (veraltete Ebenen, Fehlerquoten, Push-Voraussetzungen). Sie erscheinen, sobald eine Schwelle überschritten ist, und verschwinden von selbst."
 		>
-			{#if o.findings.length === 0}
+			{#if o.notable.length === 0}
 				<EmptyState
 					compact
 					icon={CircleCheckIcon}
-					title="Keine Befunde"
-					reason="Alle Regeln sind erfüllt. Neue Befunde erscheinen hier, sobald eine Schwelle überschritten wird."
+					title={o.status.level === 'unknown' ? 'Noch keine Daten' : 'Keine Befunde'}
+					reason={o.status.level === 'unknown'
+						? 'Zähler erscheinen nach dem ersten Flush (höchstens 60 Sekunden). Ohne Daten lassen sich keine Regeln auswerten.'
+						: 'Alle Regeln sind erfüllt. Neue Befunde erscheinen hier, sobald eine Schwelle überschritten wird.'}
 				/>
 			{:else}
-				<FindingList findings={o.findings} />
+				<FindingList findings={o.notable} />
 			{/if}
 		</Panel>
 
@@ -83,96 +70,87 @@
 		>
 			<Kpi
 				label="Anfragen"
-				value={formatNumber(k.requests.value)}
-				delta={change(k.requests.value, k.requests.previous)}
+				value={num(k.requests.value)}
+				tone={tone(k.requests)}
+				delta={deltaRatio(k.requests.deltaPct)}
 				goodWhen="none"
-				series={k.requests.series}
+				series={sparkValues(k.requests.series)}
 			/>
 			<Kpi
 				label="Cache-Quote"
-				value={formatPercent(k.cacheRatio.value)}
-				tone={k.cacheRatio.value >= 0.9 ? 'ok' : 'warn'}
-				delta={change(k.cacheRatio.value, k.cacheRatio.previous)}
-				series={k.cacheRatio.series}
+				value={pct(k.cacheHitRatio.value)}
+				tone={tone(k.cacheHitRatio)}
+				delta={deltaRatio(k.cacheHitRatio.deltaPct)}
+				series={sparkValues(k.cacheHitRatio.series)}
+				hint="noch keine Anfragen"
 			/>
 			<Kpi
 				label="Alter der jüngsten Aufnahme"
-				value={formatDuration(k.ingestAgeSeconds.value)}
-				tone={k.ingestAgeSeconds.value > k.ingestAgeSeconds.limit ? 'warn' : 'ok'}
-				hint="Schwelle {formatDuration(k.ingestAgeSeconds.limit)}"
+				value={k.ingestAgeSeconds.value === null ? '–' : formatDuration(k.ingestAgeSeconds.value)}
+				tone={tone(k.ingestAgeSeconds)}
+				hint="Ältester Stand der aktivierten Ebenen"
 			/>
 			<Kpi
 				label="Push-Zustellquote"
-				value={formatPercent(k.pushDeliveryRatio.value)}
-				tone={k.pushDeliveryRatio.value >= 0.95 ? 'ok' : 'warn'}
-				delta={change(k.pushDeliveryRatio.value, k.pushDeliveryRatio.previous)}
-				series={k.pushDeliveryRatio.series}
+				value={pct(k.pushDeliveryRatio.value)}
+				tone={tone(k.pushDeliveryRatio)}
+				delta={deltaRatio(k.pushDeliveryRatio.deltaPct)}
+				series={sparkValues(k.pushDeliveryRatio.series)}
+				hint={o.pushEnabled ? 'noch keine Sendungen' : 'Push ist ausgeschaltet'}
 			/>
 			<Kpi
 				label="Aktive Live Activities"
-				value={formatNumber(k.activeActivities.value)}
-				delta={change(k.activeActivities.value, k.activeActivities.previous)}
-				goodWhen="none"
-				series={k.activeActivities.series}
-				deltaLabel="ggü. Vortag"
+				value={num(k.activeLiveActivities.value)}
+				tone={tone(k.activeLiveActivities)}
+				hint={o.pushEnabled ? 'Momentaufnahme' : 'Push ist ausgeschaltet'}
 			/>
 			<Kpi
-				label="Installationen"
-				value={formatNumber(k.installations.value)}
-				delta={change(k.installations.value, k.installations.previous)}
-				goodWhen="none"
-				series={k.installations.series}
+				label="Push-Versand"
+				value={!o.pushEnabled ? 'Aus' : o.pushPaused ? 'Pausiert' : 'Aktiv'}
+				tone={!o.pushEnabled ? undefined : o.pushPaused ? 'warn' : 'ok'}
+				hint="Steuerung unter Push"
 			/>
 		</section>
 
-		<div class="grid grid-cols-1 gap-6 lg:grid-cols-5">
+		<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 			<Panel
-				class="lg:col-span-3"
 				title="Anfragen"
 				description="Alle öffentlichen Routen, {rangeTitle}."
-				info="Summe der Anfragen je Zeitabschnitt. Die Zähler werden einmal pro Minute geschrieben."
+				info="Summe der Anfragen je Zeitabschnitt (UTC). Die Zähler werden einmal pro Minute geschrieben."
 			>
 				<XYChart
 					label="Anfragen {rangeTitle}"
 					kind="area"
 					categories={lab.categories}
 					ticks={lab.ticks}
-					series={[{ key: 'req', label: 'Anfragen', values: k.requests.series, color: 1 }]}
+					series={[{ key: 'req', label: 'Anfragen', values: req.v, color: 1 }]}
 					format={formatNumber}
 				/>
 			</Panel>
 			<Panel
-				class="lg:col-span-2"
-				title="Ebenen"
-				description="Jüngste gespeicherte Aufnahme je Ebene."
-				flush
+				title="Cache-Quote"
+				description="Anteil der Anfragen aus dem Cache."
+				info="Treffer geteilt durch alle Abfragen je Zeitabschnitt."
 			>
-				<DataTable
-					caption="Ebenenstatus"
-					rows={o.layers}
-					rowKey={(l) => l.id}
-					columns={[
-						{ key: 'name', label: 'Ebene' },
-						{ key: 'status', label: 'Status', cell: statusCell },
-						{
-							key: 'updated_at',
-							label: 'Aufnahme',
-							align: 'right',
-							format: (l) => (l.updated_at ? formatAgo(l.updated_at, ctx.now) : '–')
-						}
-					]}
+				<XYChart
+					label="Cache-Quote {rangeTitle}"
+					kind="line"
+					zero={false}
+					yMax={1}
+					categories={labHit.categories}
+					ticks={labHit.ticks}
+					series={[{ key: 'hit', label: 'Treffer', values: hit.v, color: 3 }]}
+					format={formatPercent}
+					axisFormat={formatPercent}
 				/>
-				<p class="text-muted-foreground px-5 py-3 text-[12px]">
-					Stand <time>{formatDateTime(o.generatedAt)}</time>, Zähler laufen bis zu {o.lagSeconds} s nach.
-					<a href={resolve('/betrieb')} class="text-primary-ink font-medium hover:underline"
-						>Details im Betrieb</a
-					>
-				</p>
 			</Panel>
 		</div>
+
+		<p class="text-muted-foreground text-[12px]">
+			Stand <time>{formatDateTime(o.generatedAt)}</time>, Zähler laufen bis zu 60 s nach.
+			<a href={resolve('/betrieb')} class="text-primary-ink font-medium hover:underline"
+				>Details im Betrieb</a
+			>
+		</p>
 	{/snippet}
 </Loadable>
-
-{#snippet statusCell(l: LayerStatus)}
-	<StatusBadge tone={layerTone[l.status]} label={layerLabel[l.status]} />
-{/snippet}

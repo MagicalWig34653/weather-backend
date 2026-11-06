@@ -262,19 +262,31 @@ export function createMockFetch() {
 		const insightsState = new URLSearchParams(
 			typeof location !== 'undefined' ? location.search : ''
 		).get('mockstate');
-		if (path.startsWith('/insights') || path.startsWith('/devices')) {
+		const insightsPath =
+			path.startsWith('/insights') ||
+			path.startsWith('/devices') ||
+			path === '/push/pause' ||
+			path === '/cache/clear';
+		if (insightsPath) {
 			if (insightsState === 'slow') await new Promise((r) => setTimeout(r, 4000));
-			if (insightsState === 'error')
-				return json({ message: 'Der Server hat nicht geantwortet.' }, 500);
-			if (path === '/devices/link' && method === 'POST') {
-				return /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(String(body.code))
-					? json({ ok: true })
-					: json({ message: 'Code unbekannt oder abgelaufen.' }, 404);
+			if (insightsState === 'error') return json({ error: 'data_unavailable' }, 503);
+			if (path === '/devices/pair' && method === 'POST') {
+				if (!/^[0-9A-Za-z]{4}-?[0-9A-Za-z]{4}$/.test(String(body.code ?? '').trim()))
+					return json({ error: 'validation' }, 400);
+				if (String(body.code).toUpperCase().startsWith('XXXX'))
+					return json({ error: 'code_unknown' }, 404);
 			}
 			const { mockInsights } = await import('./insights/mock');
-			const state = insightsState === 'empty' ? 'empty' : 'normal';
+			const state =
+				insightsState === 'empty' || insightsState === 'slice1' ? insightsState : 'normal';
 			const out = mockInsights(path, method, url.searchParams, body, state);
-			if (out !== undefined) return json(out);
+			if (out === null) return new Response(null, { status: 204 });
+			if (out !== undefined) {
+				const created = path === '/devices/pair';
+				const accepted = method === 'POST' && path.includes('/actions/');
+				return json(out, created ? 201 : accepted ? 202 : 200);
+			}
+			return json({ error: 'not_found' }, 404);
 		}
 		if (path === '/logout') {
 			mode = 'login';

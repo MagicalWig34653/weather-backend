@@ -1,21 +1,31 @@
 /**
- * Erfundene Insights-Daten fuer Mock-Modus und Screenshots (nur mit VITE_MOCK=1 geladen).
- * Zustaende per URL: ?mockstate=empty | error | slow.
+ * Erfundene Insights-Daten im Wire-Format des eingefrorenen Vertrags (docs-site/content/dashboard-api.md),
+ * nur mit VITE_MOCK=1 geladen. Zustaende per URL: ?mockstate=empty | slice1 (Push-Zaehler noch null) | error | slow.
  */
 import type {
-	DeviceList,
+	Bucket,
+	Device,
+	DeviceCommand,
+	DeviceDetail,
+	DeviceEvent,
+	Diagnosis,
+	DiagnosisCheck,
 	DistributionInsights,
 	Finding,
-	LinkedDevice,
+	Gauge,
+	Kpi,
+	Level,
 	OpsInsights,
 	OpsLayer,
 	OverviewInsights,
 	PushInsights,
 	Range,
-	RunStatus,
-	TrafficInsights,
-	Trend
+	Resolution,
+	Series,
+	TrafficInsights
 } from './types';
+
+export type MockState = 'normal' | 'empty' | 'slice1';
 
 const HOUR = 3600_000;
 function rnd(i: number, salt = 0): number {
@@ -23,144 +33,203 @@ function rnd(i: number, salt = 0): number {
 	return x - Math.floor(x);
 }
 
-function grid(range: Range): { t: string[]; hours: number } {
-	const hours = range === '24h' ? 1 : range === '7d' ? 4 : 24;
-	const count = range === '24h' ? 24 : range === '7d' ? 42 : 30;
+function grid(range: Range): { t: string[]; resolution: Resolution; hours: number } {
+	const resolution: Resolution = range === '24h' || range === '72h' ? 'hour' : 'day';
+	const count = range === '24h' ? 24 : range === '72h' ? 72 : range === '7d' ? 7 : 30;
+	const hours = resolution === 'hour' ? 1 : 24;
 	const end = Math.floor(Date.now() / (hours * HOUR)) * hours * HOUR;
-	const t = Array.from({ length: count }, (_, i) =>
-		new Date(end - (count - 1 - i) * hours * HOUR).toISOString()
-	);
-	return { t, hours };
+	return {
+		t: Array.from({ length: count }, (_, i) =>
+			new Date(end - (count - 1 - i) * hours * HOUR).toISOString()
+		),
+		resolution,
+		hours
+	};
 }
 
-/** Tagesgang: ruhige Nacht, Spitzen morgens und am fruehen Abend (UTC, naeherungsweise). */
-function diurnal(iso: string): number {
+/** Tagesgang: ruhige Nacht, Spitzen morgens und am fruehen Abend (UTC). */
+function diurnal(iso: string, daily = false): number {
 	const d = new Date(iso);
+	const wk = d.getUTCDay() === 0 || d.getUTCDay() === 6 ? 0.9 : 1;
+	if (daily) return wk;
 	const h = d.getUTCHours();
-	const wk = d.getUTCDay() === 0 || d.getUTCDay() === 6 ? 0.88 : 1;
 	return (
 		wk *
 		(0.42 + 0.34 * Math.exp(-Math.pow((h - 6) / 3, 2)) + 0.5 * Math.exp(-Math.pow((h - 16) / 4, 2)))
 	);
 }
 
-function series(t: string[], hours: number, perHour: number, salt: number, noise = 0.14): number[] {
-	return t.map((x, i) =>
-		Math.round(perHour * hours * diurnal(x) * (1 - noise / 2 + rnd(i, salt) * noise))
-	);
+function ser(
+	t: string[],
+	resolution: Resolution,
+	hours: number,
+	perHour: number,
+	salt: number,
+	noise = 0.14
+): Series {
+	return {
+		resolution,
+		points: t.map((x, i) => ({
+			t: x,
+			v: Math.round(
+				perHour * hours * diurnal(x, resolution === 'day') * (1 - noise / 2 + rnd(i, salt) * noise)
+			)
+		}))
+	};
 }
+const mapSeries = (s: Series, f: (v: number, i: number) => number): Series => ({
+	resolution: s.resolution,
+	points: s.points.map((p, i) => ({ t: p.t, v: p.v === null ? null : f(p.v, i) }))
+});
+const total = (s: Series) => s.points.reduce((a, p) => a + (p.v ?? 0), 0);
+const emptySeries = (resolution: Resolution): Series => ({ resolution, points: [] });
+const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+const bucket = (key: string, count: number, suppressed = false): Bucket => ({
+	key,
+	count: suppressed ? null : count,
+	suppressed
+});
+const gauge = (used: number, max: number): Gauge => ({
+	used,
+	max,
+	ratio: Number((used / max).toFixed(4))
+});
 
-const prevOf = (v: number[], f = 0.93): number => Math.round(v.reduce((s, x) => s + x, 0) * f);
-const total = (a: number[]) => a.reduce((s, v) => s + v, 0);
-
-function trend(values: number[], factor: number, valueOf?: number): Trend {
-	return { value: valueOf ?? total(values), previous: prevOf(values, factor), series: values };
-}
-
-function routeTable(sum: number): TrafficInsights['routes'] {
-	const rows: [string, number, number, number][] = [
-		['/v1/radar/:layer/:slot', 0.56, 36000, 62],
-		['/v1/status', 0.19, 1400, 9],
-		['/v1/push/regions', 0.11, 8500, 38],
-		['/v1/push/installations/:id', 0.09, 1400, 24],
-		['/v1/layers', 0.05, 2400, 12]
-	];
-	return rows.map(([route, share, bytes, p95Ms]) => ({
-		route,
-		requests: Math.round(sum * share),
-		bytes: Math.round(sum * share * bytes),
-		p95Ms
-	}));
-}
-
-export type MockState = 'normal' | 'empty' | 'error' | 'slow';
-
-function pad(n: number, v = 0): number[] {
-	return new Array<number>(n).fill(v);
-}
-
-function runs(salt: number, errorEvery: number, missed = 0): RunStatus[] {
-	return Array.from({ length: 96 }, (_, i) => {
-		if (i >= 96 - missed) return 'missed';
-		if (errorEvery && rnd(i, salt) < 1 / errorEvery)
-			return rnd(i, salt + 5) < 0.5 ? 'error' : 'missed';
-		return 'ok';
-	});
-}
-
-function layers(empty: boolean): OpsLayer[] {
-	const now = Date.now();
-	const iso = (min: number) => new Date(now - min * 60_000).toISOString();
-	if (empty) return [];
-	return [
-		{
-			id: 'radar',
-			name: 'Niederschlagsradar',
-			status: 'ok',
-			lastRunAt: iso(3),
-			delayP50Seconds: 142,
-			delayP95Seconds: 231,
-			runs: runs(1, 40)
-		},
-		{
-			id: 'pressure',
-			name: 'Luftdruck',
-			status: 'ok',
-			lastRunAt: iso(12),
-			delayP50Seconds: 410,
-			delayP95Seconds: 702,
-			runs: runs(2, 0)
-		},
-		{
-			id: 'lightning',
-			name: 'Blitze',
-			status: 'stale',
-			lastRunAt: iso(52),
-			delayP50Seconds: 95,
-			delayP95Seconds: 1480,
-			runs: runs(3, 12, 11)
-		},
-		{
-			id: 'clouds',
-			name: 'Wolken',
-			status: 'missing',
-			lastRunAt: null,
-			delayP50Seconds: null,
-			delayP95Seconds: null,
-			runs: pad(96).map(() => 'none' as RunStatus)
-		}
-	];
-}
+const kpi = (
+	value: number | null,
+	unit: Kpi['unit'],
+	deltaPct: number | null,
+	level: Level,
+	series: Series | null
+): Kpi => ({ value, unit, deltaPct, level, series });
 
 function findings(empty: boolean): Finding[] {
 	if (empty) return [];
-	const now = Date.now();
 	return [
 		{
-			id: 'layer-stale-lightning',
-			severity: 'warn',
-			title: 'Blitze: Ebene veraltet',
-			detail:
-				'Der letzte erfolgreiche Lauf liegt 52 Minuten zurück (Schwelle 30 Minuten). 11 der letzten 96 Läufe fehlen.',
-			since: new Date(now - 52 * 60_000).toISOString(),
-			href: '/betrieb'
+			code: 'layer_stale',
+			level: 'warning',
+			subject: 'lightning',
+			value: 3120,
+			threshold: 1800,
+			unit: 'seconds',
+			since: iso(52 * 60_000)
 		},
 		{
-			id: 'env-mismatch',
-			severity: 'info',
-			title: '80 Installationen in der Sandbox-Umgebung',
-			detail: 'APNs läuft mit production; Sandbox-Installationen erhalten keine Mitteilungen.',
-			since: new Date(now - 6 * HOUR).toISOString(),
-			href: '/push'
-		},
-		{
-			id: 'cache-ok',
-			severity: 'ok',
-			title: 'Cache-Quote über Ziel',
-			detail: '94,8 % Treffer; Ziel ab 90 %.',
-			since: new Date(now - 24 * HOUR).toISOString()
+			code: 'la_start_ratio_low',
+			level: 'warning',
+			subject: null,
+			value: 0.62,
+			threshold: 0.7,
+			unit: 'ratio',
+			since: iso(6 * HOUR)
 		}
 	];
+}
+
+function layers(range: Range, empty: boolean): OpsLayer[] {
+	const mk = (
+		id: string,
+		cadence: number,
+		age: number | null,
+		level: Level,
+		bad: number,
+		salt: number,
+		lagP50: number | null
+	): OpsLayer => {
+		const n = Math.min(288, Math.round(86400 / cadence));
+		const end = Math.floor(Date.now() / (cadence * 1000)) * cadence * 1000;
+		const runs =
+			age === null || empty
+				? []
+				: Array.from({ length: n }, (_, i) => {
+						const slot = new Date(end - (n - 1 - i) * cadence * 1000).toISOString();
+						let result: 'ok' | 'error' | 'missed' = 'ok';
+						if (bad && rnd(i, salt) < 1 / bad)
+							result = rnd(i, salt + 5) < 0.45 ? 'error' : 'missed';
+						if (id === 'lightning' && i >= n - 10) result = i % 4 === 0 ? 'error' : 'missed';
+						return { slot, result };
+					});
+		const { t, resolution } = grid(range);
+		return {
+			id,
+			enabled: true,
+			hasData: age !== null && !empty,
+			latestRun: age === null || empty ? null : '20261106T0910Z',
+			publishedAt: age === null || empty ? null : iso(age * 1000),
+			ageSeconds: empty ? null : age,
+			cadenceSeconds: cadence,
+			level: empty ? 'unknown' : level,
+			runs,
+			lag: {
+				p50Seconds: empty ? null : lagP50,
+				p95Seconds: empty || lagP50 === null ? null : Math.round(lagP50 * 1.7),
+				series:
+					empty || lagP50 === null
+						? null
+						: {
+								resolution,
+								points: t.map((x, i) => ({
+									t: x,
+									v: Math.round(lagP50 * (0.85 + rnd(i, salt + 1) * 0.4))
+								}))
+							}
+			}
+		};
+	};
+	return [
+		mk('radar', 300, 142, 'ok', 60, 1, 190),
+		mk('pressure', 900, 480, 'ok', 0, 2, 410),
+		mk('lightning', 600, 3120, 'warning', 14, 3, 95),
+		mk('clouds', 900, null, 'unknown', 0, 4, null)
+	];
+}
+
+const cmds = new Map<
+	string,
+	{ count: number; kind: string; dryRun: boolean | null; createdAt: string }
+>();
+let devices: Device[] | null = null;
+function deviceList(empty: boolean): Device[] {
+	devices ??= [
+		{
+			id: '0f8c2d6a-5b1e-4f3a-9c77-2e4d8a6b1c30',
+			label: 'Test-iPhone',
+			pairedAt: iso(9 * 86400_000),
+			expiresAt: null,
+			lastSeenAt: iso(4 * 60_000),
+			stale: false,
+			lastActionAt: iso(41 * 60_000),
+			env: 'production',
+			summary: { level: 'critical', code: 'no_start_token' }
+		}
+	];
+	return empty ? [] : devices;
+}
+
+function diagnosis(): Diagnosis {
+	const c = (
+		order: number,
+		code: string,
+		level: Level,
+		reason: string,
+		params: DiagnosisCheck['params'] = {}
+	): DiagnosisCheck => ({ order, code, level, reason, params });
+	return {
+		generatedAt: new Date().toISOString(),
+		verdict: { code: 'start_token', level: 'critical' },
+		checks: [
+			c(1, 'server', 'ok', 'ok'),
+			c(2, 'environment', 'ok', 'ok'),
+			c(3, 'device_token', 'ok', 'ok', { ageDays: 2 }),
+			c(4, 'start_token', 'critical', 'missing'),
+			c(5, 'subscription', 'ok', 'ok'),
+			c(6, 'slot', 'warning', 'activity_running', { ageMinutes: 41 }),
+			c(7, 'lock', 'ok', 'ok'),
+			c(8, 'trigger', 'ok', 'below_threshold', { thresholdClass: 5, currentMaxClass: 2 }),
+			c(9, 'last_result', 'critical', 'dropped')
+		]
+	};
 }
 
 export function mockInsights(
@@ -171,383 +240,574 @@ export function mockInsights(
 	state: MockState
 ): unknown | undefined {
 	const empty = state === 'empty';
-	const range = (params.get('range') as Range) ?? '24h';
-	const { t, hours } = grid(range);
-	const n = t.length;
+	const slice1 = state === 'slice1';
+	const range = (
+		['24h', '72h', '7d', '30d'].includes(params.get('range') ?? '') ? params.get('range') : '24h'
+	) as Range;
+	const { t, resolution, hours } = grid(range);
 	const generatedAt = new Date().toISOString();
+	const req = empty
+		? { resolution, points: t.map((x) => ({ t: x, v: 0 })) }
+		: ser(t, resolution, hours, 7700, 1);
 
 	if (path === '/insights/overview') {
-		const req = empty ? pad(n) : series(t, hours, 2600, 1);
-		const ratioSeries = empty
-			? pad(n)
-			: t.map((_, i) => Number((0.935 + rnd(i, 9) * 0.03).toFixed(3)));
-		const delivery = empty
-			? pad(n)
-			: t.map((_, i) => Number((0.972 + rnd(i, 11) * 0.02).toFixed(3)));
-		const act = empty
-			? pad(n)
-			: t.map((x, i) => Math.round(30 * diurnal(x) * (0.8 + rnd(i, 4) * 0.4)));
 		const o: OverviewInsights = {
-			t,
 			generatedAt,
-			lagSeconds: 60,
-			findings: findings(empty),
+			range,
+			resolution,
+			pushEnabled: !empty,
+			pushPaused: false,
+			status: { level: empty ? 'unknown' : 'warning', findingCount: findings(empty).length },
 			kpis: {
-				requests: trend(req, 0.93),
-				cacheRatio: {
-					value: empty ? 0 : 0.948,
-					previous: empty ? null : 0.941,
-					series: ratioSeries
-				},
-				pushDeliveryRatio: {
-					value: empty ? 0 : 0.981,
-					previous: empty ? null : 0.984,
-					series: delivery
-				},
-				activeActivities: { value: empty ? 0 : 27, previous: empty ? null : 22, series: act },
-				ingestAgeSeconds: { value: empty ? 0 : 187, limit: 600 },
-				installations: {
-					value: empty ? 0 : 1284,
-					previous: empty ? null : 1249,
-					series: empty ? pad(n) : t.map((_, i) => 1180 + Math.round((i / n) * 104))
-				}
+				requests: kpi(
+					total(req),
+					'count',
+					empty ? null : 6.4,
+					empty ? 'unknown' : 'ok',
+					empty ? null : req
+				),
+				cacheHitRatio: kpi(
+					empty ? null : 0.948,
+					'ratio',
+					empty ? null : 0.7,
+					empty ? 'unknown' : 'ok',
+					empty
+						? null
+						: {
+								resolution,
+								points: t.map((x, i) => ({
+									t: x,
+									v: Number((0.935 + rnd(i, 9) * 0.03).toFixed(3))
+								}))
+							}
+				),
+				ingestAgeSeconds: kpi(empty ? null : 187, 'seconds', null, empty ? 'unknown' : 'ok', null),
+				pushDeliveryRatio: kpi(
+					empty ? null : 0.981,
+					'ratio',
+					empty ? null : -0.3,
+					empty ? 'unknown' : 'ok',
+					empty
+						? null
+						: {
+								resolution,
+								points: t.map((x, i) => ({
+									t: x,
+									v: Number((0.972 + rnd(i, 11) * 0.02).toFixed(3))
+								}))
+							}
+				),
+				activeLiveActivities: kpi(empty ? null : 27, 'count', null, empty ? 'unknown' : 'ok', null)
 			},
-			layers: layers(empty).map((l) => ({
-				id: l.id,
-				name: l.name,
-				status: l.status,
-				updated_at: l.lastRunAt
-			}))
+			notable: findings(empty),
+			partial: []
 		};
 		return o;
 	}
+	if (path === '/insights/findings')
+		return { generatedAt, level: empty ? 'ok' : 'warning', findings: findings(empty) };
 
 	if (path === '/insights/ops') {
-		const req = empty ? pad(n) : series(t, hours, 2600, 1);
-		const lookups = req.map((v) => Math.round(v * 0.72));
-		const part = (f: number) =>
-			lookups.map((v, i) => Math.round(v * f * (0.96 + rnd(i, 30 + f * 10) * 0.08)));
-		const spike = Math.floor(n * 0.62);
+		const spike = Math.floor(t.length * 0.62);
+		const hit = (salt: number) => ({
+			resolution,
+			points: t.map((x, i) => ({
+				t: x,
+				v: empty ? null : Number((0.935 + rnd(i, salt) * 0.03).toFixed(3))
+			}))
+		});
 		const o: OpsInsights = {
-			t,
 			generatedAt,
-			layers: layers(empty),
+			range,
+			resolution,
+			partial: [],
+			layers: layers(range, empty),
 			errors: {
-				http5xx: req.map((v, i) =>
-					empty ? 0 : Math.round(v * 0.0004 * rnd(i, 7)) + (i === spike ? 14 : 0)
-				),
-				ingest: t.map((_, i) => (empty ? 0 : rnd(i, 8) < 0.12 ? 1 + Math.round(rnd(i, 3) * 2) : 0))
+				status5xx: {
+					series: empty
+						? emptySeries(resolution)
+						: mapSeries(req, (v, i) => Math.round(v * 0.0004 * rnd(i, 7)) + (i === spike ? 14 : 0)),
+					ratio1h: empty ? null : 0.0004,
+					byRoute: empty
+						? []
+						: [
+								{ route: 'radar_image', count: 11 },
+								{ route: 'layer_image', count: 4 },
+								{ route: 'push', count: 2 }
+							]
+				},
+				ingestErrors: empty
+					? emptySeries(resolution)
+					: {
+							resolution,
+							points: t.map((x, i) => ({
+								t: x,
+								v: rnd(i, 8) < 0.12 ? 1 + Math.round(rnd(i, 3) * 2) : 0
+							}))
+						},
+				statsDropped: 0
 			},
 			cache: {
-				memory: part(0.58),
-				joined: part(0.06),
-				db: part(0.28),
-				negative: part(0.03),
-				miss: part(0.05)
+				hitRatio: empty ? null : 0.948,
+				hitRatioRadar: empty ? null : 0.962,
+				hitRatioLayer: empty ? null : 0.874,
+				negativeShare: empty ? null : 0.03,
+				joinedShare: empty ? null : 0.06,
+				dbReads: empty ? 0 : 15890,
+				series: empty ? emptySeries(resolution) : hit(9),
+				fill: empty
+					? null
+					: {
+							bytes: 189_000_000,
+							maxBytes: 268_435_456,
+							entries: 212,
+							evictions: 14,
+							scope: 'maxOfReplicas'
+						}
 			},
-			latency: {
-				p50: 8,
-				p95: 46,
-				p99: 118,
-				buckets: empty
-					? []
+			latency:
+				empty || slice1
+					? null
 					: [
-							{ label: '< 5 ms', count: 18420 },
-							{ label: '5–10 ms', count: 22110 },
-							{ label: '10–25 ms', count: 9840 },
-							{ label: '25–50 ms', count: 3120 },
-							{ label: '50–100 ms', count: 880 },
-							{ label: '100–250 ms', count: 241 },
-							{ label: '≥ 250 ms', count: 38 }
-						]
-			},
+							{
+								route: 'radar_image',
+								buckets: [
+									{ le: '10ms', count: 18420 },
+									{ le: '50ms', count: 9840 },
+									{ le: '200ms', count: 880 },
+									{ le: '1s', count: 41 },
+									{ le: 'inf', count: 3 }
+								],
+								p50Ms: 10,
+								p95Ms: 50,
+								p99Ms: 200
+							},
+							{
+								route: 'status',
+								buckets: [
+									{ le: '10ms', count: 11900 },
+									{ le: '50ms', count: 540 },
+									{ le: '200ms', count: 38 },
+									{ le: '1s', count: 2 },
+									{ le: 'inf', count: 0 }
+								],
+								p50Ms: 10,
+								p95Ms: 10,
+								p99Ms: 50
+							},
+							{
+								route: 'push',
+								buckets: [
+									{ le: '10ms', count: 2100 },
+									{ le: '50ms', count: 3300 },
+									{ le: '200ms', count: 610 },
+									{ le: '1s', count: 80 },
+									{ le: 'inf', count: 6 }
+								],
+								p50Ms: 50,
+								p95Ms: 200,
+								p99Ms: 1000
+							}
+						],
 			replicas: empty
 				? []
 				: [
 						{
-							slot: 1,
-							role: 'leader',
-							state: 'running',
-							uptimeSeconds: 3 * 86400 + 4 * 3600,
-							generation: 4
+							id: '9f2a41c7',
+							startedAt: iso(3 * 86400_000),
+							ageSeconds: 3 * 86400,
+							appliedGeneration: 4,
+							revision: 'abc1234',
+							level: 'ok',
+							isLeader: true
 						},
 						{
-							slot: 2,
-							role: 'follower',
-							state: 'running',
-							uptimeSeconds: 3 * 86400 + 4 * 3600 + 40,
-							generation: 4
+							id: '3be08d52',
+							startedAt: iso(3 * 86400_000 - 40_000),
+							ageSeconds: 3 * 86400 - 40,
+							appliedGeneration: 4,
+							revision: 'abc1234',
+							level: 'ok',
+							isLeader: false
 						}
 					],
-			restartPendingKeys: empty ? [] : ['CACHE_MAX_MB']
+			generation: 4,
+			leader: {
+				holder: empty ? null : '9f2a41c7',
+				leaseSecondsLeft: empty ? null : 22,
+				changes24h: 0
+			},
+			db: empty || slice1 ? null : { poolUsage: 0.31, errors24h: 0, migration: '010_insights' }
 		};
 		return o;
 	}
 
 	if (path === '/insights/traffic') {
-		const req = empty ? pad(n) : series(t, hours, 2600, 1);
-		const spike = Math.floor(n * 0.62);
+		const routes: [string, number, number][] = [
+			['radar_image', 0.55, 36000],
+			['status', 0.17, 1400],
+			['push', 0.12, 8500],
+			['layer_image', 0.08, 21000],
+			['radar_latest', 0.05, 2400],
+			['landing', 0.02, 9000],
+			['other', 0.01, 800]
+		];
+		const tot = total(req);
+		const cls = (f: number, i: number) => Math.round(tot * f * (1 + (i ? rnd(i, 2) * 0.1 : 0)));
+		const hourly = Array.from({ length: 72 }, (_, i) => {
+			const d = new Date(Math.floor(Date.now() / HOUR) * HOUR - (71 - i) * HOUR);
+			return {
+				date: d.toISOString().slice(0, 10),
+				hour: d.getUTCHours(),
+				count: Math.round(7700 * diurnal(d.toISOString()) * (0.9 + rnd(i, 12) * 0.2))
+			};
+		});
 		const o: TrafficInsights = {
-			t,
 			generatedAt,
-			requests: req,
-			bytes: req.map((v, i) => Math.round(v * (26000 + rnd(i, 2) * 6000))),
-			status: {
-				'2xx': req.map((v) => Math.round(v * 0.676)),
-				'3xx': req.map((v) => Math.round(v * 0.31)),
-				'4xx': req.map((v, i) => Math.round(v * 0.012 * (0.6 + rnd(i, 5)))),
-				'5xx': req.map((v, i) =>
-					empty ? 0 : Math.round(v * 0.0004 * rnd(i, 7)) + (i === spike ? 14 : 0)
-				)
+			range,
+			resolution,
+			partial: [],
+			requests: {
+				total: tot,
+				series: req,
+				notModifiedShare: empty ? null : 0.31,
+				byRoute: empty
+					? []
+					: routes.map(([route, f, b]) => ({
+							route,
+							count: Math.round(tot * f),
+							bytes: Math.round(tot * f * b)
+						})),
+				byStatusClass: empty
+					? []
+					: [
+							{ class: '2xx', count: cls(0.676, 0) },
+							{ class: '3xx', count: cls(0.31, 1) },
+							{ class: '4xx', count: cls(0.012, 2) },
+							{ class: '5xx', count: 17 }
+						]
 			},
-			routes: empty ? [] : routeTable(total(req)),
 			rateLimited: empty
-				? { push: 0, dashboard: 0, other: 0 }
-				: { push: 41, dashboard: 3, other: 12 },
-			pageViews: empty ? pad(n) : series(t, hours, 14, 6, 0.5),
-			pattern: Array.from({ length: 7 }, (_, d) =>
-				Array.from({ length: 24 }, (_, h) =>
-					empty
-						? 0
-						: Math.min(
-								1,
-								(diurnal(`2026-11-0${d + 2}T${String(h).padStart(2, '0')}:00:00Z`) / 1.15) *
-									(0.9 + rnd(d * 24 + h, 12) * 0.2)
-							)
-				)
-			)
+				? []
+				: [
+						{ kind: 'push', count: 41 },
+						{ kind: 'dashboard', count: 3 },
+						{ kind: 'other', count: 12 }
+					],
+			pageViews: empty
+				? []
+				: [
+						{ page: 'landing_de', count: 412 },
+						{ page: 'landing_en', count: 138 },
+						{ page: 'privacy', count: 71 },
+						{ page: 'support', count: 34 }
+					],
+			hourly: empty ? null : { cells: hourly }
 		};
 		return o;
 	}
 
 	if (path === '/insights/push') {
-		const del = empty ? pad(n) : series(t, hours, 250, 14);
-		const o: PushInsights = {
-			t,
+		const pre = (key: string, ok: boolean, detail: string | null = null) => ({ key, ok, detail });
+		const base: PushInsights = {
 			generatedAt,
-			paused: false,
+			range,
+			resolution,
+			pushEnabled: !empty,
+			pushPaused: false,
+			partial: [],
+			prerequisites: empty
+				? [pre('push_enabled', false)]
+				: [
+						pre('push_enabled', true),
+						pre('apns_env_match', false, 'sandbox_install_with_production_env'),
+						pre('apns_topic_set', true),
+						pre('apns_key_present', true),
+						pre('capability_live_activity', true),
+						pre('push_not_paused', true)
+					],
 			funnel: empty
-				? []
-				: [
-						{ key: 'trigger', label: 'Auslöser (Auswertungen)', count: 18420 },
-						{ key: 'relevant', label: 'Regen erwartet', count: 6310 },
-						{ key: 'enqueued', label: 'In Warteschlange', count: 5990 },
-						{ key: 'sent', label: 'An APNs gesendet', count: 5984 },
-						{ key: 'delivered', label: 'Von APNs angenommen', count: 5871 }
-					],
-			skipped: empty
-				? []
-				: [
-						{ key: 'cooldown', label: 'Sperrzeit aktiv', count: 3120 },
-						{ key: 'hysteresis', label: 'Hysterese (zu nah an letzter Meldung)', count: 2210 },
-						{ key: 'slot_busy', label: 'Platz belegt (Live Activity läuft)', count: 640 },
-						{ key: 'disabled', label: 'Abo pausiert', count: 410 }
-					],
-			apnsErrors: empty
-				? []
-				: [
-						{ key: 'Unregistered', label: 'Unregistered', count: 62 },
-						{ key: 'BadDeviceToken', label: 'BadDeviceToken', count: 31 },
-						{ key: 'TooManyRequests', label: 'TooManyRequests', count: 4 }
-					],
-			invalidated: empty
-				? []
-				: [
-						{ key: 'push', label: 'Geräte-Token', count: 58 },
-						{ key: 'la_start', label: 'Live-Activity-Start-Token', count: 21 },
-						{ key: 'la_update', label: 'Live-Activity-Update-Token', count: 14 }
-					],
-			delivery: {
-				delivered: del,
-				failed: del.map((v, i) => Math.round(v * 0.019 * (0.5 + rnd(i, 3))))
-			},
-			lifecycle: {
-				started: empty ? pad(n) : series(t, hours, 6, 21, 0.6),
-				updated: empty ? pad(n) : series(t, hours, 19, 22, 0.4),
-				ended: empty ? pad(n) : series(t, hours, 5, 23, 0.6)
-			},
-			outbox: empty
-				? { pending: 0, failed: 0, oldestAgeSeconds: null }
-				: { pending: 12, failed: 3, oldestAgeSeconds: 38 },
-			checklist: empty
-				? []
-				: [
-						{
-							id: 'apns',
-							label: 'APNs-Zugang konfiguriert',
-							tone: 'ok',
-							detail: 'Schlüssel vorhanden, Token gültig.'
+				? null
+				: {
+						installations: {
+							total: 1284,
+							active1d: 702,
+							active7d: 1011,
+							active30d: 1240,
+							byEnv: [bucket('production', 1204), bucket('sandbox', 80)],
+							byLocale: [bucket('de', 812), bucket('en', 391), bucket('xx', 4, true)]
 						},
-						{
-							id: 'env',
-							label: 'Umgebung passt zu den Installationen',
-							tone: 'warn',
-							detail: 'APNS_ENV=production; 80 Installationen melden sandbox und erhalten nichts.'
+						tokens: {
+							withDeviceToken: 1271,
+							withStartToken: 394,
+							startTokenAge: [
+								bucket('lt1d', 120),
+								bucket('lt7d', 161),
+								bucket('lt30d', 89),
+								bucket('older', 24)
+							]
 						},
-						{
-							id: 'start-token',
-							label: 'Live-Activity-Start-Token vorhanden',
-							tone: 'warn',
-							detail:
-								'74 % der Installationen mit aktivierter Live Activity haben einen Start-Token.'
-						},
-						{
-							id: 'outbox',
-							label: 'Warteschlange gesund',
-							tone: 'ok',
-							detail: 'Ältester Eintrag 38 s, 3 endgültig fehlgeschlagen.'
-						},
-						{
-							id: 'leader',
-							label: 'Versand-Leader vorhanden',
-							tone: 'ok',
-							detail: 'Replikat 1 führt seit 3 Tagen.'
+						subscriptions: {
+							total: 2310,
+							enabled: 2204,
+							liveActivity: 531,
+							liveActivityWithStartToken: 394,
+							inconsistent: 3
 						}
+					},
+			triggers: null,
+			skipped: null,
+			lifecycle: null,
+			locks: null,
+			apnsErrors: null,
+			delivery: null,
+			outbox: null,
+			tokenInvalidations: null,
+			timing: null,
+			registrations: null,
+			rejects: null,
+			caps: null
+		};
+		if (empty || slice1) return base;
+		const del = ser(t, resolution, hours, 250, 14);
+		return {
+			...base,
+			triggers: [
+				{ trigger: 'rain_start', count: 3120 },
+				{ trigger: 'raining_now', count: 1840 },
+				{ trigger: 'la_rain_start', count: 612 },
+				{ trigger: 'la_raining_now', count: 241 }
+			],
+			skipped: [
+				{ trigger: 'rain_start', reason: 'lock_60min', count: 3120 },
+				{ trigger: 'rain_start', reason: 'hysteresis', count: 2210 },
+				{ trigger: 'la_rain_start', reason: 'no_start_token', count: 902 },
+				{ trigger: 'la_rain_start', reason: 'activity_slot_busy', count: 640 },
+				{ trigger: 'rain_start', reason: 'not_enabled', count: 410 }
+			],
+			lifecycle: {
+				events: [
+					{ event: 'start', outcome: 'delivered', count: 95 },
+					{ event: 'start', outcome: 'rejected', count: 6 },
+					{ event: 'update', outcome: 'delivered', count: 304 },
+					{ event: 'update', outcome: 'retry', count: 9 },
+					{ event: 'end', outcome: 'delivered', count: 88 },
+					{ event: 'expire', outcome: 'delivered', count: 11 }
+				],
+				activeNow: 27,
+				reservationsOpen: 1,
+				reservationsExpired: 2
+			},
+			locks: { activeLocks: 143, activitySlots: gauge(27, 5000) },
+			apnsErrors: [
+				{ kind: 'alert', reason: 'Unregistered', env: 'production', count: 62 },
+				{ kind: 'start', reason: 'BadDeviceToken', env: 'production', count: 31 },
+				{ kind: 'alert', reason: 'TooManyRequests', env: 'production', count: 4 }
+			],
+			delivery: {
+				created: total(del),
+				sent: total(del),
+				delivered: Math.round(total(del) * 0.981),
+				rejected: Math.round(total(del) * 0.014),
+				dropped: Math.round(total(del) * 0.002),
+				retry: Math.round(total(del) * 0.003),
+				ratio: 0.981,
+				avgAttempts: 1.04
+			},
+			outbox: { waiting: 12, oldestAgeSeconds: 38, retrying: 3, droppedOrExpired24h: 4 },
+			tokenInvalidations: [
+				{ kind: 'device', cause: '410', count: 58 },
+				{ kind: 'start', cause: 'bad_device_token', count: 21 },
+				{ kind: 'activity', cause: 'other', count: 14 }
+			],
+			timing: {
+				apnsSendMs: [
+					{ le: '50ms', count: 4100 },
+					{ le: '200ms', count: 1620 },
+					{ le: '1s', count: 230 }
+				],
+				evalMsP95: 420,
+				cellsChecked: 48120,
+				cellsMax: 80000
+			},
+			registrations: {
+				created: ser(t, resolution, hours, 4, 21, 0.6),
+				deleted: ser(t, resolution, hours, 1.5, 22, 0.8),
+				retained7dRatio: 0.87
+			},
+			rejects: [
+				{ code: 'subscription_limit', count: 14 },
+				{ code: 'region_limit', count: 6 },
+				{ code: 'start_token_required', count: 3 }
+			],
+			caps: [
+				{ key: 'installations', gauge: gauge(1284, 5000) },
+				{ key: 'subscriptions', gauge: gauge(2310, 20000) },
+				{ key: 'region_cells', gauge: gauge(48120, 80000) },
+				{ key: 'activity_subscriptions', gauge: gauge(531, 5000) }
+			]
+		} satisfies PushInsights;
+	}
+
+	if (path === '/insights/distribution') {
+		const o: DistributionInsights = {
+			generatedAt,
+			minGroup: 5,
+			partial: [],
+			subscriptionsPerInstallation: empty
+				? []
+				: [bucket('0', 555), bucket('1', 402), bucket('2', 214), bucket('3+', 113)],
+			regionsPerInstallation: empty
+				? []
+				: [bucket('0', 1090), bucket('1', 150), bucket('2', 41), bucket('3', 3, true)],
+			threshold: empty
+				? []
+				: [bucket('3', 310), bucket('5', 640), bucket('8', 220), bucket('12', 3, true)],
+			lead: empty ? [] : [bucket('10', 412), bucket('20', 1380), bucket('30', 518)],
+			locale: empty ? [] : [bucket('de', 812), bucket('en', 391), bucket('xx', 4, true)],
+			env: empty ? [] : [bucket('production', 1204), bucket('sandbox', 80)],
+			timeSensitiveShare: empty ? null : 0.18,
+			liveActivityShare: empty ? null : 0.41,
+			caps: empty
+				? []
+				: [
+						{ key: 'installations', gauge: gauge(1284, 5000) },
+						{ key: 'subscriptions', gauge: gauge(2310, 20000) },
+						{ key: 'region_cells', gauge: gauge(48120, 80000) }
 					]
 		};
 		return o;
 	}
 
-	if (path === '/insights/distribution') {
-		const d: DistributionInsights = {
-			generatedAt,
-			minGroup: 5,
-			groups: empty
-				? []
-				: [
-						{
-							id: 'locale',
-							title: 'Sprache',
-							items: [
-								{ label: 'Deutsch', count: 812 },
-								{ label: 'Englisch', count: 391 },
-								{ label: 'Französisch', count: 44 },
-								{ label: 'Italienisch', count: 21 },
-								{ label: 'Sonstige', count: null }
-							]
-						},
-						{
-							id: 'env',
-							title: 'APNs-Umgebung',
-							items: [
-								{ label: 'production', count: 1204 },
-								{ label: 'sandbox', count: 80 }
-							]
-						},
-						{
-							id: 'la',
-							title: 'Live Activity aktiviert',
-							items: [
-								{ label: 'Ja', count: 531 },
-								{ label: 'Nein', count: 753 }
-							]
-						},
-						{
-							id: 'subs',
-							title: 'Abos je Installation',
-							items: [
-								{ label: '1', count: 402 },
-								{ label: '2', count: 214 },
-								{ label: '3', count: 91 },
-								{ label: '4 oder mehr', count: 22 },
-								{ label: '0', count: 555 }
-							]
-						}
-					],
-			fill: empty
-				? []
-				: [
-						{ label: 'Regionszellen belegt', ratio: 0.601, note: '48.120 von 80.000' },
-						{ label: 'Cache im Arbeitsspeicher', ratio: 0.74, note: '189 von 256 MB je Replikat' },
-						{ label: 'Warteschlange', ratio: 0.003, note: '12 von 4.000 Einträgen' }
-					]
+	if (path === '/push/pause' && method === 'PUT')
+		return { paused: body.paused === true, since: body.paused ? generatedAt : null };
+	if (path === '/cache/clear' && method === 'POST')
+		return { generation: 5, layer: String(body.layer ?? 'all') };
+
+	// ---- Geraete
+	if (path === '/devices' && method === 'GET')
+		return { linkEnabled: true, max: 3, devices: deviceList(empty) };
+	if (path === '/devices/pair' && method === 'POST') {
+		const d: Device = {
+			id: crypto.randomUUID(),
+			label: String(body.label ?? 'Gerät'),
+			pairedAt: generatedAt,
+			expiresAt: null,
+			lastSeenAt: generatedAt,
+			stale: false,
+			lastActionAt: null,
+			env: 'production',
+			summary: { level: 'ok', code: 'ok' }
 		};
+		deviceList(false);
+		devices = [...(devices ?? []), d];
 		return d;
 	}
-
-	if (path === '/devices') {
-		const now = Date.now();
-		const dev: LinkedDevice = {
-			ref: 'd-7f3a',
-			name: 'Test-iPhone',
-			env: 'production',
-			channel: 'testflight',
-			linkedAt: new Date(now - 9 * 86400_000).toISOString(),
-			expiresAt: new Date(now + 21 * 86400_000).toISOString(),
-			lastSeenAt: new Date(now - 4 * 60_000).toISOString(),
-			diagnosis: [
-				{
-					id: 'token',
-					label: 'Geräte-Token gültig',
-					tone: 'ok',
-					detail: 'Zuletzt erneuert vor 2 Tagen.'
+	const dm = path.match(
+		/^\/devices\/([^/]+)(?:\/(diagnosis|events|commands|actions)(?:\/([^/]+))?)?$/
+	);
+	if (dm) {
+		const dev = deviceList(false).find((d) => d.id === dm[1]);
+		if (!dev) return undefined;
+		if (method === 'DELETE' && !dm[2]) {
+			devices = (devices ?? []).filter((d) => d.id !== dev.id);
+			return null;
+		}
+		if (!dm[2]) {
+			const detail: DeviceDetail = {
+				device: dev,
+				installation: {
+					env: dev.env,
+					locale: 'de',
+					ageDays: 12,
+					lastSeenAt: dev.lastSeenAt,
+					deviceToken: { present: true, ageDays: 2 },
+					startToken: { present: false, ageDays: null }
 				},
-				{
-					id: 'env',
-					label: 'Umgebung passt',
-					tone: 'ok',
-					detail: 'Installation: production, Server: production.'
+				subscriptions: [
+					{
+						index: 0,
+						kind: 'point',
+						enabled: true,
+						liveActivity: true,
+						thresholdClass: 5,
+						leadMinutes: 20,
+						timeSensitive: false,
+						lockUntil: iso(-19 * 60_000),
+						hysteresis: false
+					},
+					{
+						index: 1,
+						kind: 'circle',
+						enabled: true,
+						liveActivity: false,
+						thresholdClass: 8,
+						leadMinutes: 10,
+						timeSensitive: true,
+						lockUntil: null,
+						hysteresis: false
+					}
+				],
+				activity: {
+					state: 'active',
+					startedAt: iso(41 * 60_000),
+					endsAt: iso(-79 * 60_000),
+					tokenPresent: true
 				},
-				{
-					id: 'la-enabled',
-					label: 'Live Activity aktiviert',
-					tone: 'ok',
-					detail: 'Im Abo eingeschaltet.'
+				reservation: { open: false, ageSeconds: null }
+			};
+			return detail;
+		}
+		if (dm[2] === 'diagnosis') return diagnosis();
+		if (dm[2] === 'events') {
+			const ev: DeviceEvent[] = [
+				{ at: iso(3 * 60_000), kind: 'probe', outcome: 'skipped', reason: 'no_start_token' },
+				{ at: iso(41 * 60_000), kind: 'la_start', outcome: 'delivered', reason: null },
+				{ at: iso(3 * HOUR), kind: 'test', outcome: 'delivered', reason: null },
+				{ at: iso(26 * HOUR), kind: 'la_start', outcome: 'skipped', reason: 'no_start_token' },
+				{ at: iso(30 * HOUR), kind: 'alert', outcome: 'rejected', reason: 'Unregistered' }
+			];
+			return { events: ev };
+		}
+		if (dm[2] === 'actions' && method === 'POST') {
+			const id = crypto.randomUUID();
+			const kind = dm[3].replace('-', '_');
+			cmds.set(id, {
+				count: 0,
+				kind,
+				dryRun: dm[3] === 'reeval' ? body.dryRun !== false : null,
+				createdAt: generatedAt
+			});
+			return { commandId: id, kind, status: 'queued', createdAt: generatedAt };
+		}
+		if (dm[2] === 'commands' && dm[3]) {
+			const c = cmds.get(dm[3]);
+			if (!c) return undefined;
+			c.count++;
+			const done = c.count >= 2;
+			const result: Record<string, Record<string, unknown>> = {
+				test: { outcome: 'delivered', apnsStatus: 200, reason: null },
+				la_probe: { outcome: 'dropped', apnsStatus: null, reason: null, skipped: 'no_start_token' },
+				la_end: { outcome: 'delivered', hadActivity: true, reservationCleared: false },
+				reeval: {
+					dryRun: c.dryRun,
+					subscriptions: [{ index: 0, decision: 'below_threshold', sent: null }]
 				},
-				{
-					id: 'la-token',
-					label: 'Start-Token vorhanden',
-					tone: 'err',
-					detail:
-						'Es wurde noch kein Live-Activity-Start-Token gemeldet. Die App einmal im Vordergrund öffnen.'
-				},
-				{
-					id: 'slot',
-					label: 'Platz frei',
-					tone: 'warn',
-					detail: 'Eine Live Activity wurde vor 41 Minuten gestartet und läuft noch.'
-				}
-			],
-			events: [
-				{
-					at: new Date(now - 41 * 60_000).toISOString(),
-					kind: 'Live Activity gestartet',
-					tone: 'ok',
-					detail: 'Regen in 12 Minuten erwartet.'
-				},
-				{
-					at: new Date(now - 3 * HOUR).toISOString(),
-					kind: 'Testpush',
-					tone: 'ok',
-					detail: 'Von APNs angenommen.'
-				},
-				{
-					at: new Date(now - 26 * HOUR).toISOString(),
-					kind: 'Live Activity gestartet',
-					tone: 'err',
-					detail: 'Übersprungen: Start-Token fehlt.'
-				},
-				{
-					at: new Date(now - 9 * 86400_000).toISOString(),
-					kind: 'Gekoppelt',
-					tone: 'info',
-					detail: 'Kopplung über Code bestätigt.'
-				}
-			]
-		};
-		const list: DeviceList = { maxDevices: 3, devices: empty ? [] : [dev] };
-		return list;
-	}
-	const am = path.match(/^\/devices\/([^/]+)\/actions$/);
-	if (am && method === 'POST') {
-		const labels: Record<string, string> = {
-			'test-push': 'Testpush an APNs übergeben.',
-			'la-start': 'Live-Activity-Start angefordert.',
-			'la-end': 'Live Activity wird beendet.',
-			're-evaluate': 'Neuauswertung angestoßen.',
-			unlink: 'Kopplung widerrufen.'
-		};
-		return { ok: true, message: labels[String(body.action)] ?? 'Erledigt.' };
+				reset_slot: { cleared: 'none' }
+			};
+			const cmd: DeviceCommand = {
+				commandId: dm[3],
+				kind: c.kind,
+				status: done ? 'done' : 'running',
+				createdAt: c.createdAt,
+				startedAt: generatedAt,
+				finishedAt: done ? generatedAt : null,
+				dryRun: c.dryRun,
+				result: done ? (result[c.kind] ?? {}) : null,
+				error: null
+			};
+			return cmd;
+		}
 	}
 	return undefined;
 }

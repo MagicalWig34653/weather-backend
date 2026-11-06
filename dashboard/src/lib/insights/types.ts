@@ -1,165 +1,309 @@
 /**
- * Insights-Vertrag (Entwurf). Maßgeblich wird docs-site/content/dashboard-api.md (WP-V);
- * bis dahin beschreiben diese Typen plausible Formen. Aenderungen betreffen nur diese Datei,
- * insights/api.ts und insights/mock.ts. Keine IDs, Tokens oder Koordinaten: nur Zaehler und feste Etiketten.
+ * Insights-Vertrag: Formen aus docs-site/content/dashboard-api.md (eingefroren 6.11.2026, WP-V),
+ * Beispiele in docs/fixtures/dashboard/. Aufzaehlungen sind offen: Clients tolerieren unbekannte Werte
+ * (Anzeige "unbekannt"). Unbekannt/nicht erhoben ist immer null, nie 0.
  */
 import type { Range } from '#lib/design/context.svelte.js';
-import type { LayerStatus } from '#lib/api.js';
-
 export type { Range };
-export type Severity = 'ok' | 'info' | 'warn' | 'error';
+
+export type Level = 'ok' | 'warning' | 'critical' | 'unknown';
+export type Resolution = 'hour' | 'day';
+
+export interface Series {
+	resolution: Resolution;
+	points: { t: string; v: number | null }[];
+}
+export interface Bucket {
+	key: string;
+	count: number | null;
+	suppressed: boolean;
+}
+export interface Gauge {
+	used: number;
+	max: number;
+	ratio: number;
+}
+
+export interface Kpi {
+	value: number | null;
+	unit: 'count' | 'ratio' | 'seconds';
+	deltaPct: number | null;
+	level: Level;
+	series: Series | null;
+}
 
 export interface Finding {
-	id: string;
-	severity: Severity;
-	title: string;
-	detail: string;
-	/** ISO-8601; seit wann der Befund besteht. */
-	since: string;
-	/** Interne Zielseite fuer "Ansehen". */
-	href?: string;
-}
-
-/** Zeitreihe mit gemeinsamer Zeitachse: Eintrag i aller Felder gehoert zu t[i] (ISO-8601, UTC, Bucketanfang). */
-export interface Timeline {
-	t: string[];
-}
-
-export interface Trend {
+	code: string;
+	level: 'warning' | 'critical';
+	subject: string | null;
 	value: number;
-	/** Wert des Vorzeitraums; null wenn nicht vorhanden. */
-	previous: number | null;
-	series: number[];
+	threshold: number;
+	unit: 'ratio' | 'seconds' | 'count' | 'percent';
+	since: string | null;
 }
 
-export interface OverviewInsights extends Timeline {
+export interface OverviewInsights {
 	generatedAt: string;
-	lagSeconds: number;
-	findings: Finding[];
+	range: Range;
+	resolution: Resolution;
+	pushEnabled: boolean;
+	pushPaused: boolean;
+	status: { level: Level; findingCount: number };
 	kpis: {
-		requests: Trend;
-		cacheRatio: Trend;
-		pushDeliveryRatio: Trend;
-		activeActivities: Trend;
-		ingestAgeSeconds: { value: number; limit: number };
-		installations: Trend;
+		requests: Kpi;
+		cacheHitRatio: Kpi;
+		ingestAgeSeconds: Kpi;
+		pushDeliveryRatio: Kpi;
+		activeLiveActivities: Kpi;
 	};
-	layers: LayerStatus[];
+	notable: Finding[];
+	partial: string[];
 }
-
-export type RunStatus = 'ok' | 'error' | 'missed' | 'none';
 
 export interface OpsLayer {
 	id: string;
-	name: string;
-	status: 'ok' | 'stale' | 'missing';
-	lastRunAt: string | null;
-	delayP50Seconds: number | null;
-	delayP95Seconds: number | null;
-	/** Aeltester zuerst; ein Eintrag je erwarteter Ingest-Lauf im Zeitraum (hoechstens 96). */
-	runs: RunStatus[];
+	enabled: boolean;
+	hasData: boolean;
+	latestRun: string | null;
+	publishedAt: string | null;
+	ageSeconds: number | null;
+	cadenceSeconds: number;
+	level: Level;
+	runs: { slot: string; result: 'ok' | 'error' | 'missed' }[];
+	lag: { p50Seconds: number | null; p95Seconds: number | null; series: Series | null };
 }
 
-export interface Replica {
-	slot: number;
-	role: 'leader' | 'follower';
-	state: 'running' | 'waiting' | 'restarting';
-	uptimeSeconds: number;
-	generation: number;
-}
-
-export interface OpsInsights extends Timeline {
+export interface OpsInsights {
 	generatedAt: string;
+	range: Range;
+	resolution: Resolution;
+	partial: string[];
 	layers: OpsLayer[];
-	errors: { http5xx: number[]; ingest: number[] };
-	cache: { memory: number[]; joined: number[]; db: number[]; negative: number[]; miss: number[] };
-	latency: { p50: number; p95: number; p99: number; buckets: { label: string; count: number }[] };
-	replicas: Replica[];
-	restartPendingKeys: string[];
+	errors: {
+		status5xx: {
+			series: Series;
+			ratio1h: number | null;
+			byRoute: { route: string; count: number }[];
+		};
+		ingestErrors: Series;
+		statsDropped: number;
+	};
+	cache: {
+		hitRatio: number | null;
+		hitRatioRadar: number | null;
+		hitRatioLayer: number | null;
+		negativeShare: number | null;
+		joinedShare: number | null;
+		dbReads: number;
+		series: Series;
+		fill: {
+			bytes: number;
+			maxBytes: number;
+			entries: number;
+			evictions: number;
+			scope: string;
+		} | null;
+	};
+	latency:
+		| {
+				route: string;
+				buckets: { le: string; count: number }[];
+				p50Ms: number | null;
+				p95Ms: number | null;
+				p99Ms: number | null;
+		  }[]
+		| null;
+	replicas: {
+		id: string;
+		startedAt: string;
+		ageSeconds: number;
+		appliedGeneration: number;
+		revision: string | null;
+		level: Level;
+		isLeader: boolean;
+	}[];
+	generation: number;
+	leader: { holder: string | null; leaseSecondsLeft: number | null; changes24h: number };
+	db: { poolUsage: number | null; errors24h: number | null; migration: string | null } | null;
 }
 
-export interface TrafficRoute {
-	route: string;
-	requests: number;
-	bytes: number;
-	p95Ms: number;
-}
-
-export interface TrafficInsights extends Timeline {
+export interface TrafficInsights {
 	generatedAt: string;
-	requests: number[];
-	bytes: number[];
-	status: { '2xx': number[]; '3xx': number[]; '4xx': number[]; '5xx': number[] };
-	routes: TrafficRoute[];
-	rateLimited: { push: number; dashboard: number; other: number };
-	pageViews: number[];
-	/** Anfragen je Wochentag (Mo=0) und Stunde (UTC), normiert auf 0..1. */
-	pattern: number[][];
+	range: Range;
+	resolution: Resolution;
+	partial: string[];
+	requests: {
+		total: number;
+		series: Series;
+		notModifiedShare: number | null;
+		byRoute: { route: string; count: number; bytes: number }[];
+		byStatusClass: { class: string; count: number }[];
+	};
+	rateLimited: { kind: string; count: number }[];
+	pageViews: { page: string; count: number }[];
+	hourly: { cells: { date: string; hour: number; count: number }[] } | null;
 }
 
-export interface CountLabel {
-	key: string;
-	label: string;
-	count: number;
-}
-
-export interface PushInsights extends Timeline {
+export type PushTrigger = string;
+export interface PushInsights {
 	generatedAt: string;
-	paused: boolean;
-	funnel: CountLabel[];
-	skipped: CountLabel[];
-	apnsErrors: CountLabel[];
-	invalidated: CountLabel[];
-	delivery: { delivered: number[]; failed: number[] };
-	lifecycle: { started: number[]; updated: number[]; ended: number[] };
-	outbox: { pending: number; failed: number; oldestAgeSeconds: number | null };
-	checklist: { id: string; label: string; tone: 'ok' | 'warn' | 'err'; detail: string }[];
-}
-
-export interface DistributionGroup {
-	id: string;
-	title: string;
-	/** count null = unterdrueckt (Gruppe kleiner als minGroup). */
-	items: { label: string; count: number | null }[];
+	range: Range;
+	resolution: Resolution;
+	pushEnabled: boolean;
+	pushPaused: boolean;
+	partial: string[];
+	prerequisites: { key: string; ok: boolean; detail: string | null }[];
+	funnel: {
+		installations: {
+			total: number;
+			active1d: number;
+			active7d: number;
+			active30d: number;
+			byEnv: Bucket[];
+			byLocale: Bucket[];
+		};
+		tokens: { withDeviceToken: number; withStartToken: number; startTokenAge: Bucket[] };
+		subscriptions: {
+			total: number;
+			enabled: number;
+			liveActivity: number;
+			liveActivityWithStartToken: number;
+			inconsistent: number;
+		};
+	} | null;
+	triggers: { trigger: PushTrigger; count: number }[] | null;
+	skipped: { trigger: PushTrigger; reason: string; count: number }[] | null;
+	lifecycle: {
+		events: { event: string; outcome: string; count: number }[];
+		activeNow: number;
+		reservationsOpen: number;
+		reservationsExpired: number;
+	} | null;
+	locks: { activeLocks: number; activitySlots: Gauge } | null;
+	apnsErrors: { kind: string; reason: string; env: string; count: number }[] | null;
+	delivery: {
+		created: number;
+		sent: number;
+		delivered: number;
+		rejected: number;
+		dropped: number;
+		retry: number;
+		ratio: number | null;
+		avgAttempts: number | null;
+	} | null;
+	outbox: {
+		waiting: number;
+		oldestAgeSeconds: number | null;
+		retrying: number;
+		droppedOrExpired24h: number;
+	} | null;
+	tokenInvalidations: { kind: string; cause: string; count: number }[] | null;
+	timing: {
+		apnsSendMs: { le: string; count: number }[];
+		evalMsP95: number | null;
+		cellsChecked: number | null;
+		cellsMax: number;
+	} | null;
+	registrations: { created: Series; deleted: Series; retained7dRatio: number | null } | null;
+	rejects: { code: string; count: number }[] | null;
+	caps: { key: string; gauge: Gauge }[] | null;
 }
 
 export interface DistributionInsights {
 	generatedAt: string;
 	minGroup: number;
-	groups: DistributionGroup[];
-	fill: { label: string; ratio: number; note: string }[];
+	partial: string[];
+	subscriptionsPerInstallation: Bucket[];
+	regionsPerInstallation: Bucket[];
+	threshold: Bucket[];
+	lead: Bucket[];
+	locale: Bucket[];
+	env: Bucket[];
+	timeSensitiveShare: number | null;
+	liveActivityShare: number | null;
+	caps: { key: string; gauge: Gauge }[];
 }
 
-export interface DiagnosisItem {
+// ------------------------------------------------------------------ Geraete
+
+export interface Device {
 	id: string;
 	label: string;
-	tone: 'ok' | 'warn' | 'err';
-	detail: string;
+	pairedAt: string;
+	expiresAt: string | null;
+	lastSeenAt: string | null;
+	stale: boolean;
+	lastActionAt: string | null;
+	env: 'sandbox' | 'production';
+	summary: { level: Level; code: string };
 }
-
+export interface DeviceList {
+	linkEnabled: boolean;
+	max: number;
+	devices: Device[];
+}
+export interface DeviceDetail {
+	device: Device;
+	installation: {
+		env: string;
+		locale: string;
+		ageDays: number;
+		lastSeenAt: string | null;
+		deviceToken: { present: boolean; ageDays: number | null };
+		startToken: { present: boolean; ageDays: number | null };
+	};
+	subscriptions: {
+		index: number;
+		kind: string;
+		enabled: boolean;
+		liveActivity: boolean;
+		thresholdClass: number;
+		leadMinutes: number;
+		timeSensitive: boolean;
+		lockUntil: string | null;
+		hysteresis: boolean;
+	}[];
+	activity: {
+		state: string;
+		startedAt: string | null;
+		endsAt: string | null;
+		tokenPresent: boolean;
+	};
+	reservation: { open: boolean; ageSeconds: number | null };
+}
+export interface DiagnosisCheck {
+	order: number;
+	code: string;
+	level: Level;
+	reason: string;
+	params: Record<string, string | number | boolean | null>;
+}
+export interface Diagnosis {
+	generatedAt: string;
+	verdict: { code: string; level: Level } | null;
+	checks: DiagnosisCheck[];
+}
 export interface DeviceEvent {
 	at: string;
 	kind: string;
-	tone: 'ok' | 'warn' | 'err' | 'info';
-	detail: string;
+	outcome: string;
+	reason: string | null;
 }
-
-export type DeviceAction = 'test-push' | 'la-start' | 'la-end' | 're-evaluate' | 'unlink';
-
-export interface LinkedDevice {
-	/** Kurzer, nicht umkehrbarer Verweis (keine Installations-ID). */
-	ref: string;
-	name: string;
-	env: 'sandbox' | 'production';
-	channel: 'testflight' | 'appstore' | 'debug' | 'unknown';
-	linkedAt: string;
-	expiresAt: string;
-	lastSeenAt: string | null;
-	diagnosis: DiagnosisItem[];
+export type DeviceAction = 'test' | 'la-probe' | 'la-end' | 'reeval' | 'reset-slot';
+export interface DeviceCommand {
+	commandId: string;
+	kind: string;
+	status: 'queued' | 'running' | 'done' | 'failed' | 'expired';
+	createdAt: string;
+	startedAt: string | null;
+	finishedAt: string | null;
+	dryRun: boolean | null;
+	result: Record<string, unknown> | null;
+	error: string | null;
+}
+/** Alles, was die Geraeteseite je Geraet braucht (vier Abrufe gebuendelt). */
+export interface DeviceBundle {
+	detail: DeviceDetail;
+	diagnosis: Diagnosis;
 	events: DeviceEvent[];
-}
-
-export interface DeviceList {
-	maxDevices: number;
-	devices: LinkedDevice[];
 }
