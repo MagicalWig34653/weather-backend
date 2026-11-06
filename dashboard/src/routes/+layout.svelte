@@ -1,6 +1,5 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '#lib/assets/favicon.svg';
 	import { onMount } from 'svelte';
 	import { session } from '#lib/session.svelte.js';
 	import { theme } from '#lib/theme.svelte.js';
@@ -18,7 +17,6 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
 	<title>Showers Betrieb</title>
 </svelte:head>
 
