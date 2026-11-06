@@ -466,8 +466,8 @@ struct DashboardAuthTests {
         limits.recordFailure(now: now.addingTimeInterval(5)) // 5th: 10 s
         #expect(throws: DashboardAuthError.rateLimited(10)) { try limits.checkNotBlocked(now: now.addingTimeInterval(5)) }
         var t = now.addingTimeInterval(15)
-        for _ in 0..<10 { limits.recordFailure(now: t); t = t.addingTimeInterval(1) } // capped at 5 minutes
-        #expect(throws: DashboardAuthError.rateLimited(300)) { try limits.checkNotBlocked(now: t.addingTimeInterval(-1)) }
+        for _ in 0..<10 { limits.recordFailure(now: t); t = t.addingTimeInterval(1) } // capped at 60 s
+        #expect(throws: DashboardAuthError.rateLimited(60)) { try limits.checkNotBlocked(now: t.addingTimeInterval(-1)) }
         limits.recordSuccess()
         try limits.checkNotBlocked(now: t)
         #expect(limits.failureCount == 0)
@@ -477,16 +477,56 @@ struct DashboardAuthTests {
         #expect(limits.failureCount == 1)
     }
 
-    @Test(arguments: RepoKind.allCases) func failedLoginsBlockTemporarily(kind: RepoKind) async throws {
+    /// M1 (security review 6 Nov 2026): anonymous failures must never lock the operator out. A wrong signature cannot become a
+    /// right one (P-256, single-use challenge), so a failure delay protects nothing on login but would be a lockout lever.
+    @Test(arguments: RepoKind.allCases) func failedLoginsNeverBlockTheOperator(kind: RepoKind) async throws {
         let h = Harness(repo: try await kind.make(), scale: 100)
         let device = FakeAuthenticator()
         _ = try await h.register(device)
-        for _ in 0..<4 { await expectError(401) { _ = try await h.login(device, signCount: 1, signWith: P256.Signing.PrivateKey()) } }
-        await expectError(429) { _ = try await h.auth.beginLogin() }
-        do { _ = try await h.auth.beginLogin() } catch let e as DashboardAuthError { #expect(e.retryAfter == 5) }
-        h.advance(6)
-        _ = try await h.login(device, signCount: 1) // success resets
+        for _ in 0..<12 { await expectError(401) { _ = try await h.login(device, signCount: 1, signWith: P256.Signing.PrivateKey()) } }
+        _ = try await h.login(device, signCount: 1) // immediately, no 429
         #expect(h.limits.failureCount == 0)
+    }
+
+    /// PoC of the review: one failed attempt per 301 s kept the operator locked out for good.
+    @Test(arguments: RepoKind.allCases) func periodicAttackerAttemptsDoNotLockOutLogin(kind: RepoKind) async throws {
+        let h = Harness(repo: try await kind.make(), scale: 100)
+        let device = FakeAuthenticator()
+        _ = try await h.register(device)
+        var count: UInt32 = 0
+        for _ in 0..<12 {
+            await expectError(401) { _ = try await h.login(device, signCount: 1, signWith: P256.Signing.PrivateKey()) }
+            await expectError(401) { _ = try await h.auth.finishLogin(body: device.assertion(challengeID: b64(Array(repeating: 7, count: 16)), challenge: b64(Array(repeating: 1, count: 32)), signCount: 1)) }
+            h.advance(120)
+            count += 1
+            _ = try await h.login(device, signCount: count)
+            h.advance(181)
+        }
+    }
+
+    @Test(arguments: RepoKind.allCases) func unknownChallengesAreNotCountedAsFailures(kind: RepoKind) async throws {
+        let h = Harness(repo: try await kind.make(), scale: 100)
+        let device = FakeAuthenticator()
+        _ = try await h.register(device)
+        for _ in 0..<20 {
+            await expectError(401) { _ = try await h.auth.finishLogin(body: device.assertion(challengeID: b64(Array(repeating: 9, count: 16)), challenge: b64(Array(repeating: 1, count: 32)), signCount: 1)) }
+        }
+        #expect(h.limits.failureCount == 0)
+        _ = try await h.login(device, signCount: 1)
+    }
+
+    /// Setup (no passkey yet) keeps the capped failure delay, but unknown challenges do not trigger it.
+    @Test(arguments: RepoKind.allCases) func failedSetupsBlockBrieflyAndCap(kind: RepoKind) async throws {
+        let h = Harness(repo: try await kind.make(), scale: 100)
+        let device = FakeAuthenticator()
+        for _ in 0..<4 {
+            let begin = try await h.auth.beginSetup()
+            await expectError(401) { _ = try await h.auth.finishSetup(body: device.registration(challengeID: begin.challengeId, challenge: begin.options.challenge, origin: "https://evil.example.test")) }
+        }
+        await expectError(429) { _ = try await h.auth.beginSetup() }
+        do { _ = try await h.auth.beginSetup() } catch let e as DashboardAuthError { #expect(e.retryAfter == 5) }
+        h.advance(6)
+        _ = try await h.register(device)
     }
 
     @Test(arguments: RepoKind.allCases) func endpointLimitsAreGlobal(kind: RepoKind) async throws {

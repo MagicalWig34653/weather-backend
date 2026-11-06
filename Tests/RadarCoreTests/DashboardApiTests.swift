@@ -63,6 +63,13 @@ struct DashboardApiTests {
         #expect(session.response.headers.contains { $0.0 == "Cache-Control" && $0.1 == "no-store" })
     }
 
+    /// M1: anonymous GET /session must not exhaust the bucket of the authenticated routes.
+    @Test func anonymousSessionPollsDoNotStarveAuthenticatedRoutes() async throws {
+        let h = try await Harness()
+        for _ in 0..<650 { _ = await h.call("GET", "/dash/api/session", session: false) }
+        #expect(await h.call("GET", "/dash/api/config").status == 200)
+    }
+
     @Test func configRoundTripAndAudit() async throws {
         let h = try await Harness(env: ["HISTORY_HOURS": "10"])
         let list = await h.call("GET", "/dash/api/config")

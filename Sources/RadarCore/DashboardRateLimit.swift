@@ -2,7 +2,9 @@ import Foundation
 
 /// Rate limits for the dashboard (docs/dashboard-plan.md 2.7). No IPs and no per-client keys: all counters are global per replica
 /// (in memory, via the existing `RateLimiter`). A passkey cannot be guessed; the limits bound CPU and database load.
-/// Known downside: an internal attacker can lock the operator out for a short time.
+/// The failure delay (`recordFailure`) applies to setup only. On login a wrong signature cannot become a right one (P-256,
+/// single-use challenge), so a delay would protect nothing but let an anonymous caller lock the operator out (review 6 Nov 2026, M1).
+/// Unknown challenge IDs are not failures; they have their own bucket (`challengeProbe`), and `GET /session` has its own (`session`).
 public final class DashboardRateLimits: @unchecked Sendable {
     public enum Bucket: String, CaseIterable, Sendable {
         case setupBegin = "global:dash:setup-begin"
@@ -12,6 +14,8 @@ public final class DashboardRateLimits: @unchecked Sendable {
         case configWrite = "global:dash:config-write"
         case restart = "global:dash:restart"
         case other = "global:dash:other"
+        case session = "global:dash:session"
+        case challengeProbe = "global:dash:challenge-probe"
 
         /// Allowed calls per minute.
         public var perMinute: Int {
@@ -20,7 +24,8 @@ public final class DashboardRateLimits: @unchecked Sendable {
             case .setupFinish, .loginFinish: return 5
             case .configWrite: return 30
             case .restart: return 2
-            case .other: return 600
+            case .other, .session: return 600
+            case .challengeProbe: return 120
             }
         }
     }
@@ -28,7 +33,7 @@ public final class DashboardRateLimits: @unchecked Sendable {
     /// Failures before the first delay.
     static let freeFailures = 3
     static let baseDelay: TimeInterval = 5
-    static let maxDelay: TimeInterval = 300
+    static let maxDelay: TimeInterval = 60
     /// Failures are forgotten after this long without a new one.
     static let forgetAfter: TimeInterval = 900
 
@@ -57,7 +62,7 @@ public final class DashboardRateLimits: @unchecked Sendable {
         if let until, now < until { throw DashboardAuthError.rateLimited(max(1, Int(until.timeIntervalSince(now).rounded(.up)))) }
     }
 
-    /// A failed setup or login attempt: after `freeFailures` failures, each further one doubles the delay (5 s, 10 s, ... 5 min).
+    /// A failed setup or login attempt: after `freeFailures` failures, each further one doubles the delay (5 s, 10 s, ... 60 s).
     public func recordFailure(now: Date) {
         lock.withLock {
             if let last = lastFailure, now.timeIntervalSince(last) > Self.forgetAfter { failures = 0 }

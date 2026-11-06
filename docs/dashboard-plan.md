@@ -96,7 +96,7 @@ Dreifach: (1) `SameSite=Strict`; (2) alle Schreibzugriffe nur mit `Content-Type:
 
 ### 2.7 Rate-Limits
 
-Wiederverwendung der vorhandenen Klasse `RateLimiter` (`PushApi.swift`), Schlüssel ohne IP: Schlüssel je Endpunkt (`global:`-Schlüssel, nie verdrängt). Vorschlag: `login/begin` 30 pro Minute, `login/finish` 30 pro Minute und zusätzlich 10 Fehlversuche pro Minute (danach 429 für diese Minute), `setup/*` 10 pro Minute, Schreibzugriffe auf Konfiguration 30 pro Minute, alle anderen Routen 600 pro Minute. Bei einem Dashboard-Replikat sind die Grenzen exakt; bei mehreren Prozessen gilt je Prozess. Ein Passkey-Login lässt sich nicht per Raten brechen; die Limits begrenzen CPU und DB-Last. Nachteil ohne IP: ein interner Angreifer kann den Betreiber für eine Minute aussperren (siehe Risiken).
+Wiederverwendung der vorhandenen Klasse `RateLimiter` (`PushApi.swift`), Schlüssel ohne IP: Schlüssel je Endpunkt (`global:`-Schlüssel, nie verdrängt). Vorschlag: `login/begin` 30 pro Minute, `login/finish` 30 pro Minute und zusätzlich 10 Fehlversuche pro Minute (danach 429 für diese Minute), `setup/*` 10 pro Minute, Schreibzugriffe auf Konfiguration 30 pro Minute, alle anderen Routen 600 pro Minute. Bei einem Dashboard-Replikat sind die Grenzen exakt; bei mehreren Prozessen gilt je Prozess. Ein Passkey-Login lässt sich nicht per Raten brechen; die Limits begrenzen CPU und DB-Last. Nachtrag 6.11.2026 (Review M1): Fehlversuche sperren den Login nicht mehr (eine falsche Signatur wird nie richtig; ein globaler Zähler wäre nur ein Aussperr-Hebel). Unbekannte Challenge-IDs zählen nicht als Fehlversuch (eigener Eimer 120/min), `GET session` hat einen eigenen Eimer (600/min), die Fehlversuch-Verzögerung (5 bis 60 s) gilt nur für die Ersteinrichtung. Rest: ein interner Angreifer kann den Eimer `login/begin` (10/min) füllen und so den Login kurz verzögern.
 
 ### 2.8 Logging
 
@@ -242,7 +242,7 @@ Vertrauen: nur Betreiber mit Passkey; Netz „intern“ ist nicht vertrauenswür
 | Bedrohung | Gegenmaßnahme |
 |---|---|
 | Erstregistrierung ohne Token durch Fremde | Abschnitt 2.4: nur ohne Credential, nur intern, Zeitfenster, Rate-Limit, Log, atomar, `dashboard-reset`; Restrisiko dokumentiert |
-| Brute-Force/Flooding | Passkey nicht ratbar; Rate-Limits, Challenge-Einmalverwendung, Zähler-Prüfung; Aussperrung des Betreibers für eine Minute als bekannte Folge |
+| Brute-Force/Flooding | Passkey nicht ratbar; Rate-Limits, Challenge-Einmalverwendung, Zähler-Prüfung; Login-Fehlversuche sperren nicht (Review M1); Rest: Eimer `login/begin` kann kurz gefüllt werden |
 | Sitzungsdiebstahl | `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`, nur Hash in DB, Leerlauf- und Absolut-Timeout, Abmeldung |
 | XSS | Svelte-Escaping, kein `{@html}`, strikte CSP, `nosniff`, keine Inline-Skripte außer Hash; Betreibertexte im Dashboard nur als Text |
 | Gespeichertes XSS über Betreibertexte auf öffentlichen Seiten | Prüfen, dass `SitePages` alle `OPERATOR_*`-Werte HTML-escaped (Test); URLs nur `https` mit Host-Liste |

@@ -77,7 +77,7 @@ public final class DashboardApi: Sendable {
         // Public routes (no session yet).
         switch (m, sub) {
         case ("GET", "/session"):
-            try auth.limits.check(.other, now: now)
+            try auth.limits.check(.session, now: now)
             return Self.json(200, try await auth.sessionState(cookieHeader: req.info.cookieHeader))
         case ("POST", "/setup/begin"):
             try sessions.checkWriteOrigin(req.info)

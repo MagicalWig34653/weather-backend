@@ -188,7 +188,6 @@ public final class DashboardAuth: Sendable {
 
     public func beginLogin() async throws -> DashboardBeginResponse<DashboardRequestOptions> {
         let now = clock()
-        try limits.checkNotBlocked(now: now)
         try limits.check(.loginBegin, now: now)
         guard let credential = try await repo.credential() else { throw DashboardAuthError.conflict }
         let (id, challenge) = try await newChallenge(.login, now: now)
@@ -202,12 +201,10 @@ public final class DashboardAuth: Sendable {
 
     public func finishLogin(body: [UInt8]) async throws -> DashboardLoginResult {
         let now = clock()
-        try limits.checkNotBlocked(now: now)
-        try limits.check(.loginFinish, now: now)
         let parsed: LoginBody = try decode(body)
         let challenge = try await consume(parsed.challengeId, kind: .login, now: now)
         guard let stored = try await repo.credential(), stored.credentialID == parsed.credential.rawID,
-              stored.signCount >= 0, stored.signCount <= Int(UInt32.max) else { try fail(now) }
+              stored.signCount >= 0, stored.signCount <= Int(UInt32.max) else { try failNoCount(now) }
         let verified: VerifiedAuthentication
         do {
             verified = try manager.finishAuthentication(
@@ -217,12 +214,12 @@ public final class DashboardAuth: Sendable {
             // Counter did not increase: cloned authenticator or replay. Reject and audit (no secrets).
             try? await repo.appendAudit(action: .login, key: nil, oldValue: nil, newValue: "abgelehnt: Zähler nicht gestiegen", now: now)
             log("Dashboard-Anmeldung abgelehnt: Signaturzähler nicht gestiegen (möglicher Klon)")
-            try fail(now)
+            try failNoCount(now)
         } catch {
-            try fail(now)
+            try failNoCount(now)
         }
         guard try await repo.updateCredentialUse(credentialID: stored.credentialID, signCount: Int(verified.newSignCount), now: now) else {
-            try fail(now)
+            try failNoCount(now)
         }
         try await repo.appendAudit(action: .login, key: nil, oldValue: nil, newValue: "erfolgreich", now: now)
         log("Dashboard-Anmeldung erfolgreich")
@@ -260,14 +257,21 @@ public final class DashboardAuth: Sendable {
         return (id, challenge)
     }
 
-    /// One-time use; unknown, expired, used or foreign IDs count as failed attempts.
+    /// One-time use; unknown, expired, used or foreign IDs are refused (401) but are no failed attempts: anyone can send them,
+    /// so they only count against the separate `challengeProbe` bucket. Wrong signatures on setup keep the capped failure delay (login has none).
     private func consume(_ challengeID: String, kind: DashboardChallengeKind, now: Date) async throws -> [UInt8] {
+        try limits.check(.challengeProbe, now: now)
         guard let id = DashboardBase64URL.decode(challengeID), id.count == 16,
               let challenge = try await repo.consumeChallenge(id: id, kind: kind, now: now) else {
-            limits.recordFailure(now: now)
             throw DashboardAuthError.unauthorized
         }
         return challenge
+    }
+
+    /// Login failure: logged, but never delays the next login (see `DashboardRateLimits`).
+    private func failNoCount(_ now: Date) throws -> Never {
+        log("Dashboard-Anmeldung fehlgeschlagen")
+        throw DashboardAuthError.unauthorized
     }
 
     private func fail(_ now: Date) throws -> Never {
