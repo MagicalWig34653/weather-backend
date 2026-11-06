@@ -138,7 +138,7 @@ Status: **eingefroren**. Änderungen nur additiv (neue optionale Felder, neue Au
 
 Abfrage-Parameter `range` (alle Insights-Routen außer `findings`): `24h` (Standard), `72h`, `7d`, `30d`; sonst `400 validation`. `24h` und `72h` liefern Stundenreihen (`resolution: "hour"`, aus `stats_hourly`, Aufbewahrung 72 h), `7d` und `30d` Tagesreihen (`resolution: "day"`, aus `stats_daily`, 30 Tage). Metriken ohne Stundenreihe liefern bei `24h`/`72h` Tagesreihen mit `resolution: "day"` je Serie; jede `Series` trägt ihre eigene `resolution`.
 
-**k-Unterdrückung:** Jede Gruppe mit weniger als `DASH_MIN_GROUP` Einträgen (Standard 5, Grenzen 3 bis 50) wird als `{"count":null,"suppressed":true}` ausgegeben. Wird in einer Aufteilung genau ein Eintrag unterdrückt, wird zusätzlich der kleinste nicht unterdrückte Eintrag unterdrückt (Komplementärunterdrückung). Betrifft nur Verteilungen und Trichter-Aufteilungen nach Umgebung/Sprache, nicht Betriebszähler (Anfragen, Cache usw.).
+**k-Unterdrückung:** Jede Gruppe mit weniger als `DASH_MIN_GROUP` Einträgen (Standard 5, Grenzen 3 bis 50) wird als `{"count":null,"suppressed":true}` ausgegeben. Wird in einer Aufteilung genau ein Eintrag unterdrückt, wird zusätzlich der kleinste nicht unterdrückte Eintrag unterdrückt (Komplementärunterdrückung). Betrifft nur Verteilungen und Trichter-Aufteilungen nach Umgebung/Sprache sowie daraus abgeleitete Anteile (siehe unten), nicht Betriebszähler (Anfragen, Cache usw.). Die Trichter-Summen (`installations.total/active*`, `tokens.with*`, `subscriptions.*`) sind Betriebszähler im Sinn dieser Regel und bleiben exakte Ganzzahlen (Vertragstyp `int`); sie nennen nur Summen, keine Merkmale einer einzelnen Installation.
 
 **Teilausfall:** Fällt ein Abschnitt aus (z. B. Gauge-Abfrage), antwortet die Route trotzdem `200`, der Abschnitt ist `null` und sein Schlüssel steht in `partial: ["cache"]`. `503 data_unavailable` nur, wenn gar nichts berechnet werden kann.
 
@@ -263,7 +263,7 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
   caps: [ { key, gauge: Gauge } ] }
 ```
 
-Keine Geografie. Anteile `null`, wenn die Grundmenge kleiner als `minGroup` ist.
+Keine Geografie. Anteile `null`, wenn die Grundmenge kleiner als `minGroup` ist oder der Teil bzw. der Rest (Grundmenge minus Teil) zwischen 1 und `minGroup - 1` liegt (sonst würde der Anteil eine Kleinstzahl verraten).
 
 ## Aktionen (global)
 

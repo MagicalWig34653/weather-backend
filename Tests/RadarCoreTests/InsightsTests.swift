@@ -271,7 +271,13 @@ struct InsightsBehaviourTests {
 
     @Test func sharesNeedMinGroup() {
         #expect(InsightsSuppression.share(1, of: 4, k: 5) == .null)
-        #expect(InsightsSuppression.share(1, of: 5, k: 5) == .ratio(0.2))
+        // N2 (review 6 Nov 2026): neither the part nor the rest may be a small number, otherwise the ratio reveals it.
+        #expect(InsightsSuppression.share(1, of: 5, k: 5) == .null)      // 1 of 5 = 0.2 would show a single subscription
+        #expect(InsightsSuppression.share(1, of: 40, k: 5) == .null)
+        #expect(InsightsSuppression.share(38, of: 40, k: 5) == .null)    // rest = 2
+        #expect(InsightsSuppression.share(5, of: 10, k: 5) == .ratio(0.5))
+        #expect(InsightsSuppression.share(0, of: 10, k: 5) == .ratio(0))
+        #expect(InsightsSuppression.share(10, of: 10, k: 5) == .ratio(1))
     }
 
     @Test func distributionAppliesMinGroupFromThresholds() async throws {
@@ -282,6 +288,10 @@ struct InsightsBehaviourTests {
         let lead = d["lead"] as? [[String: Any]] ?? []
         #expect(lead.map { $0["suppressed"] as? Bool } == [true, false, true])   // 22 and 32 < 50
         // Small base: shares are not published.
+        // A single live-activity subscription among 40 must not be readable from the share (N2).
+        var one = FakeSource(); var og = InsightsPushGauges(); og.installationsTotal = 40; og.subscriptionsTotal = 40; og.subscriptionsLiveActivity = 1; og.subscriptionsTimeSensitive = 39; one.gauges = og
+        let o = try await engine(one).distribution()
+        #expect(o["liveActivityShare"] is NSNull && o["timeSensitiveShare"] is NSNull)
         var tiny = FakeSource(); var g = InsightsPushGauges(); g.installationsTotal = 3; g.subscriptionsTotal = 3; g.subscriptionsLiveActivity = 1; tiny.gauges = g
         let t = try await engine(tiny).distribution()
         #expect(t["liveActivityShare"] is NSNull && t["timeSensitiveShare"] is NSNull)

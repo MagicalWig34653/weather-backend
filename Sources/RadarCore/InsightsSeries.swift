@@ -103,6 +103,11 @@ enum InsightsSuppression {
         buckets(keys.map { ($0, counts[$0] ?? 0) }, k: k)
     }
 
-    /// A share is only published when its base reaches `k`.
-    static func share(_ part: Int, of base: Int, k: Int) -> IJ { base >= k ? .ratio(Double(part) / Double(base)) : .null }
+    /// A share is only published when the base reaches `k` and neither the part nor the rest is a number below `k` (0 is fine):
+    /// otherwise the ratio itself reveals a small count (1 of 40 = 0.025) or, through the rest, the complementary one.
+    static func share(_ part: Int, of base: Int, k: Int) -> IJ {
+        let rest = base - part
+        guard base >= k, part >= 0, rest >= 0, part == 0 || part >= k, rest == 0 || rest >= k else { return .null }
+        return .ratio(Double(part) / Double(base))
+    }
 }
