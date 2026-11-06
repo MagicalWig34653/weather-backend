@@ -24,3 +24,7 @@ cd docs-site && npm ci && node build.mjs   # Ausgabe: docs-site/dist
 ## Prüfungen vor Änderungen
 
 Lokal bauen, interne Links prüfen, keine privaten Pfade, echten Domains, IPs, Hostnamen oder Tokens in `docs-site/` (Suche vor dem Commit).
+
+## Landingpage: Recherche und Quellen (6.11.2026)
+
+Gestaltungsleitlinien (Typografie, Token-Farbsystem, Abstände, Dark Mode, Reduced Motion) aus dem Design-Skill; Anregungen (nicht kopiert, kein Code übernommen) aus MIT-lizenzierten Vorlagen: sandoche/Mobile-app-landingpage-template (MIT), bohd4nx/app-landing (MIT), xu42/simple-app-landing-page-template (MIT); Lizenz der ersten beiden per GitHub-API geprüft. Allgemeine Hinweise (Hero mit Gerätemockup, stärkster Screenshot zuerst, Alt-Texte) aus Websuche; die Quellen sind teils schwach, daher nur als Anregung. Umsetzung ist Eigenbau: Systemschrift, CSS-Geräterahmen, keine Fremdschriften oder Bibliotheken, daher keine Namensnennung nötig. Prüfung: Playwright 360/768/1280/1920 px, hell/dunkel, DE/EN, axe-core ohne Verstöße, kein horizontaler Überlauf. Lighthouse nicht ausgeführt.

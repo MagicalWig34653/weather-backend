@@ -18,7 +18,12 @@ private func references(_ html: String) -> [String] {
         var rest = Substring(html)
         while let r = rest.range(of: attr) {
             rest = rest[r.upperBound...]
-            if let end = rest.firstIndex(of: "\"") { out.append(String(rest[..<end])) }
+            guard let end = rest.firstIndex(of: "\"") else { continue }
+            let value = String(rest[..<end])
+            if attr == "srcset=\"" {
+                // "url 320w, url 640w" -> urls
+                out += value.split(separator: ",").compactMap { $0.split(separator: " ").first.map(String.init) }
+            } else { out.append(value) }
         }
     }
     return out
@@ -56,10 +61,13 @@ struct LandingPageTests {
             #expect(!t.lowercased().contains("showernow"), "\(path)")
             #expect(!t.contains("<script") && !t.contains("<iframe") && !t.contains("@import") && !t.contains("url("), "\(path)")
             #expect(!t.contains("src=\"http") && !t.contains("srcset=\"http"), "\(path)")
+            // The Open Graph image is the only absolute self reference (content attribute, not fetched by the page).
             for ref in references(t) where ref.hasPrefix("http") || ref.hasPrefix("//") {
                 #expect(allowed.contains(ref), "unexpected external reference \(ref) on \(path)")
             }
-            #expect(!t.contains("og:image"))
+            #expect(t.contains("property=\"og:image\" content=\"https://showers.linolaske.de/assets/og."))
+            #expect(t.contains("twitter:card\" content=\"summary_large_image\""))
+            #expect(t.contains("rel=\"apple-touch-icon\" href=\"/assets/apple-touch-icon."))
         }
         let css = text(try await api().handle(path: LandingPage.css.path, ifNoneMatch: nil))
         #expect(!css.contains("http") && !css.contains("@import") && !css.contains("url("))
@@ -73,9 +81,9 @@ struct LandingPageTests {
             #expect(hdr(r, "X-Content-Type-Options") == "nosniff" && hdr(r, "Referrer-Policy") == "no-referrer")
             #expect(hdr(r, "X-Frame-Options") == "DENY" && hdr(r, "Cache-Control") == "public, max-age=300")
             #expect(hdr(r, "Set-Cookie") == nil)
-            #expect(r.body.count < 40_000 && !r.body.isEmpty)
+            #expect(r.body.count < 24_000 && !r.body.isEmpty)
         }
-        #expect(LandingPage.css.body.count < 12_000)
+        #expect(LandingPage.css.body.count < 16_000)
     }
 
     @Test func everyReferencedAssetIsServedWithLongCache() async throws {
@@ -85,14 +93,22 @@ struct LandingPageTests {
             let t = text(try await a.handle(path: path, ifNoneMatch: nil))
             for ref in references(t) where ref.hasPrefix("/assets/") { seen.insert(ref) }
         }
-        #expect(seen.count == LandingPage.assets.count)
+        // The Open Graph image is referenced by an absolute URL only; every other asset is referenced by path.
+        #expect(seen.count == LandingPage.assets.count - 1)
+        #expect(!seen.contains(LandingPage.og.path))
+        #expect(try await a.handle(path: LandingPage.og.path, ifNoneMatch: nil).status == 200)
         for ref in seen {
             let r = try await a.handle(path: ref, ifNoneMatch: nil)
             #expect(r.status == 200, "\(ref)")
             #expect(hdr(r, "Cache-Control") == "public, max-age=31536000, immutable")
             #expect(hdr(r, "X-Content-Type-Options") == "nosniff")
             let type = try #require(hdr(r, "Content-Type"))
-            if ref.hasSuffix(".css") { #expect(type == "text/css; charset=utf-8") } else {
+            if ref.hasSuffix(".css") { #expect(type == "text/css; charset=utf-8") }
+            else if ref.hasSuffix(".png") {
+                #expect(type == "image/png" && r.body.starts(with: [0x89, 0x50, 0x4E, 0x47]) && r.body.count <= 20_000, "\(ref)")
+            } else if ref.hasSuffix(".jpg") {
+                #expect(type == "image/jpeg" && r.body.starts(with: [0xFF, 0xD8]) && r.body.count <= 80_000, "\(ref) \(r.body.count)")
+            } else {
                 #expect(type == "image/webp")
                 #expect(r.body.starts(with: Array("RIFF".utf8)) && r.body[8..<12].elementsEqual(Array("WEBP".utf8)), "\(ref)")
                 let limit = ref.contains("/icon.") ? 60_000 : 90_000
@@ -105,6 +121,43 @@ struct LandingPageTests {
         // A wrong hash is not served.
         #expect(try await a.handle(path: "/assets/icon.0000000000.webp", ifNoneMatch: nil).status == 404)
         #expect(try await a.handle(path: "/assets/", ifNoneMatch: nil).status == 404)
+    }
+
+    /// Page weight budget: HTML plus the assets a first view loads (hero images eager, CSS, icon) stays small.
+    @Test func firstViewWeightBudget() async throws {
+        let a = api()
+        let r = try await a.handle(path: "/", ifNoneMatch: nil)
+        let html = text(r)
+        var total = r.body.count + LandingPage.css.body.count + LandingPage.icon.body.count
+        // Eager images: the four hero variants of one colour scheme at 2x (640 px) are the worst case.
+        total += LandingPage.radarLight.body.count + LandingPage.placesLight.body.count
+        #expect(total < 600_000, "first view \(total) bytes")
+        let everything = LandingPage.assets.reduce(r.body.count) { $0 + $1.body.count }
+        #expect(everything < 600_000, "all assets \(everything) bytes")
+        #expect(html.components(separatedBy: "loading=\"lazy\"").count > 4)
+        #expect(html.contains("fetchpriority=\"high\"") && html.contains("srcset=") && html.contains("sizes="))
+    }
+
+    @Test func contentSections() async throws {
+        let de = text(try await api().handle(path: "/", ifNoneMatch: nil))
+        for needle in ["Radar mit Zeitleiste", "Wolken als Ebene", "Deine Orte und Regenhinweise", "Regen beginnt in 12 min", "Beispiel für einen Regenhinweis",
+                       "Widgets und Apple Watch", "Live Activity", "Keine Standortverläufe", "Ohne Werbung", "EUMETSAT", "Deutscher Wetterdienst"] {
+            #expect(de.contains(needle), "\(needle)")
+        }
+        let en = text(try await api().handle(path: "/en", ifNoneMatch: nil))
+        for needle in ["Radar with timeline", "Clouds as a layer", "Rain starts in 12 min", "No location history", "No ads", "EUMETSAT"] {
+            #expect(en.contains(needle), "\(needle)")
+        }
+        // Every image has an alt attribute; decorative ones use an empty one.
+        for t in [de, en] {
+            var rest = Substring(t)
+            while let r = rest.range(of: "<img ") {
+                rest = rest[r.upperBound...]
+                let tag = rest[..<(rest.firstIndex(of: ">") ?? rest.endIndex)]
+                #expect(tag.contains(" alt=\""), "\(tag)")
+                #expect(tag.contains("width=\"") && tag.contains("height=\""), "\(tag)")
+            }
+        }
     }
 
     @Test func pageEtagAndNotModified() async throws {
