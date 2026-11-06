@@ -1,5 +1,11 @@
 {
   "linkEnabled": false,
   "max": 3,
-  "devices": []
+  "devices": [],
+  "pairing": {
+    "open": false,
+    "endsAt": null,
+    "defaultMinutes": 5,
+    "maxMinutes": 15
+  }
 }

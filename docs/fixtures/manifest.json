@@ -6,21 +6,21 @@
       "path": "/v1/push/installations/{installationId}/link-code",
       "status": 201,
       "file": "app/link-code.201.json",
-      "description": "Koppelcode erzeugt (Body {app_transaction})."
+      "description": "Koppelcode erzeugt (Body {}; nur im offenen Kopplungsfenster)."
     },
     {
       "method": "POST",
       "path": "/v1/push/installations/{installationId}/link-code",
       "status": null,
       "file": "app/link-code.request.json",
-      "description": "Beispiel-Request-Body (JWS gekuerzt, erfunden)."
+      "description": "Request-Body: leeres Objekt (app_transaction wird ignoriert, nur bei DEVICE_LINK_REQUIRE_TESTFLIGHT=true Pflicht)."
     },
     {
       "method": "POST",
       "path": "/v1/push/installations/{installationId}/link-code",
       "status": 400,
       "file": "app/link-code.400-invalid_request.json",
-      "description": "Body ohne app_transaction"
+      "description": "Body kein JSON-Objekt (bzw. bei DEVICE_LINK_REQUIRE_TESTFLIGHT=true ohne app_transaction)"
     },
     {
       "method": "POST",
@@ -34,7 +34,7 @@
       "path": "/v1/push/installations/{installationId}/link-code",
       "status": 403,
       "file": "app/link-code.403-not_testflight.json",
-      "description": "Nachweis ungueltig oder Production"
+      "description": "Nur bei DEVICE_LINK_REQUIRE_TESTFLIGHT=true: Nachweis ungueltig oder Production"
     },
     {
       "method": "POST",
@@ -69,7 +69,7 @@
       "path": "/v1/push/installations/{installationId}/link-code",
       "status": 429,
       "file": "app/link-code.429-link_code_rate_limited.json",
-      "description": "mehr als 6 Codes/Stunde"
+      "description": "mehr als 6 Codes/h je Installation, oder mehr als 30 Codes im laufenden Kopplungsfenster (Retry-After)"
     },
     {
       "method": "GET",
@@ -567,6 +567,48 @@
       "status": 202,
       "file": "dashboard/restart-post.202.json",
       "description": "Neustart angefordert"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/push/installations/{installationId}/link-code",
+      "status": 403,
+      "file": "app/link-code.403-pairing_closed.json",
+      "description": "Kein Kopplungsfenster offen (einheitlich, vor jeder weiteren Pruefung)."
+    },
+    {
+      "method": "GET",
+      "path": "/v1/status",
+      "status": 200,
+      "file": "app/status.device_link_window.json",
+      "description": "Status mit offenem Kopplungsfenster (device_link_window.ends_at); ohne Fenster fehlt das Feld (status.device_link.json)."
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices",
+      "status": 200,
+      "file": "dashboard/devices.pairing-open.json",
+      "description": "Geraeteliste mit offenem Kopplungsfenster (pairing.open=true)."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pairing",
+      "status": null,
+      "file": "dashboard/pairing.request.json",
+      "description": "Request-Body {minutes:1..15}, fehlend = 5."
+    },
+    {
+      "method": "POST",
+      "path": "/dash/api/devices/pairing",
+      "status": 200,
+      "file": "dashboard/pairing-open.200.json",
+      "description": "Kopplungsfenster geoeffnet."
+    },
+    {
+      "method": "DELETE",
+      "path": "/dash/api/devices/pairing",
+      "status": 200,
+      "file": "dashboard/pairing-close.200.json",
+      "description": "Kopplungsfenster geschlossen."
     }
   ]
 }

@@ -1,0 +1,11 @@
+{
+  "linkEnabled": true,
+  "max": 3,
+  "devices": [],
+  "pairing": {
+    "open": true,
+    "endsAt": "2026-11-06T09:20:00Z",
+    "defaultMinutes": 5,
+    "maxMinutes": 15
+  }
+}

@@ -292,7 +292,18 @@ Die Kopplung ist **dauerhaft** (Nutzerentscheidung 6.11.2026, ersetzt den frühe
 
 ### `GET /dash/api/devices`
 
-`200 {"linkEnabled":bool,"max":int,"devices":[Device]}`. Rate: Lesen, 60 pro Minute.
+`200 {"linkEnabled":bool,"max":int,"devices":[Device],"pairing":{"open":bool,"endsAt":ISO|null,"defaultMinutes":5,"maxMinutes":15}}`. `pairing` beschreibt das Kopplungsfenster (siehe unten; bei `linkEnabled=false` immer geschlossen). Rate: Lesen, 60 pro Minute.
+
+### Kopplungsfenster `POST|DELETE /dash/api/devices/pairing`
+
+Ohne offenes Fenster gibt die App-Route `link-code` keine Codes aus (`403 pairing_closed`, Nutzerentscheidung 6.11.2026; ersetzt das TestFlight-Gating). Das Fenster liegt in der gemeinsamen Datenbank (`push_state` `device_pairing_until`, UTC), alle Replikate sehen es; ein abgelaufenes Fenster zählt als geschlossen.
+
+- `POST /dash/api/devices/pairing`, Body `{"minutes":5}` (Ganzzahl 1 bis 15, fehlend = 5; sonst `400 validation`) → `200 {"open":true,"endsAt":ISO}`. Öffnet oder verlängert (setzt das Ende neu). `409 link_disabled`, wenn `DEVICE_LINK_ENABLED=false`. Sitzung + CSRF, 6 pro Minute (`429 rate_limited`). Audit `device_pairing_open`.
+- `DELETE /dash/api/devices/pairing` → `200 {"open":false,"endsAt":null}`, idempotent. Audit `device_pairing_close` (`outcome` `manual`).
+- Das Fenster schließt automatisch nach der **ersten erfolgreichen Einlösung** eines Koppelcodes (Audit `device_pairing_close`, `outcome` `redeemed`); erneutes Öffnen ist jederzeit möglich.
+- Ein bereits ausgegebener Code bleibt bis zu seinem Ablauf (10 Minuten) einlösbar, auch wenn das Fenster abläuft oder geschlossen wird.
+
+Beispiele: `docs/fixtures/dashboard/devices.pairing-open.json`, `pairing.request.json`, `pairing-open.200.json`, `pairing-close.200.json`.
 
 ### `POST /dash/api/devices/pair`
 
@@ -307,7 +318,7 @@ Body `{"code":"ABCD-EFGH","label":"Mein iPhone"}`. Code: 8 Zeichen Crockford-Bas
 | `409` | `link_disabled` | `DEVICE_LINK_ENABLED=false` |
 | `429` | `rate_limited` | 5 Fehlversuche pro Minute global (nur Fehlversuche zählen), `Retry-After` |
 
-Audit `device_pair`. Der Code wird einmalig verbraucht; die Zeile in `push_link_code` muss mit `attested=1` angelegt sein (Serverprüfung der AppTransaction, siehe App-API).
+Audit `device_pair`; danach schließt sich das Kopplungsfenster (Audit `device_pairing_close`, `outcome` `redeemed`). Der Code wird einmalig verbraucht; die Zeile in `push_link_code` ist seit dem Kopplungsfenster immer `attested=1` (Freigabe durch das Fenster; der StoreKit-Nachweis nur bei `DEVICE_LINK_REQUIRE_TESTFLIGHT=true`).
 
 ### `GET /dash/api/devices/{id}`
 
@@ -398,7 +409,7 @@ Tabelle `dashboard_command` (Migration 011 oder 012): `id CHAR(36) PK`, `device_
 | `GET /dash/api/restart` | `{"generation":int,"pending":["KEY"],"replicas":[{"id":"<8 hex>","appliedGeneration":int,"startedAt":ISO,"state":"current"\|"waiting"}]}` |
 | `POST /dash/api/restart` | Body `{}` → `202 {"generation":int}`, Limit 2 pro Minute und 6 pro Stunde |
 
-`AuditEntry` = `{id:int, at:ISO, action:"set"|"reset"|"restart"|"login"|"setup"|"reset_cli"|"device_pair"|"device_unpair"|"device_action"|"push_pause"|"cache_clear", configKey:string|null, oldValue:string|null, newValue:string|null, deviceRef:string|null, outcome:string|null}`. `deviceRef` sind die ersten 8 Hexzeichen von `SHA-256(Kopplungs-ID)`; `outcome` bei `device_action` z. B. `test:delivered`. Aufbewahrung 365 Tage.
+`AuditEntry` = `{id:int, at:ISO, action:"set"|"reset"|"restart"|"login"|"setup"|"reset_cli"|"device_pair"|"device_unpair"|"device_action"|"push_pause"|"cache_clear"|"device_pairing_open"|"device_pairing_close", configKey:string|null, oldValue:string|null, newValue:string|null, deviceRef:string|null, outcome:string|null}`. `deviceRef` sind die ersten 8 Hexzeichen von `SHA-256(Kopplungs-ID)`; `outcome` bei `device_action` z. B. `test:delivered`, bei `device_pairing_close` `manual` oder `redeemed`. Aufbewahrung 365 Tage.
 
 ## Zusammenfassung Fehlercodes dieses Vertrags
 

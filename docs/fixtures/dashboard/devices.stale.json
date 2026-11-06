@@ -16,5 +16,11 @@
         "code": "unknown"
       }
     }
-  ]
+  ],
+  "pairing": {
+    "open": false,
+    "endsAt": null,
+    "defaultMinutes": 5,
+    "maxMinutes": 15
+  }
 }
