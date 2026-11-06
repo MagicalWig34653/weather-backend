@@ -77,7 +77,7 @@
 </script>
 
 <form
-	class="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-8"
+	class="grid gap-3 py-4 not-first:border-t first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-8"
 	novalidate
 	onsubmit={(ev) => {
 		ev.preventDefault();

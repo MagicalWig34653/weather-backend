@@ -306,4 +306,6 @@ export interface DeviceBundle {
 	detail: DeviceDetail;
 	diagnosis: Diagnosis;
 	events: DeviceEvent[];
+	/** Letzte Auftraege, neueste zuerst (leer, wenn der Abruf scheiterte). */
+	commands: DeviceCommand[];
 }

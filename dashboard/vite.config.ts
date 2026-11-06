@@ -20,7 +20,9 @@ function devProxy(target: string) {
 // Entwicklung gegen ein echtes Backend: DASH_API_TARGET=http://host:port npm run dev (siehe README).
 export default defineConfig(({ mode }) => ({
 	define: { __MOCK__: JSON.stringify(mode === 'mock') },
-	server: process.env.DASH_API_TARGET ? { proxy: devProxy(process.env.DASH_API_TARGET) } : undefined,
+	server: process.env.DASH_API_TARGET
+		? { proxy: devProxy(process.env.DASH_API_TARGET) }
+		: undefined,
 	plugins: [
 		tailwindcss(),
 		sveltekit({

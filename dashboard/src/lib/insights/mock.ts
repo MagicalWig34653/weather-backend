@@ -780,33 +780,64 @@ export function mockInsights(
 			});
 			return { commandId: id, kind, status: 'queued', createdAt: generatedAt };
 		}
-		if (dm[2] === 'commands' && dm[3]) {
-			const c = cmds.get(dm[3]);
-			if (!c) return undefined;
-			c.count++;
-			const done = c.count >= 2;
-			const result: Record<string, Record<string, unknown>> = {
-				test: { outcome: 'delivered', apnsStatus: 200, reason: null },
-				la_probe: { outcome: 'dropped', apnsStatus: null, reason: null, skipped: 'no_start_token' },
-				la_end: { outcome: 'delivered', hadActivity: true, reservationCleared: false },
-				reeval: {
+		if (dm[2] === 'commands') {
+			const mode =
+				typeof location !== 'undefined'
+					? new URLSearchParams(location.search).get('mockcmd')
+					: null;
+			const view = (id: string, c: NonNullable<ReturnType<typeof cmds.get>>): DeviceCommand => {
+				const done = c.count >= 2;
+				const result: Record<string, Record<string, unknown>> = {
+					test: { outcome: 'delivered', apnsStatus: 200, reason: null },
+					la_probe: {
+						outcome: 'dropped',
+						apnsStatus: null,
+						reason: null,
+						skipped: 'no_start_token'
+					},
+					la_end: { outcome: 'delivered', hadActivity: true, reservationCleared: false },
+					reeval: {
+						dryRun: c.dryRun,
+						subscriptions: [
+							{ index: 0, decision: 'below_threshold', sent: null },
+							{ index: 1, decision: 'lock', sent: null }
+						]
+					},
+					reset_slot: { cleared: 'none' }
+				};
+				const status =
+					mode === 'failed' && done
+						? 'failed'
+						: mode === 'expired' && done
+							? 'expired'
+							: done
+								? 'done'
+								: 'running';
+				return {
+					commandId: id,
+					kind: c.kind,
+					status,
+					createdAt: c.createdAt,
+					startedAt: generatedAt,
+					finishedAt: done ? generatedAt : null,
 					dryRun: c.dryRun,
-					subscriptions: [{ index: 0, decision: 'below_threshold', sent: null }]
-				},
-				reset_slot: { cleared: 'none' }
+					result: status === 'done' ? (result[c.kind] ?? {}) : null,
+					error: status === 'failed' ? 'environment_not_allowed' : null
+				};
 			};
-			const cmd: DeviceCommand = {
-				commandId: dm[3],
-				kind: c.kind,
-				status: done ? 'done' : 'running',
-				createdAt: c.createdAt,
-				startedAt: generatedAt,
-				finishedAt: done ? generatedAt : null,
-				dryRun: c.dryRun,
-				result: done ? (result[c.kind] ?? {}) : null,
-				error: null
+			if (dm[3]) {
+				const c = cmds.get(dm[3]);
+				if (!c) return undefined;
+				c.count++;
+				return view(dm[3], c);
+			}
+			const limit = Math.min(20, Number(params.get('limit') ?? 10) || 10);
+			return {
+				commands: [...cmds.entries()]
+					.reverse()
+					.slice(0, limit)
+					.map(([id, c]) => view(id, { ...c, count: Math.max(c.count, 2) }))
 			};
-			return cmd;
 		}
 	}
 	return undefined;

@@ -8,6 +8,9 @@
 	import EraserIcon from '@lucide/svelte/icons/eraser';
 	import UnlinkIcon from '@lucide/svelte/icons/unlink';
 	import type { Component } from 'svelte';
+	import { ApiError } from '#lib/api.js';
+	import { session } from '#lib/session.svelte.js';
+	import { checkLabel, formatCode, isValidCode } from '#lib/insights/pairing.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
@@ -27,7 +30,10 @@
 	import {
 		checkName,
 		checkText,
+		commandErrorName,
+		commandKindName,
 		commandResultText,
+		commandStatusName,
 		eventKindName,
 		eventReasonName,
 		levelLabel,
@@ -40,13 +46,24 @@
 	interface Loaded {
 		list: DeviceList;
 		bundles: Record<string, DeviceBundle>;
+		/** Geraete, deren Details nicht ladbar waren (z. B. 404 nach Widerruf in einem anderen Tab). */
+		failed: Record<string, string>;
 	}
 	const res = liveStatic<Loaded>(async () => {
 		const list = await insights.devices();
-		const entries = await Promise.all(
-			list.devices.map(async (d) => [d.id, await insights.deviceBundle(d.id)] as const)
+		const bundles: Record<string, DeviceBundle> = {};
+		const failed: Record<string, string> = {};
+		await Promise.all(
+			list.devices.map(async (d) => {
+				try {
+					bundles[d.id] = await insights.deviceBundle(d.id);
+				} catch (e) {
+					if (e instanceof ApiError && e.code === 'unauthorized') throw e;
+					failed[d.id] = describeError(e);
+				}
+			})
 		);
-		return { list, bundles: Object.fromEntries(entries) };
+		return { list, bundles, failed };
 	});
 
 	interface ActionDef {
@@ -129,7 +146,7 @@
 		open = true;
 	}
 
-	const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+	let runningText = $state('');
 
 	async function run(): Promise<void> {
 		if (!pending) return;
@@ -146,27 +163,41 @@
 			const started = await insights.runAction(device.id, def.action, def.dryRun);
 			open = false;
 			running = device.id;
+			runningText = 'in der Warteschlange';
 			toast.push('info', `${def.label} läuft …`, device.label, 2500);
 			// Der Leader fuehrt den Auftrag aus (Abfrage alle 2 s); hoechstens 2 Minuten warten.
-			for (let i = 0; i < 80; i++) {
-				await sleep(1500);
-				const c = await insights.command(device.id, started.commandId);
-				if (c.status === 'done') {
+			const out = await insights.pollCommand(device.id, started.commandId, (c) => {
+				runningText = c.status === 'running' ? 'wird ausgeführt' : 'in der Warteschlange';
+			});
+			if (out.kind === 'final') {
+				const c = out.command;
+				if (c.status === 'done')
 					toast.success(`${def.label}: erledigt`, commandResultText(c.kind, c.result));
-					break;
-				}
-				if (c.status === 'failed' || c.status === 'expired') {
+				else if (c.status === 'expired')
 					toast.error(
-						`${def.label}: ${c.status === 'expired' ? 'nicht ausgeführt' : 'fehlgeschlagen'}`,
-						c.status === 'expired'
-							? 'Kein Replikat hat den Auftrag innerhalb von 2 Minuten übernommen.'
-							: (c.error ?? 'Unbekannter Fehler.')
+						`${def.label}: nicht ausgeführt`,
+						'Kein Replikat hat den Auftrag innerhalb von 2 Minuten übernommen.'
 					);
-					break;
-				}
+				else
+					toast.error(
+						`${def.label}: fehlgeschlagen`,
+						(c.error && commandErrorName[c.error]) ?? 'Unbekannter Fehler.'
+					);
+			} else if (out.kind === 'timeout') {
+				toast.error(
+					`${def.label}: kein Ergebnis`,
+					'Nach 2 Minuten liegt kein Ergebnis vor. Prüfe den Verlauf des Geräts.'
+				);
+			} else {
+				if (out.error instanceof ApiError && out.error.code === 'unauthorized') session.expire();
+				toast.error(
+					`${def.label}: Ergebnis unbekannt`,
+					`${describeError(out.error)} Der Auftrag kann trotzdem laufen; siehe „Letzte Aufträge“.`
+				);
 			}
 			ctx.refresh();
 		} catch (e) {
+			if (e instanceof ApiError && e.code === 'unauthorized') session.expire();
 			toast.error('Aktion fehlgeschlagen', describeError(e));
 			open = false;
 		} finally {
@@ -179,23 +210,38 @@
 	let label = $state('');
 	let linking = $state(false);
 	let formError = $state<string | null>(null);
+	const codeOk = $derived(isValidCode(code));
+	const labelCheck = $derived(checkLabel(label));
 	async function pair(e: Event): Promise<void> {
 		e.preventDefault();
+		if (!codeOk) {
+			formError = 'Der Code besteht aus 8 Zeichen (Ziffern und Buchstaben ohne I, L, O, U).';
+			return;
+		}
+		if (!labelCheck.ok) {
+			formError = labelCheck.error;
+			return;
+		}
 		linking = true;
 		formError = null;
 		try {
-			const d = await insights.pairDevice(code.trim(), label.trim());
+			const d = await insights.pairDevice(formatCode(code), labelCheck.label);
 			code = '';
 			label = '';
 			toast.success('Gerät gekoppelt', d.label);
 			ctx.refresh();
 		} catch (err) {
+			if (err instanceof ApiError && err.code === 'unauthorized') session.expire();
 			formError = describeError(err);
+			// Zustand (Limit, Schalter) hat sich evtl. geaendert.
+			if (err instanceof ApiError && err.code === 'conflict') ctx.refresh();
 		} finally {
 			linking = false;
 		}
 	}
 
+	const cmdTone = (status: string): Tone =>
+		status === 'done' ? 'ok' : status === 'failed' ? 'err' : status === 'expired' ? 'warn' : 'info';
 	const tone = (l: 'ok' | 'warning' | 'critical' | 'unknown'): Tone => levelTone(l);
 	const evTone = (outcome: string): Tone =>
 		outcome === 'delivered'
@@ -256,6 +302,11 @@
 						{#if d.stale}<StatusBadge tone="warn" label="Länger nicht gesehen" />{/if}
 					</div>
 
+					{#if o.failed[d.id]}
+						<p role="alert" class="text-destructive mb-3 text-[13px]">
+							Details zu diesem Gerät konnten nicht geladen werden: {o.failed[d.id]}
+						</p>
+					{/if}
 					{#if b}
 						<h3 class="mb-2 text-[13px] font-semibold">
 							Diagnose{#if b.diagnosis.verdict}<span class="text-muted-foreground ml-2 font-normal"
@@ -338,8 +389,37 @@
 						{/each}
 					</div>
 					{#if running === d.id}<p class="text-muted-foreground mt-2 text-[13px]" role="status">
-							Auftrag läuft, Ergebnis folgt …
+							Auftrag {runningText}, Ergebnis folgt …
 						</p>{/if}
+
+					{#if b && b.commands.length > 0}
+						<h3 class="mt-5 mb-2 text-[13px] font-semibold">Letzte Aufträge</h3>
+						<ul class="divide-y rounded-lg border text-[13px]">
+							{#each b.commands as c (c.commandId)}
+								{@const t = cmdTone(c.status)}
+								{@const Icon = toneIcon[t]}
+								<li class="flex items-start gap-3 px-3.5 py-2.5">
+									<Icon class="mt-0.5 size-4 shrink-0 {toneText[t]}" aria-hidden="true" />
+									<div class="min-w-0">
+										<p class="font-medium">
+											{commandKindName[c.kind] ?? c.kind}: {commandStatusName[c.status] ?? c.status}
+										</p>
+										<p class="text-muted-foreground">
+											{#if c.status === 'done'}{commandResultText(
+													c.kind,
+													c.result
+												)}{:else if c.status === 'failed'}{(c.error && commandErrorName[c.error]) ??
+													'Unbekannter Fehler.'}{:else if c.status === 'expired'}Nicht übernommen.{:else}Läuft
+												noch.{/if}
+										</p>
+										<p class="text-muted-foreground num text-[12px]">
+											<time datetime={c.createdAt}>{formatDateTime(c.createdAt)}</time>
+										</p>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 
 					{#if b}
 						<h3 class="mt-5 mb-2 text-[13px] font-semibold">Verlauf</h3>
@@ -413,9 +493,7 @@
 								autocomplete="off"
 							/>
 						</div>
-						<Button
-							type="submit"
-							disabled={linking || code.replace(/[\s-]/g, '').length < 8 || label.trim().length < 1}
+						<Button type="submit" disabled={linking || !codeOk || !labelCheck.ok}
 							>{linking ? 'Prüfe …' : 'Koppeln'}</Button
 						>
 					</form>

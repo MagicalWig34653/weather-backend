@@ -8,7 +8,6 @@
 	import { Label } from '#lib/components/ui/label/index.js';
 	import StatusBadge from '#lib/design/StatusBadge.svelte';
 	import {
-		applyLabel,
 		boundsText,
 		canReset,
 		draftOf,
@@ -18,7 +17,6 @@
 		isHidden,
 		isNumeric,
 		parseDraft,
-		sourceLabel,
 		typeLabel
 	} from './form.js';
 
@@ -61,7 +59,7 @@
 </script>
 
 <div
-	class="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_minmax(0,20rem)] md:gap-8"
+	class="grid gap-3 py-4 not-first:border-t first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_minmax(0,20rem)] md:gap-8"
 >
 	<div class="min-w-0 space-y-1.5">
 		<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
@@ -87,8 +85,7 @@
 			{typeLabel[entry.type] ?? entry.type}{bounds ? `, erlaubt ${bounds}` : ''}{entry.default !==
 				null && entry.default !== ''
 				? `, Standard ${formatValue(entry, entry.default)}`
-				: ''}. {applyLabel[entry.apply][0].toUpperCase()}{applyLabel[entry.apply].slice(1)}. Quelle:
-			{sourceLabel[entry.source]}.
+				: ''}.
 		</p>
 	</div>
 

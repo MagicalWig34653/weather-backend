@@ -290,6 +290,41 @@ export const eventReasonName: Record<string, string> = { ...skipName };
 /** Fehlercodes des Servers als Klartext. */
 export { errorText } from '#lib/errors.js';
 
+/** Entscheidung der Neuauswertung je Abo (Vertrag: Ergebnisform `reeval`). */
+export const decisionName: Record<string, string> = {
+	would_trigger: 'würde auslösen',
+	below_threshold: 'unter der Schwelle',
+	lock: 'gesperrt (60-Minuten-Sperre)',
+	hysteresis: 'Hysterese aktiv',
+	not_enabled: 'nicht aktiviert',
+	no_start_token: 'Start-Token fehlt',
+	activity_slot_busy: 'Platz belegt',
+	reservation_pending: 'Reservierung offen'
+};
+
+export const commandKindName: Record<string, string> = {
+	test: 'Testpush',
+	la_probe: 'Live-Activity-Test',
+	la_end: 'Live Activity beenden',
+	reeval: 'Neuauswertung',
+	reset_slot: 'Platz freigeben'
+};
+export const commandStatusName: Record<string, string> = {
+	queued: 'wartet',
+	running: 'läuft',
+	done: 'erledigt',
+	failed: 'fehlgeschlagen',
+	expired: 'nicht ausgeführt'
+};
+
+/** Fehlercodes eines fehlgeschlagenen Auftrags (`error` bei status `failed`). */
+export const commandErrorName: Record<string, string> = {
+	apns_unavailable: 'APNs war nicht erreichbar.',
+	environment_not_allowed: 'Die APNs-Umgebung des Geräts ist auf diesem Server nicht erlaubt.',
+	device_gone: 'Die Installation ist inzwischen gelöscht.',
+	internal: 'Interner Fehler im Versandpfad.'
+};
+
 /** Kurztext zum Ergebnis eines abgeschlossenen Geraete-Auftrags. */
 export function commandResultText(kind: string, r: Record<string, unknown> | null): string {
 	if (!r) return 'Erledigt.';
@@ -308,11 +343,13 @@ export function commandResultText(kind: string, r: Record<string, unknown> | nul
 				? `Live Activity beendet (${outcome ?? '–'}).`
 				: 'Es lief keine Live Activity.';
 		case 'reeval': {
-			const subs = (r.subscriptions as { decision: string }[] | undefined) ?? [];
+			const subs =
+				(r.subscriptions as
+					{ index?: number; decision: string; sent?: boolean | null }[] | undefined) ?? [];
 			const text = subs
 				.map(
 					(s, i) =>
-						`Abo ${i + 1}: ${skipName[s.decision] ?? (s.decision === 'would_trigger' ? 'würde auslösen' : s.decision)}`
+						`Abo ${(s.index ?? i) + 1}: ${decisionName[s.decision] ?? s.decision}${s.sent === true ? ' (gesendet)' : ''}`
 				)
 				.join(' · ');
 			return `${r.dryRun ? 'Trockenlauf' : 'Neuauswertung'}: ${text || 'keine Abos'}.`;

@@ -4,6 +4,7 @@
  */
 import { api } from '#lib/client.js';
 import { ApiError } from '#lib/api.js';
+import { pollCommand, type PollOutcome } from './poll.js';
 import { formatDuration } from '#lib/format.js';
 import { errorText } from './text.js';
 import type {
@@ -54,12 +55,16 @@ export const insights = {
 	devices: () => api.get<DeviceList>('/devices'),
 	/** Detail, Diagnose und Ereignisse eines Geraets in einem Zug. */
 	async deviceBundle(id: string): Promise<DeviceBundle> {
-		const [detail, diagnosis, events] = await Promise.all([
+		const [detail, diagnosis, events, commands] = await Promise.all([
 			api.get<DeviceDetail>(`/devices/${enc(id)}`),
 			api.get<Diagnosis>(`/devices/${enc(id)}/diagnosis`),
-			api.get<{ events: DeviceEvent[] }>(`/devices/${enc(id)}/events?limit=20`)
+			api.get<{ events: DeviceEvent[] }>(`/devices/${enc(id)}/events?limit=20`),
+			// Die Auftragsliste ist Beiwerk: ihr Ausfall darf die Geraeteansicht nicht verhindern.
+			api.get<{ commands: DeviceCommand[] }>(`/devices/${enc(id)}/commands?limit=5`).catch(() => ({
+				commands: [] as DeviceCommand[]
+			}))
 		]);
-		return { detail, diagnosis, events: events.events };
+		return { detail, diagnosis, events: events.events, commands: commands.commands };
 	},
 	pairDevice: (code: string, label: string) => api.post<Device>('/devices/pair', { code, label }),
 	unpairDevice: (id: string) => api.delete<void>(`/devices/${enc(id)}`),
@@ -69,5 +74,18 @@ export const insights = {
 			action === 'reeval' ? { dryRun: dryRun ?? true } : {}
 		),
 	command: (id: string, commandId: string) =>
-		api.get<DeviceCommand>(`/devices/${enc(id)}/commands/${enc(commandId)}`)
+		api.get<DeviceCommand>(`/devices/${enc(id)}/commands/${enc(commandId)}`),
+	/** Letzte Auftraege eines Geraets, neueste zuerst (`limit` 1 bis 20). */
+	commands: (id: string, limit = 5) =>
+		api.get<{ commands: DeviceCommand[] }>(`/devices/${enc(id)}/commands?limit=${limit}`),
+	/** Wartet auf das Ergebnis eines Auftrags (Abfrage alle 1,5 s, hoechstens 2 Minuten). */
+	pollCommand: (
+		id: string,
+		commandId: string,
+		onUpdate?: (c: DeviceCommand) => void
+	): Promise<PollOutcome> =>
+		pollCommand(() => insights.command(id, commandId), {
+			onUpdate,
+			fatal: (e) => e instanceof ApiError && (e.code === 'unauthorized' || e.code === 'not_found')
+		})
 };
