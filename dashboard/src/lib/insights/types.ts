@@ -47,6 +47,8 @@ export interface OverviewInsights {
 	range: Range;
 	resolution: Resolution;
 	pushEnabled: boolean;
+	/** 'unknown': kein Radar-Replikat hat sich kürzlich gemeldet (nicht dasselbe wie aus). Fehlt bei älteren Servern. */
+	pushState?: 'on' | 'off' | 'unknown';
 	pushPaused: boolean;
 	status: { level: Level; findingCount: number };
 	kpis: {
@@ -156,6 +158,8 @@ export interface PushInsights {
 	range: Range;
 	resolution: Resolution;
 	pushEnabled: boolean;
+	/** 'unknown': kein Radar-Replikat hat sich kürzlich gemeldet (nicht dasselbe wie aus). Fehlt bei älteren Servern. */
+	pushState?: 'on' | 'off' | 'unknown';
 	pushPaused: boolean;
 	partial: string[];
 	prerequisites: { key: string; ok: boolean; detail: string | null }[];

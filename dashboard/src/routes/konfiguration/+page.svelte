@@ -267,8 +267,12 @@
 			{:else if !pause.data.pushEnabled}
 				<p class="flex items-center gap-2 text-sm">
 					<BellOffIcon class="text-muted-foreground size-4" aria-hidden="true" />
-					Push ist ausgeschaltet (<span class="font-mono">PUSH_ENABLED</span>). Es gibt nichts zu
-					pausieren.
+					{#if pause.data.pushState === 'unknown'}
+						Push-Zustand unbekannt: kein Radar-Replikat hat sich kürzlich gemeldet.
+					{:else}
+						Push ist ausgeschaltet (<span class="font-mono">PUSH_ENABLED</span>). Es gibt nichts zu
+						pausieren.
+					{/if}
 				</p>
 			{:else}
 				<p class="flex flex-wrap items-center gap-2 text-sm">

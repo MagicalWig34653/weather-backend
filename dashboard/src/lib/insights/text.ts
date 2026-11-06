@@ -212,6 +212,7 @@ export const prerequisiteName: Record<string, string> = {
 	push_not_paused: 'Versand nicht pausiert'
 };
 export const prerequisiteDetail: Record<string, string> = {
+	unknown: 'Unbekannt: kein Radar-Replikat hat sich kürzlich gemeldet.',
 	sandbox_install_with_production_env:
 		'Es gibt Sandbox-Installationen, APNs läuft aber mit production: sie erhalten nichts.',
 	production_install_with_sandbox_env:
@@ -233,6 +234,7 @@ const checkReason: Record<string, Record<string, string>> = {
 	server: {
 		ok: 'Push ist aktiv.',
 		push_disabled: 'Push ist am Server abgeschaltet (PUSH_ENABLED).',
+		push_unknown: 'Push-Zustand unbekannt: kein Radar-Replikat hat sich kürzlich gemeldet.',
 		capability_missing: 'Die Live-Activity-Fähigkeit ist nicht aktiviert.',
 		push_paused: 'Der Versand ist pausiert.'
 	},

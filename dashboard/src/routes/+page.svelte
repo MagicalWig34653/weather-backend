@@ -96,17 +96,31 @@
 				tone={tone(k.pushDeliveryRatio)}
 				delta={deltaRatio(k.pushDeliveryRatio.deltaPct)}
 				series={sparkValues(k.pushDeliveryRatio.series)}
-				hint={o.pushEnabled ? 'noch keine Sendungen' : 'Push ist ausgeschaltet'}
+				hint={o.pushEnabled
+					? 'noch keine Sendungen'
+					: o.pushState === 'unknown'
+						? 'Push-Zustand unbekannt'
+						: 'Push ist ausgeschaltet'}
 			/>
 			<Kpi
 				label="Aktive Live Activities"
 				value={num(k.activeLiveActivities.value)}
 				tone={tone(k.activeLiveActivities)}
-				hint={o.pushEnabled ? 'Momentaufnahme' : 'Push ist ausgeschaltet'}
+				hint={o.pushEnabled
+					? 'Momentaufnahme'
+					: o.pushState === 'unknown'
+						? 'Push-Zustand unbekannt'
+						: 'Push ist ausgeschaltet'}
 			/>
 			<Kpi
 				label="Push-Versand"
-				value={!o.pushEnabled ? 'Aus' : o.pushPaused ? 'Pausiert' : 'Aktiv'}
+				value={!o.pushEnabled
+					? o.pushState === 'unknown'
+						? 'Unbekannt'
+						: 'Aus'
+					: o.pushPaused
+						? 'Pausiert'
+						: 'Aktiv'}
 				tone={!o.pushEnabled ? undefined : o.pushPaused ? 'warn' : 'ok'}
 				hint="Steuerung unter Push"
 			/>

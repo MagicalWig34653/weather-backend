@@ -112,8 +112,10 @@
 			<Panel>
 				<EmptyState
 					icon={BellOffIcon}
-					title="Push ist ausgeschaltet"
-					reason="Der Dienst verschickt nichts (PUSH_ENABLED=false). Schalte Push in der Konfiguration ein und starte neu; Zähler erscheinen danach nach höchstens 60 Sekunden."
+					title={o.pushState === 'unknown' ? 'Push-Zustand unbekannt' : 'Push ist ausgeschaltet'}
+					reason={o.pushState === 'unknown'
+						? 'Kein Radar-Replikat hat sich in den letzten Minuten gemeldet; ob Push läuft, ist nicht bekannt. Prüfe die Replikate unter Betrieb.'
+						: 'Der Dienst verschickt nichts (PUSH_ENABLED=false). Schalte Push in der Konfiguration ein und starte neu; Zähler erscheinen danach nach höchstens 60 Sekunden.'}
 				/>
 			</Panel>
 		{:else}
