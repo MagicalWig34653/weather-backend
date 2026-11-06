@@ -6,10 +6,11 @@ Das Dashboard ist eine optionale, nur für den Betreiber gedachte Oberfläche: B
 
 1. In der `.env` (oder per `deploy/swarm/settings.sh`, Gruppe „Dashboard“) setzen: `DASH_ENABLED=true` und `DASH_ORIGIN=https://<Ihre-Dashboard-Adresse>` (https, ohne Pfad; ohne gültige Origin bricht der Start bewusst ab). `DASH_RP_ID` ist optional (Standard: Host der Origin).
 2. Der **externe** Reverse Proxy terminiert TLS, leitet auf `<Swarm-Knoten>:39090` (`DASH_PUBLISH_PORT`, Ingress-Port wie bei `radar`; im Container lauscht der Dienst auf `DASH_PORT`, Standard 9090) und reicht den `Host`-Header unverändert durch (WebSockets nicht nötig). Auf dem öffentlichen Radar-Port antwortet `/dash` weiterhin mit 404.
-3. `swarm-deploy.sh` beziehungsweise `update.sh` binden bei `DASH_ENABLED=true` das Overlay `stack.dashboard.yaml` ein. Danach ausrollen.
-4. **Setup-Fenster:** Nur beim ersten Start ohne vorhandenes Credential ist die Registrierung offen, für `DASH_SETUP_WINDOW_MINUTES` (Standard 15), und zwar für den **Ersten, der das Dashboard erreicht**. Rufen Sie das Dashboard deshalb **sofort nach dem Ausrollen** über Ihren Proxy auf und legen Sie den **Passkey** an (WebAuthn, daher HTTPS). Die Dienste melden den Hinweis jede Minute im Log. Ist das Fenster verpasst: Dienst neu starten.
-5. Sitzungen laufen höchstens `DASH_SESSION_HOURS` (12) und enden nach `DASH_IDLE_MINUTES` (30) ohne Aktivität. Änderungen und Aktionen brauchen zusätzlich das CSRF-Token und sind ratenbegrenzt.
-6. **Reset** (Passkey verloren): `radar dashboard-reset --yes` am Dienst. Es löscht Passkey, Sitzungen und offene Challenges (Audit `reset_cli`); das Setup-Fenster öffnet sich beim nächsten Start der Dienste.
+3. **Proxy-Token als Docker-Secret anlegen** (Pflicht, siehe [Proxy-Token](#proxy-token)): ohne das Secret `showernow_dashboard_proxy_token` brechen `swarm-deploy.sh` und `update.sh` vor jeder Änderung mit einer klaren Meldung ab.
+4. `swarm-deploy.sh` beziehungsweise `update.sh` binden bei `DASH_ENABLED=true` das Overlay `stack.dashboard.yaml` ein. Danach ausrollen.
+5. **Setup-Fenster:** Nur beim ersten Start ohne vorhandenes Credential ist die Registrierung offen, für `DASH_SETUP_WINDOW_MINUTES` (Standard 15), und zwar für den **Ersten, der das Dashboard erreicht**. Rufen Sie das Dashboard deshalb **sofort nach dem Ausrollen** über Ihren Proxy auf und legen Sie den **Passkey** an (WebAuthn, daher HTTPS). Die Dienste melden den Hinweis jede Minute im Log. Ist das Fenster verpasst: Dienst neu starten.
+6. Sitzungen laufen höchstens `DASH_SESSION_HOURS` (12) und enden nach `DASH_IDLE_MINUTES` (30) ohne Aktivität. Änderungen und Aktionen brauchen zusätzlich das CSRF-Token und sind ratenbegrenzt.
+7. **Reset** (Passkey verloren): `radar dashboard-reset --yes` am Dienst. Es löscht Passkey, Sitzungen und offene Challenges (Audit `reset_cli`); das Setup-Fenster öffnet sich beim nächsten Start der Dienste.
 
 Weitere Einstellungen: `DASH_MIN_GROUP` (3 bis 50, Standard 5): Gruppen darunter erscheinen als „<5“, auch Differenzen, aus denen sich kleine Gruppen errechnen ließen. `RESTART_STAGGER_SECONDS` (45): Abstand beim kontrollierten Neustart der Replikate.
 
@@ -19,9 +20,10 @@ Der Dienst veröffentlicht genau einen Ingress-Port (`DASH_PUBLISH_PORT`, Standa
 
 - **Firewall:** Port nur für die Adresse(n) Ihres Reverse Proxys öffnen, nie fürs Internet. Beispiel `ufw` auf jedem Knoten: `ufw allow from <Proxy-IP> to any port 39090 proto tcp`; Docker umgeht `ufw`-Regeln, bei Bedarf stattdessen in der Kette `DOCKER-USER`: `iptables -I DOCKER-USER -p tcp --dport 39090 ! -s <Proxy-IP> -j DROP` (Beispiel, vom Betreiber auf dem eigenen Setup zu prüfen: Von einem Rechner außerhalb des Proxys darf `curl -m 5 http://<Knoten>:39090/` nicht antworten).
 - **Host-Header** unverändert (`DASH_ORIGIN` wird gegen `Host` und `Origin` geprüft), **HTTPS** am Proxy.
+- **Proxy-Token:** Der Dienst antwortet nur auf Anfragen mit dem Header `X-Dashboard-Proxy-Token` (richtiger Wert), alle anderen bekommen ein schlichtes 404, ohne Hinweis auf das Dashboard. Das ist die zweite Schranke neben der Firewall, falls der Port doch von anderswo erreichbar ist (siehe [Proxy-Token](#proxy-token)).
 - **Passkey sofort** einrichten (Setup-Fenster, siehe oben). Danach schützt der Passkey; der Dienst hat Ratenbegrenzung, CSRF-Schutz, kein Docker-Socket, kein APNs-Schlüssel, schreibgeschütztes Dateisystem.
 
-Proxy-Beispiele (Adresse `dash.example.org`, Knoten `10.0.0.5`):
+Proxy-Beispiele (Adresse `dash.example.org`, Knoten `10.0.0.5`, `<TOKEN>` = Inhalt Ihrer Datei `proxy-token.txt`, siehe unten). Der Header wird **gesetzt**, nicht angehängt: Ein vom Client mitgeschickter `X-Dashboard-Proxy-Token` darf nie durchgereicht werden (nginx `proxy_set_header` und Caddy `header_up` ersetzen ihn, bei Traefik ersetzt `customRequestHeaders` ihn ebenfalls):
 
 ```nginx
 server {
@@ -31,13 +33,16 @@ server {
     proxy_pass http://10.0.0.5:39090;
     proxy_set_header Host $host;                       # unverändert durchreichen
     proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Dashboard-Proxy-Token "<TOKEN>";   # setzt (ersetzt) den Header; besser aus einer nur für root lesbaren include-Datei
   }
 }
 ```
 
 ```caddy
 dash.example.org {
-  reverse_proxy 10.0.0.5:39090   # Caddy reicht Host standardmäßig unverändert durch
+  reverse_proxy 10.0.0.5:39090 {   # Caddy reicht Host standardmäßig unverändert durch
+    header_up X-Dashboard-Proxy-Token "<TOKEN>"   # header_up ersetzt den Wert (Platzhalter {$DASH_TOKEN} aus der Umgebung ist möglich)
+  }
 }
 ```
 
@@ -46,12 +51,63 @@ dash.example.org {
 http:
   routers:
     dash: { rule: "Host(`dash.example.org`)", service: dash, tls: {} }
+  middlewares:
+    dash-token:
+      headers:
+        customRequestHeaders:
+          X-Dashboard-Proxy-Token: "<TOKEN>"   # ersetzt einen vom Client gesendeten Wert
   services:
     dash:
       loadBalancer:
         passHostHeader: true
         servers: [ { url: "http://10.0.0.5:39090" } ]
+# am Router: middlewares: [dash-token]
 ```
+
+### Proxy-Token
+
+Das Token ist ein gemeinsames Geheimnis zwischen Proxy und Dashboard-Dienst (32 bis 256 sichtbare ASCII-Zeichen ohne Leerzeichen). Es liegt als **Docker-Secret** `showernow_dashboard_proxy_token` (Name über `DASH_PROXY_TOKEN_SECRET` änderbar) und wird als Datei eingehängt (`DASH_PROXY_TOKEN_FILE`). Nicht in der `.env`, nicht als Umgebungsvariable: dort würde es in `docker service inspect` und `docker stack config` sichtbar, anders als das Datenbank-Passwort und der APNs-Schlüssel. Nur der Dienst `dashboard` bekommt es; die `radar`-Replikate brauchen es nicht. `DASH_PROXY_TOKEN_REQUIRED=false` wirkt im Swarm-Stack nicht (das Secret ist immer eingehängt und wird immer geprüft).
+
+**Erzeugen (auf einem Swarm-Manager):**
+
+```sh
+umask 077
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > proxy-token.txt
+docker secret create showernow_dashboard_proxy_token proxy-token.txt
+# Wert aus proxy-token.txt im Proxy eintragen (siehe oben), danach:
+rm proxy-token.txt
+```
+
+Ein Secret lässt sich nicht auslesen; heben Sie den Wert nur im Proxy auf. `deploy/swarm/settings.sh --check` und die Skripte prüfen, ob das Secret existiert.
+
+**Rotation** (Secrets sind unveränderlich, deshalb mit neuem Namen; `DASH_PROXY_TOKEN_PREVIOUS_SECRET` hält das alte Token für den Übergang gültig):
+
+1. Neues Secret anlegen, z. B. `showernow_dashboard_proxy_token_2`.
+2. In der `.env` `DASH_PROXY_TOKEN_SECRET=showernow_dashboard_proxy_token_2` und `DASH_PROXY_TOKEN_PREVIOUS_SECRET=showernow_dashboard_proxy_token` setzen, ausrollen (`update.sh --force` oder `swarm-deploy.sh`). Jetzt gelten beide Token.
+3. Im Proxy den Header auf den neuen Wert umstellen und das Dashboard prüfen.
+4. `DASH_PROXY_TOKEN_PREVIOUS_SECRET` aus der `.env` entfernen, erneut ausrollen (die Skripte nehmen dann das aktuelle Secret für beide), danach das alte Secret entfernen: `docker secret rm showernow_dashboard_proxy_token`.
+
+Bei einem Deploy von Hand (`docker stack deploy -c stack.yaml -c stack.dashboard.yaml ...`) beide Namen exportieren oder keinen; die Skripte setzen den Rückfall selbst.
+
+**Prüfen:** Ohne Header antwortet der Port mit 404, mit dem richtigen Header erscheint das Dashboard:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://<Knoten>:39090/dash/api/session -H 'Host: dash.example.org'                                  # 404
+curl -s -o /dev/null -w '%{http_code}\n' http://<Knoten>:39090/dash/api/session -H 'Host: dash.example.org' -H "X-Dashboard-Proxy-Token: $(cat proxy-token.txt)"   # nicht 404
+```
+
+(Diese Prüfung vom Proxy-Rechner oder Knoten aus; von außen soll der Port ohnehin nicht antworten.)
+
+### Update-Reihenfolge (Proxy-Token, Kopplungsfenster)
+
+1. Backup der Datenbank; `deploy/swarm/update.sh --pull-scripts` holt die neuen Skripte und prüft vor jeder Änderung die Secrets.
+2. Das Secret `showernow_dashboard_proxy_token` anlegen (siehe oben), **bevor** `update.sh` läuft, sonst bricht es ab.
+3. In der `.env` (oder per `settings.sh`) setzen: `DASH_ENABLED=true`, `DASH_ORIGIN`, gegebenenfalls `DEVICE_LINK_ENABLED=true` (mit `PUSH_ENABLED=true`).
+4. `update.sh` ausführen: Das neue Image, die Migrationen `012` (Audit) und `013` laufen im Migrationsjob automatisch mit, danach folgt das Rolling Update von `radar` und der Start des Dienstes `dashboard`.
+5. Den Header `X-Dashboard-Proxy-Token` im Reverse Proxy setzen (Beispiele oben), Proxy neu laden. Bis dahin antwortet das Dashboard mit 404.
+6. Dashboard aufrufen und den Passkey registrieren (Setup-Fenster beachten), die Prüfung oben ausführen.
+7. Die Push-Anzeige im Dashboard zeigt „unbekannt“, bis die `radar`-Replikate mit dem neuen Image gestartet sind (der Zustand stammt aus den Meldungen der Replikate); nach dem Rolling Update verschwindet das. Die Statistik der neuen Bytes-Zähler gibt es erst ab diesem Deploy, frühere Tage bleiben leer.
+8. Kopplungsfenster erst danach im Dashboard öffnen (siehe unten); Variablen `DEVICE_LINK_*` sind auf `radar` und `dashboard` identisch gesetzt (das Overlay spiegelt sie).
 
 ## Schwellen und Befunde
 
