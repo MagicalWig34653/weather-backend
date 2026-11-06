@@ -47,10 +47,16 @@ if [[ "${PUSH_ENABLED:-false}" == true ]]; then
   echo "Push enabled: stack files ${compose_args[*]}"
 fi
 # Optional dashboard (DASH_ENABLED=true): own service "dashboard" from the overlay stack.dashboard.yaml (no published port).
-# The overlay is delivered with the dashboard work package; as long as it is missing, enabling it must not silently deploy without it.
+# The overlay exists since the dashboard work package; it stops with a clear message when the file is missing (old scripts folder).
 if [[ "${DASH_ENABLED:-false}" == true ]]; then
   require_dashboard_overlay ""
   compose_args+=(-c stack.dashboard.yaml)
+  # DASH_ORIGIN is required (the overlay aborts without it). DASH_RP_ID is optional: when empty, use the host of DASH_ORIGIN
+  # (no scheme, no port, lower case) - the WebAuthn RP ID must be a registrable domain suffix of that host.
+  if [[ -z "${DASH_RP_ID:-}" && -n "${DASH_ORIGIN:-}" ]]; then
+    rp="${DASH_ORIGIN#*://}"; rp="${rp%%/*}"; rp="${rp%%:*}"
+    DASH_RP_ID="$(printf '%s' "$rp" | tr '[:upper:]' '[:lower:]')"; export DASH_RP_ID
+  fi
   echo "Dashboard enabled: stack files ${compose_args[*]}"
 fi
 for f in ${STACK_EXTRA_FILES:-}; do compose_args+=(-c "$f"); done

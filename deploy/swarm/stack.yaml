@@ -9,6 +9,12 @@ version: '3.8'
 # swarm-deploy.sh / update.sh (they add the overlay when PUSH_ENABLED=true) or by hand with BOTH files:
 #   docker stack deploy --resolve-image never -c stack.yaml -c stack.push.yaml <stack>
 # With PUSH_ENABLED=true and this file alone, /run/secrets/apns_key does not exist and the service fails at start.
+# RESTART: radar uses restart_policy condition `any` (not on-failure): the dashboard restart button makes every replica leave
+# in an orderly way (graceful shutdown, exit code 0, staggered by REPLICA_SLOT x RESTART_STAGGER_SECONDS); with on-failure Swarm
+# would NOT start such a replica again. `any` is safe with the rest of the service: `migrate` stays `none` with replicas 0 (one-shot
+# job, started by swarm-deploy.sh); update_config (start-first, monitor 60s, rollback) concerns rolling updates only, and a clean
+# exit does not count as a failed task there. docker service scale/rm and stack rm are not affected by the restart policy.
+# DASHBOARD: the optional overlay stack.dashboard.yaml (DASH_ENABLED=true, see there) adds the service `dashboard`; this file stays free of it.
 # Every variable the server reads and that is meant for the operator is passed through below with the default of the code;
 # envOnly keys without need here: HTTP_PORT (container port is fixed 8080), MIGRATIONS_DIR (set by the image).
 x-radar: &radar
@@ -21,25 +27,25 @@ x-radar: &radar
     DB_USER: ${DB_USER:-showernow}
     DB_PASSWORD_FILE: /run/secrets/db_password
     DB_POOL_SIZE: ${DB_POOL_SIZE:-4}
-    CACHE_MAX_MB: ${CACHE_MAX_MB:-64}
-    RETENTION_RUNS: ${RETENTION_RUNS:-16}
-    HISTORY_HOURS: ${HISTORY_HOURS:-48}
-    LAYERS: ${LAYERS:-radar}
-    PRESSURE_FORECAST_HOURS: ${PRESSURE_FORECAST_HOURS:-48}
-    PRESSURE_RETENTION_RUNS: ${PRESSURE_RETENTION_RUNS:-2}
-    LIGHTNING_HISTORY_HOURS: ${LIGHTNING_HISTORY_HOURS:-3}
-    CLOUDS_HISTORY_HOURS: ${CLOUDS_HISTORY_HOURS:-3}
-    CLOUDMASK_HISTORY_HOURS: ${CLOUDMASK_HISTORY_HOURS:-3}
-    CLOUDMASK_VIS_HISTORY_HOURS: ${CLOUDMASK_VIS_HISTORY_HOURS:-3}
-    CLOUDMASK_VIS_EU_HISTORY_HOURS: ${CLOUDMASK_VIS_EU_HISTORY_HOURS:-3}
-    PRESSURE_EU_FORECAST_HOURS: ${PRESSURE_EU_FORECAST_HOURS:-24}
+    CACHE_MAX_MB: ${CACHE_MAX_MB:-}
+    RETENTION_RUNS: ${RETENTION_RUNS:-}
+    HISTORY_HOURS: ${HISTORY_HOURS:-}
+    LAYERS: ${LAYERS:-}
+    PRESSURE_FORECAST_HOURS: ${PRESSURE_FORECAST_HOURS:-}
+    PRESSURE_RETENTION_RUNS: ${PRESSURE_RETENTION_RUNS:-}
+    LIGHTNING_HISTORY_HOURS: ${LIGHTNING_HISTORY_HOURS:-}
+    CLOUDS_HISTORY_HOURS: ${CLOUDS_HISTORY_HOURS:-}
+    CLOUDMASK_HISTORY_HOURS: ${CLOUDMASK_HISTORY_HOURS:-}
+    CLOUDMASK_VIS_HISTORY_HOURS: ${CLOUDMASK_VIS_HISTORY_HOURS:-}
+    CLOUDMASK_VIS_EU_HISTORY_HOURS: ${CLOUDMASK_VIS_EU_HISTORY_HOURS:-}
+    PRESSURE_EU_FORECAST_HOURS: ${PRESSURE_EU_FORECAST_HOURS:-}
     LAYER_PAUSE_SECONDS: ${LAYER_PAUSE_SECONDS:-2}
-    FETCH_WORKERS: ${FETCH_WORKERS:-3}
+    FETCH_WORKERS: ${FETCH_WORKERS:-}
     IMAGE_WIDTH: ${IMAGE_WIDTH:-1024}
     AVAILABILITY_DELAY_SECONDS: ${AVAILABILITY_DELAY_SECONDS:-200}
-    JITTER_SECONDS: ${JITTER_SECONDS:-20}
-    REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-30}
-    USER_AGENT: ${USER_AGENT:-ShowerNow-radar-ingest/1.0}
+    JITTER_SECONDS: ${JITTER_SECONDS:-}
+    REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-}
+    USER_AGENT: ${USER_AGENT:-}
     WMS_URL: ${WMS_URL:-https://maps.dwd.de/geoserver/ows}
     EUMETSAT_WMS_URL: ${EUMETSAT_WMS_URL:-https://view.eumetsat.int/geoserver/wms}
     OPERATOR_NAME: ${OPERATOR_NAME:-}
@@ -56,18 +62,45 @@ x-radar: &radar
     APNS_KEY_ID: ${APNS_KEY_ID:-}
     APNS_TEAM_ID: ${APNS_TEAM_ID:-}
     APNS_TOPIC: ${APNS_TOPIC:-}
-    APNS_ENV: ${APNS_ENV:-production}
-    PUSH_MAX_INSTALLATIONS: ${PUSH_MAX_INSTALLATIONS:-100000}
-    PUSH_MAX_SUBSCRIPTIONS: ${PUSH_MAX_SUBSCRIPTIONS:-400000}
-    PUSH_MAX_REGION_CELLS: ${PUSH_MAX_REGION_CELLS:-50000000}
-    PUSH_MAX_ACTIVITY_SUBSCRIPTIONS: ${PUSH_MAX_ACTIVITY_SUBSCRIPTIONS:-5000}
-    PUSH_MAX_REGIONS_PER_INSTALLATION: ${PUSH_MAX_REGIONS_PER_INSTALLATION:-3}
-    PUSH_MAX_CELLS_PER_INSTALLATION: ${PUSH_MAX_CELLS_PER_INSTALLATION:-8000}
-    PUSH_RATE_PER_INSTALLATION: ${PUSH_RATE_PER_INSTALLATION:-60}
-    PUSH_RATE_GLOBAL_REGISTRATIONS: ${PUSH_RATE_GLOBAL_REGISTRATIONS:-600}
-    PUSH_RATE_GLOBAL_REQUESTS: ${PUSH_RATE_GLOBAL_REQUESTS:-3000}
-    PUSH_RATE_FAILED_AUTH: ${PUSH_RATE_FAILED_AUTH:-10}
-    PUSH_TEST_LIMIT_PER_HOUR: ${PUSH_TEST_LIMIT_PER_HOUR:-3}
+    APNS_ENV: ${APNS_ENV:-}
+    PUSH_MAX_INSTALLATIONS: ${PUSH_MAX_INSTALLATIONS:-}
+    PUSH_MAX_SUBSCRIPTIONS: ${PUSH_MAX_SUBSCRIPTIONS:-}
+    PUSH_MAX_REGION_CELLS: ${PUSH_MAX_REGION_CELLS:-}
+    PUSH_MAX_ACTIVITY_SUBSCRIPTIONS: ${PUSH_MAX_ACTIVITY_SUBSCRIPTIONS:-}
+    PUSH_MAX_REGIONS_PER_INSTALLATION: ${PUSH_MAX_REGIONS_PER_INSTALLATION:-}
+    PUSH_MAX_CELLS_PER_INSTALLATION: ${PUSH_MAX_CELLS_PER_INSTALLATION:-}
+    PUSH_RATE_PER_INSTALLATION: ${PUSH_RATE_PER_INSTALLATION:-}
+    PUSH_RATE_GLOBAL_REGISTRATIONS: ${PUSH_RATE_GLOBAL_REGISTRATIONS:-}
+    PUSH_RATE_GLOBAL_REQUESTS: ${PUSH_RATE_GLOBAL_REQUESTS:-}
+    PUSH_RATE_FAILED_AUTH: ${PUSH_RATE_FAILED_AUTH:-}
+    PUSH_TEST_LIMIT_PER_HOUR: ${PUSH_TEST_LIMIT_PER_HOUR:-}
+    # Dashboard restart button: spacing of the staggered graceful restart. Empty = code default (45 s). Only explicitly set values count.
+    RESTART_STAGGER_SECONDS: ${RESTART_STAGGER_SECONDS:-}
+    # Dashboard thresholds (live) and device pairing; empty = code default. Only explicitly set values count (they lock the dashboard field).
+    DASH_WARN_LAYER_AGE_FACTOR_YELLOW: ${DASH_WARN_LAYER_AGE_FACTOR_YELLOW:-}
+    DASH_WARN_LAYER_AGE_FACTOR_RED: ${DASH_WARN_LAYER_AGE_FACTOR_RED:-}
+    DASH_WARN_ERROR_RATE_5XX_YELLOW: ${DASH_WARN_ERROR_RATE_5XX_YELLOW:-}
+    DASH_WARN_ERROR_RATE_5XX_RED: ${DASH_WARN_ERROR_RATE_5XX_RED:-}
+    DASH_WARN_OUTBOX_AGE_SECONDS_YELLOW: ${DASH_WARN_OUTBOX_AGE_SECONDS_YELLOW:-}
+    DASH_WARN_OUTBOX_AGE_SECONDS_RED: ${DASH_WARN_OUTBOX_AGE_SECONDS_RED:-}
+    DASH_WARN_APNS_REJECTION_YELLOW: ${DASH_WARN_APNS_REJECTION_YELLOW:-}
+    DASH_WARN_APNS_REJECTION_RED: ${DASH_WARN_APNS_REJECTION_RED:-}
+    DASH_WARN_TOKEN_INVALIDATION_YELLOW: ${DASH_WARN_TOKEN_INVALIDATION_YELLOW:-}
+    DASH_WARN_TOKEN_INVALIDATION_RED: ${DASH_WARN_TOKEN_INVALIDATION_RED:-}
+    DASH_WARN_CACHE_HIT_YELLOW: ${DASH_WARN_CACHE_HIT_YELLOW:-}
+    DASH_WARN_CACHE_HIT_RED: ${DASH_WARN_CACHE_HIT_RED:-}
+    DASH_WARN_CAP_FILL_YELLOW: ${DASH_WARN_CAP_FILL_YELLOW:-}
+    DASH_WARN_CAP_FILL_RED: ${DASH_WARN_CAP_FILL_RED:-}
+    DASH_WARN_LA_START_RATIO_YELLOW: ${DASH_WARN_LA_START_RATIO_YELLOW:-}
+    DASH_WARN_LA_START_RATIO_RED: ${DASH_WARN_LA_START_RATIO_RED:-}
+    DASH_MIN_GROUP: ${DASH_MIN_GROUP:-}
+    DEVICE_LINK_ENABLED: ${DEVICE_LINK_ENABLED:-}
+    DEVICE_LINK_BUNDLE_ID: ${DEVICE_LINK_BUNDLE_ID:-}
+    DEVICE_LINK_ALLOWED_ENVS: ${DEVICE_LINK_ALLOWED_ENVS:-}
+    DEVICE_LINK_MAX_AGE_HOURS: ${DEVICE_LINK_MAX_AGE_HOURS:-}
+    DASH_MAX_DEVICES: ${DASH_MAX_DEVICES:-}
+    DASH_DEVICE_TTL_DAYS: ${DASH_DEVICE_TTL_DAYS:-}
+    DASH_DEVICE_STALE_DAYS: ${DASH_DEVICE_STALE_DAYS:-}
     # BUILD_REVISION is deliberately NOT passed through: the image sets it (Dockerfile ENV from the build argument); an
     # entry here would override it with an empty value and /v1/status would show no revision.
   secrets: [db_password]
@@ -82,6 +115,11 @@ services:
   radar:
     <<: *radar
     command: [serve]
+    environment:
+      <<: *environment
+      # Replica index for the staggered restart (slot 1 first, the others (slot - 1) x RESTART_STAGGER_SECONDS later). Swarm fills
+      # the template per task when the container is created. Not for migrate (one-shot job).
+      REPLICA_SLOT: '{{.Task.Slot}}'
     configs:
       - source: healthcheck
         target: /healthcheck.sh
@@ -114,7 +152,7 @@ services:
         parallelism: 1
         order: stop-first
       restart_policy:
-        condition: on-failure
+        condition: any  # not on-failure: an orderly exit (restart button, exit 0) must be restarted too
         delay: 5s
 networks:
   internal:
