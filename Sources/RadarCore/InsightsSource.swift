@@ -78,12 +78,15 @@ public struct InsightsCapLimits: Sendable, Equatable {
 
 public struct InsightsContext: Sendable, Equatable {
     public var pushEnabled: Bool
+    /// True when push is not known to be off but unknown (no radar replica reported recently); only meaningful with `pushEnabled == false`.
+    public var pushUnknown = false
     public var pushPaused: Bool
     public var thresholds: InsightsThresholds
     public var setup: InsightsPushSetup
     public var caps: InsightsCapLimits
     /// Desired replica count when known (fewer running replicas is a finding).
     public var expectedReplicas: Int?
+    public var pushState: PushStatus { pushEnabled ? .on : (pushUnknown ? .unknown : .off) }
     public init(pushEnabled: Bool, pushPaused: Bool = false, thresholds: InsightsThresholds = InsightsThresholds(),
                 setup: InsightsPushSetup = InsightsPushSetup(apnsEnv: nil, topicSet: true, keyPresent: true, liveActivityCapability: true),
                 caps: InsightsCapLimits, expectedReplicas: Int? = nil) {

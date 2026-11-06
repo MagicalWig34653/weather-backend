@@ -3,6 +3,7 @@
   "range": "7d",
   "resolution": "day",
   "pushEnabled": true,
+  "pushState": "on",
   "pushPaused": true,
   "status": {
     "level": "ok",

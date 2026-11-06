@@ -52,6 +52,8 @@ struct InsightsWiringTests {
 
     @Test(arguments: RepoKind.allCases) func pushCountersSections(kind: RepoKind) async throws {
         let repo = try await kind.make()
+        try await repo.heartbeat(replicaID: "replica-one", slot: 1, appliedGeneration: 0,
+                                 push: PushReplicaReport(enabled: true, environments: "production", liveActivity: true), now: Date())
         let now = TimeUtil.floor(Date(), to: 3600).addingTimeInterval(600)
         let hour = TimeUtil.floor(now, to: 3600)
         try await hourly(repo, hour, [

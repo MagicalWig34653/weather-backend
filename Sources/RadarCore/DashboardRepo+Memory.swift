@@ -180,9 +180,9 @@ extension MemoryRepo: DashboardRepo {
         return dashboard.generation
     }
 
-    public func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, now: Date) async throws {
+    public func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, push: PushReplicaReport?, now: Date) async throws {
         let started = dashboard.replicas[replicaID]?.startedAt ?? now
-        dashboard.replicas[replicaID] = ReplicaRecord(replicaID: replicaID, slot: slot, appliedGeneration: appliedGeneration, startedAt: started, lastSeenAt: now)
+        dashboard.replicas[replicaID] = ReplicaRecord(replicaID: replicaID, slot: slot, appliedGeneration: appliedGeneration, startedAt: started, lastSeenAt: now, push: push)
     }
 
     public func replicas(now: Date) async throws -> [ReplicaRecord] {

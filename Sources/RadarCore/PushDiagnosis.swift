@@ -56,6 +56,8 @@ public enum DiagnosisValue: Sendable, Equatable { case string(String), int(Int),
 public enum PushDiagnosis {
     public struct Input: Sendable {
         public var pushEnabled: Bool
+        /// Push is not known to be off but unknown (no radar replica reported recently). Only with `pushEnabled == false`.
+        public var pushUnknown = false
         public var pushPaused: Bool
         public var allowedEnvironments: Set<PushEnvironment>
         public var install: DeviceInstallInfo
@@ -82,7 +84,7 @@ public enum PushDiagnosis {
             checks.append(DiagnosisCheck(order: checks.count + 1, code: code, level: level, reason: reason, params: params))
         }
         // 1 server
-        if !input.pushEnabled { add("server", .critical, "push_disabled") }
+        if !input.pushEnabled { input.pushUnknown ? add("server", .warning, "push_unknown") : add("server", .critical, "push_disabled") }
         else if input.pushPaused { add("server", .warning, "push_paused") }
         else { add("server", .ok, "ok") }
         // 2 environment

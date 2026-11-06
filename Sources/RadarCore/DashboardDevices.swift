@@ -72,10 +72,12 @@ final class DashboardDevices: Sendable {
         let subs = try await repo.subscriptions(installationID: device.installID)
         let events = try await repo.deviceEvents(deviceID: device.id, limit: 5)
         let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
-        let cfg = config()
         let pushPaused = (try? await repo.pushPausedSince()) != nil
-        let verdict = PushDiagnosis.run(.init(pushEnabled: cfg.push.enabled, pushPaused: pushPaused, allowedEnvironments: cfg.push.environments, install: info, subs: subs,
-                                               activities: activities, recentEvents: events, radar: DeviceRadarView(status: .noSlot), now: now)).verdict
+        let truth = await PushTruth.resolve(repo: repo, now: now)
+        var input = PushDiagnosis.Input(pushEnabled: truth.enabled, pushPaused: pushPaused, allowedEnvironments: truth.environments ?? Set(PushEnvironment.allCases),
+                                        install: info, subs: subs, activities: activities, recentEvents: events, radar: DeviceRadarView(status: .noSlot), now: now)
+        input.pushUnknown = truth.status == .unknown
+        let verdict = PushDiagnosis.run(input).verdict
         let summary = PushDiagnosis.summaryCode(verdict, install: info)
         let stale = info.lastSeenAt.map { now.timeIntervalSince($0) > Double(settings.staleDays) * 86400 } ?? true
         return ["id": device.id, "label": device.label, "pairedAt": TimeUtil.toISO(device.pairedAt), "expiresAt": Self.iso(device.expiresAt),
@@ -163,8 +165,12 @@ final class DashboardDevices: Sendable {
         let radarSubs = subs.filter(\.enabled)
         let view = radarSubs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: cfg, subs: radarSubs, now: now)
         let pushPaused = (try? await repo.pushPausedSince()) != nil
-        let result = PushDiagnosis.run(.init(pushEnabled: cfg.push.enabled, pushPaused: pushPaused, allowedEnvironments: cfg.push.environments, install: info, subs: subs,
-                                             activities: activities, recentEvents: events, radar: view, now: now))
+        // Push facts come from the radar replicas (this process may run with PUSH_ENABLED=false); only grid and size come from `cfg`.
+        let truth = await PushTruth.resolve(repo: repo, now: now)
+        var input = PushDiagnosis.Input(pushEnabled: truth.enabled, pushPaused: pushPaused, allowedEnvironments: truth.environments ?? Set(PushEnvironment.allCases),
+                                        install: info, subs: subs, activities: activities, recentEvents: events, radar: view, now: now)
+        input.pushUnknown = truth.status == .unknown
+        let result = PushDiagnosis.run(input)
         func check(_ c: DiagnosisCheck) -> [String: Any] {
             ["order": c.order, "code": c.code, "level": c.level.rawValue, "reason": c.reason, "params": c.params.mapValues(\.json)]
         }
@@ -229,6 +235,11 @@ final class DashboardDevices: Sendable {
             }
         } else { return Self.error(400, "validation") }
         guard try await repo.device(id: id) != nil else { return Self.error(404, "not_found") }
+        // Commands are executed by the push leader (a radar replica); without one nothing would ever run them.
+        let truth = await PushTruth.resolve(repo: repo, now: now)
+        guard truth.leaderActive else {
+            return Self.error(503, truth.status == .off ? "push_disabled" : (truth.status == .unknown ? "push_state_unknown" : "push_leader_missing"))
+        }
         let limit = kind == .reeval ? (dryRun == true ? 20 : 3) : Self.hourlyLimits[kind]!
         guard limiter.allow("act:\(id):\(kind.rawValue):\(dryRun == false ? "live" : "dry")", limit: limit, window: 3600, now: now) else {
             return Self.error(429, "action_rate_limited", retryAfter: 3600)

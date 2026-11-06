@@ -28,7 +28,11 @@ public final class RepoInsightsDataSource: InsightsDataSource {
         else { gaugeProvider = nil }
     }
 
-    public func context() async -> InsightsContext { await contextProvider() }
+    /// Configuration of this process, with the push facts replaced by what the radar replicas report in the database: the
+    /// dashboard service runs with `PUSH_ENABLED=false` and no APNs secret by design.
+    public func context() async -> InsightsContext {
+        await contextProvider().applying(await PushTruth.resolve(repo: repo, now: clock()))
+    }
 
     public func dailyStats(from: Date, to: Date) async throws -> [StatRow] { try await repo.stats(from: from, to: to) }
 
@@ -115,7 +119,7 @@ public final class RepoInsightsDataSource: InsightsDataSource {
         }
         // The push leader lease; without push there is no leader and none is expected.
         var leader: InsightsLeader?
-        if await contextProvider().pushEnabled {
+        if await context().pushEnabled {
             let lease = try await repo.leaderLease(name: PushService.leaderName)
             leader = InsightsLeader(holder: lease?.owner, leaseSecondsLeft: lease.map { max(0, $0.secondsLeft) }, changes24h: nil)
         }
@@ -129,6 +133,18 @@ public final class RepoInsightsDataSource: InsightsDataSource {
 }
 
 public extension InsightsContext {
+    /// Push state from the replicas. An active replica only starts with key and topic set (`Config.validated`), so both count as present.
+    func applying(_ truth: PushTruth) -> InsightsContext {
+        var c = self
+        c.pushEnabled = truth.enabled
+        c.pushUnknown = truth.status == .unknown
+        guard truth.enabled else { c.setup = InsightsPushSetup(apnsEnv: nil, topicSet: false, keyPresent: false, liveActivityCapability: false); return c }
+        let envs = truth.environments
+        c.setup = InsightsPushSetup(apnsEnv: envs?.count == 1 ? envs?.first?.rawValue : nil, topicSet: true, keyPresent: true,
+                                    liveActivityCapability: truth.liveActivity || envs == nil)
+        return c
+    }
+
     /// Context from the effective configuration. `lookup` reads `DASH_WARN_*` and `DASH_MIN_GROUP` (live register or ENV).
     static func make(config: Config, pushPaused: Bool = false, expectedReplicas: Int? = nil, lookup: (String) -> String? = { _ in nil }) -> InsightsContext {
         let p = config.push

@@ -3,6 +3,7 @@
   "range": "24h",
   "resolution": "hour",
   "pushEnabled": true,
+  "pushState": "on",
   "pushPaused": false,
   "partial": [],
   "prerequisites": [

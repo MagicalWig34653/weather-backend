@@ -45,7 +45,10 @@ private struct Harness {
     let csrf: String
     let config: Config
 
-    init(linkEnabled: Bool = true, sender: FakeApnsSender = FakeApnsSender(), maxDevices: Int = 3) async throws {
+    /// `replica`: what the radar replica reports (the dashboard process itself runs with push off in the split deployment);
+    /// `leader`: a push leader lease is held.
+    init(linkEnabled: Bool = true, sender: FakeApnsSender = FakeApnsSender(), maxDevices: Int = 3,
+         replica: PushReplicaReport? = PushReplicaReport(enabled: true, environments: "both", liveActivity: true), leader: Bool = true) async throws {
         var c = smallConfig {
             $0.width = 64; $0.push.enabled = true; $0.push.topic = "de.example.app"; $0.push.environments = [.sandbox, .production]
             $0.deviceLink.enabled = linkEnabled; $0.deviceLink.maxDevices = maxDevices
@@ -56,7 +59,11 @@ private struct Harness {
         self.sender = sender
         service = PushService(config: c, repo: repo, sender: sender, owner: "test")
         let auth = DashboardAuth(repo: repo, config: DashboardAuthConfig(origin: origin, rpID: "dash.example.test"), log: { _ in })
-        api = DashboardApi(auth: auth, repo: repo, store: ConfigStore(fixed: c), staticRoot: "/nonexistent")
+        var dashboardConfig = c
+        dashboardConfig.push.enabled = false; dashboardConfig.push.environments = []; dashboardConfig.push.topic = ""
+        api = DashboardApi(auth: auth, repo: repo, store: ConfigStore(fixed: dashboardConfig), staticRoot: "/nonexistent")
+        if let replica { try await repo.heartbeat(replicaID: "radar-1", slot: 1, appliedGeneration: 0, push: replica, now: Date()) }
+        if leader { _ = try await repo.acquireLeader(name: PushService.leaderName, owner: "test", leaseSeconds: 3600) }
         _ = try await repo.insertCredential(credentialID: [1], publicKey: [2], signCount: 0, now: Date())
         let created = try await auth.sessions.create()
         cookie = "__Host-dash_session=" + created.cookieValue
@@ -287,6 +294,40 @@ struct DeviceDashboardTests {
         #expect(PushService.decide(sub: sub(), classes: wet, hasStartToken: true, activity: nil, now: now) == "hysteresis")
         #expect(PushService.decide(sub: sub(wetSeen: true), classes: wet, hasStartToken: true, activity: nil, now: now) == "would_trigger")
         #expect(PushService.decide(sub: sub(live: false), classes: wet, hasStartToken: false, activity: nil, now: now) == "below_threshold")
+    }
+
+    @Test func diagnosisAndActionsFollowTheReplicasNotTheDashboardConfig() async throws {
+        func serverCheck(_ h: Harness, _ id: String) async -> [String: Any]? {
+            let r = await h.call("GET", "/dash/api/devices/\(id)/diagnosis")
+            return ((r.json as? [String: Any])?["checks"] as? [[String: Any]])?.first { $0["code"] as? String == "server" }
+        }
+        let on = try await Harness()
+        let id = try await on.link()
+        let ok = await serverCheck(on, id)
+        #expect(ok?["reason"] as? String == "ok" && ok?["level"] as? String == "ok")
+        // sandbox install, replica accepts both: environment ok; replica accepts production only: env_not_allowed.
+        let prodOnly = try await Harness(replica: PushReplicaReport(enabled: true, environments: "production", liveActivity: true))
+        let pid = try await prodOnly.link()
+        let checks = ((await prodOnly.call("GET", "/dash/api/devices/\(pid)/diagnosis").json as? [String: Any])?["checks"] as? [[String: Any]]) ?? []
+        #expect(checks.first { $0["code"] as? String == "environment" }?["reason"] as? String == "env_not_allowed")
+
+        let off = try await Harness(replica: PushReplicaReport(enabled: false, environments: nil, liveActivity: false), leader: false)
+        let offID = try await off.link()
+        #expect(await serverCheck(off, offID)?["reason"] as? String == "push_disabled")
+        let offAction = await off.call("POST", "/dash/api/devices/\(offID)/actions/reeval")
+        #expect(offAction.status == 503 && (offAction.json as? [String: Any])?["error"] as? String == "push_disabled")
+
+        let unknown = try await Harness(replica: nil, leader: false)
+        let unknownID = try await unknown.link()
+        let state = await serverCheck(unknown, unknownID)
+        #expect(state?["reason"] as? String == "push_unknown" && state?["level"] as? String == "warning")
+        #expect((await unknown.call("POST", "/dash/api/devices/\(unknownID)/actions/reeval").json as? [String: Any])?["error"] as? String == "push_state_unknown")
+
+        // Push is on, but nobody holds the leader lease: commands would never run.
+        let noLeader = try await Harness(leader: false)
+        let nlID = try await noLeader.link()
+        let nl = await noLeader.call("POST", "/dash/api/devices/\(nlID)/actions/reeval")
+        #expect(nl.status == 503 && (nl.json as? [String: Any])?["error"] as? String == "push_leader_missing")
     }
 
     @Test func diagnosisChecksAndVerdict() async throws {

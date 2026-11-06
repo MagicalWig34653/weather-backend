@@ -32,7 +32,8 @@ struct InsightsRepoTests {
         try await repo.addStats(day: now, [StatDelta(metric: "requests", label: "radar_image:2xx", value: 90), StatDelta(metric: "requests", label: "radar_image:304", value: 10),
                                            StatDelta(metric: "errors_5xx", label: "radar_image", value: 1), StatDelta(metric: "cache_hit", label: "radar:memory", value: 80),
                                            StatDelta(metric: "cache_miss", label: "radar:db", value: 20), StatDelta(metric: "page_view", label: "landing_de", value: 4)])
-        try await repo.heartbeat(replicaID: "replica-one", slot: 1, appliedGeneration: 0, now: now)
+        try await repo.heartbeat(replicaID: "replica-one", slot: 1, appliedGeneration: 0,
+                                 push: PushReplicaReport(enabled: true, environments: "production", liveActivity: true), now: now)
         return (ids, subs)
     }
 

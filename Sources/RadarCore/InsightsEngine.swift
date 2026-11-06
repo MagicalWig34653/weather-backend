@@ -188,7 +188,7 @@ public final class InsightsEngine: Sendable {
         let status: IJ = .object(["level": .string(findings.isEmpty ? (anyData ? "ok" : "unknown") : InsightsFindings.overallLevel(findings)),
                                   "findingCount": .int(findings.count)])
         var out = header(l)
-        out["pushEnabled"] = .bool(ctx.pushEnabled); out["pushPaused"] = .bool(ctx.pushEnabled && ctx.pushPaused)
+        out["pushEnabled"] = .bool(ctx.pushEnabled); out["pushState"] = .string(ctx.pushState.rawValue); out["pushPaused"] = .bool(ctx.pushEnabled && ctx.pushPaused)
         out["status"] = status
         out["kpis"] = .object(["requests": requests, "cacheHitRatio": cacheKpi,
                                "ingestAgeSeconds": kpi(value: ageValue, unit: "seconds", delta: nil, level: ageLevel, series: nil),
@@ -390,9 +390,9 @@ public final class InsightsEngine: Sendable {
         let ctx = l.context
         let k = ctx.thresholds.minGroup
         var out = header(l)
-        out["pushEnabled"] = .bool(ctx.pushEnabled); out["pushPaused"] = .bool(ctx.pushEnabled && ctx.pushPaused)
+        out["pushEnabled"] = .bool(ctx.pushEnabled); out["pushState"] = .string(ctx.pushState.rawValue); out["pushPaused"] = .bool(ctx.pushEnabled && ctx.pushPaused)
 
-        var prereq: [IJ] = [.object(["key": .string("push_enabled"), "ok": .bool(ctx.pushEnabled), "detail": .null])]
+        var prereq: [IJ] = [.object(["key": .string("push_enabled"), "ok": .bool(ctx.pushEnabled), "detail": ctx.pushState == .unknown ? .string("unknown") : .null])]
         guard ctx.pushEnabled else {
             for key in ["funnel", "triggers", "skipped", "lifecycle", "locks", "apnsErrors", "delivery", "outbox", "tokenInvalidations", "timing", "registrations", "rejects", "caps"] {
                 out[key] = .null

@@ -403,6 +403,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         // Controlled restart (plan 5.3): the leader flag is not known here, so replicas leave in slot order.
         let coordinator = try? await RestartCoordinator.make(
             repo: repo, replicaID: selfID, slot: RestartPolicy.slot(env), policy: RestartPolicy.fromEnvironment(env),
+            push: PushReplicaReport(config: config),
             isLeader: { false }, leaderSlot: { nil }, shutdown: { logger.info("controlled restart: leaving"); raise(SIGTERM) })
         if let coordinator { restartTask = Task { await coordinator.run() } }
         else { logger.warning("restart coordinator not started (database)") }

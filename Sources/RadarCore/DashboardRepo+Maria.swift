@@ -322,24 +322,30 @@ extension MariaRepo: DashboardRepo {
         }
     }
 
-    public func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, now: Date) async throws {
+    public func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, push: PushReplicaReport?, now: Date) async throws {
         try await connection { conn in
             _ = try await query(conn,
-                "INSERT INTO config_replica (replica_id, slot, applied_generation, started_at, last_seen_at) VALUES (?,?,?,?,?) "
-                + "ON DUPLICATE KEY UPDATE slot=VALUES(slot), applied_generation=VALUES(applied_generation), last_seen_at=VALUES(last_seen_at)",
-                [str(replicaID), slot.map { MySQLData(int: $0) } ?? .null, MySQLData(int: appliedGeneration), ts(now), ts(now)])
+                "INSERT INTO config_replica (replica_id, slot, applied_generation, started_at, last_seen_at, push_on, push_env, push_la) VALUES (?,?,?,?,?,?,?,?) "
+                + "ON DUPLICATE KEY UPDATE slot=VALUES(slot), applied_generation=VALUES(applied_generation), last_seen_at=VALUES(last_seen_at), "
+                + "push_on=VALUES(push_on), push_env=VALUES(push_env), push_la=VALUES(push_la)",
+                [str(replicaID), slot.map { MySQLData(int: $0) } ?? .null, MySQLData(int: appliedGeneration), ts(now), ts(now),
+                 push.map { MySQLData(int: $0.enabled ? 1 : 0) } ?? .null, push?.environments.map { str($0) } ?? .null,
+                 push.map { MySQLData(int: $0.liveActivity ? 1 : 0) } ?? .null])
         }
     }
 
     public func replicas(now: Date) async throws -> [ReplicaRecord] {
         try await connection { conn in
             try await query(conn,
-                "SELECT replica_id, slot, applied_generation, DATE_FORMAT(started_at, \(Self.dateOut)) AS started_s, DATE_FORMAT(last_seen_at, \(Self.dateOut)) AS seen_s "
+                "SELECT replica_id, slot, applied_generation, push_on, push_env, push_la, DATE_FORMAT(started_at, \(Self.dateOut)) AS started_s, DATE_FORMAT(last_seen_at, \(Self.dateOut)) AS seen_s "
                 + "FROM config_replica WHERE last_seen_at > ? ORDER BY slot IS NULL, slot, replica_id",
-                [ts(now.addingTimeInterval(-DashboardRetention.replicaStale))]).rows.map {
-                ReplicaRecord(replicaID: $0.column("replica_id")?.string ?? "", slot: $0.column("slot")?.int,
-                              appliedGeneration: $0.column("applied_generation")?.int ?? 0,
-                              startedAt: Self.time($0, "started_s"), lastSeenAt: Self.time($0, "seen_s"))
+                [ts(now.addingTimeInterval(-DashboardRetention.replicaStale))]).rows.map { row in
+                let push = row.column("push_on")?.int.map {
+                    PushReplicaReport(enabled: $0 == 1, environments: row.column("push_env")?.string, liveActivity: row.column("push_la")?.int == 1)
+                }
+                return ReplicaRecord(replicaID: row.column("replica_id")?.string ?? "", slot: row.column("slot")?.int,
+                                     appliedGeneration: row.column("applied_generation")?.int ?? 0,
+                                     startedAt: Self.time(row, "started_s"), lastSeenAt: Self.time(row, "seen_s"), push: push)
             }
         }
     }

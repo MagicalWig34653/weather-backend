@@ -180,16 +180,17 @@ extension RestartCoordinator {
     /// serving), writes a heartbeat with the applied generation on every check, and derives peers from fresh `replicas(now:)` rows
     /// (leader = `leaderSlot()` or the replica holding the ingest lock, decided by the caller).
     public static func make(repo: any DashboardRepo, replicaID: String, slot: Int, policy: RestartPolicy = RestartPolicy(),
+                            push: PushReplicaReport? = nil,
                             isLeader: @escaping @Sendable () async -> Bool,
                             leaderSlot: @escaping @Sendable () async -> Int?,
                             shutdown: @escaping @Sendable () async -> Void,
                             now: @escaping @Sendable () -> Date = { Date() }) async throws -> RestartCoordinator {
         let start = try await repo.generation().generation
-        try await repo.heartbeat(replicaID: replicaID, slot: slot, appliedGeneration: start, now: now())
+        try await repo.heartbeat(replicaID: replicaID, slot: slot, appliedGeneration: start, push: push, now: now())
         return RestartCoordinator(
             policy: policy, slot: slot, startGeneration: start, now: now,
             readGeneration: {
-                try await repo.heartbeat(replicaID: replicaID, slot: slot, appliedGeneration: start, now: now())
+                try await repo.heartbeat(replicaID: replicaID, slot: slot, appliedGeneration: start, push: push, now: now())
                 return try await repo.generation().generation
             },
             readPeers: {

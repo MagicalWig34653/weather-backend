@@ -116,9 +116,18 @@ public struct ReplicaRecord: Sendable, Equatable {
     public let appliedGeneration: Int
     public let startedAt: Date
     public let lastSeenAt: Date
-    public init(replicaID: String, slot: Int?, appliedGeneration: Int, startedAt: Date, lastSeenAt: Date) {
+    /// Push state the replica reported with its heartbeat; nil = nothing reported.
+    public let push: PushReplicaReport?
+    public init(replicaID: String, slot: Int?, appliedGeneration: Int, startedAt: Date, lastSeenAt: Date, push: PushReplicaReport? = nil) {
         self.replicaID = replicaID; self.slot = slot; self.appliedGeneration = appliedGeneration
-        self.startedAt = startedAt; self.lastSeenAt = lastSeenAt
+        self.startedAt = startedAt; self.lastSeenAt = lastSeenAt; self.push = push
+    }
+}
+
+public extension DashboardRepo {
+    /// Heartbeat without a push report (tests, processes that do not serve push).
+    func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, now: Date) async throws {
+        try await heartbeat(replicaID: replicaID, slot: slot, appliedGeneration: appliedGeneration, push: nil, now: now)
     }
 }
 
@@ -202,7 +211,7 @@ public protocol DashboardRepo: Sendable {
     /// Writes an audit entry (`restart`, old/new generation) in the same transaction. Returns the new generation.
     func requestRestart(minInterval: TimeInterval, now: Date) async throws -> Int?
     /// Upsert of this replica; `started_at` is set on first insert only.
-    func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, now: Date) async throws
+    func heartbeat(replicaID: String, slot: Int?, appliedGeneration: Int, push: PushReplicaReport?, now: Date) async throws
     /// Replicas seen within `DashboardRetention.replicaStale`, ascending by slot (nil last), then id.
     func replicas(now: Date) async throws -> [ReplicaRecord]
     func removeReplica(replicaID: String) async throws
