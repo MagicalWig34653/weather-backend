@@ -332,6 +332,9 @@ secret_name_for() { # KEY -> Secret-Name
   case "$1" in
     DB_PASSWORD) eff_value DB_PASSWORD_SECRET ;;
     APNS_KEY) eff_value APNS_KEY_SECRET ;;
+    DASH_PROXY_TOKEN) eff_value DASH_PROXY_TOKEN_SECRET ;;
+    # Without rotation the previous token is the current secret (the scripts fill in the same fallback for the stack).
+    DASH_PROXY_TOKEN_PREVIOUS) if is_set DASH_PROXY_TOKEN_PREVIOUS_SECRET; then eff_value DASH_PROXY_TOKEN_PREVIOUS_SECRET; else eff_value DASH_PROXY_TOKEN_SECRET; fi ;;
     *) printf '%s' "$(echo "$1" | tr '[:upper:]' '[:lower:]')" ;;
   esac
 }
@@ -340,6 +343,10 @@ secret_hint() { # KEY -> Text mit dem docker-secret-create-Befehl
   case "$1" in
     APNS_KEY)
       printf 'Der APNs-Schlüssel (.p8) liegt als Docker-Secret, nie in der .env.\n\nAnlegen (auf einem Swarm-Manager):\n  docker secret create %s /pfad/AuthKey_XXXXXXXXXX.p8\n\nDas Secret wird nur mit PUSH_ENABLED=true über stack.push.yaml eingehängt. Der Name steht in APNS_KEY_SECRET.' "$name" ;;
+    DASH_PROXY_TOKEN)
+      printf 'Das Proxy-Token des Dashboards liegt als Docker-Secret, nie in der .env. Der Reverse Proxy sendet es als Header X-Dashboard-Proxy-Token (setzen, nicht anhängen); ohne Token antwortet das Dashboard mit 404.\n\nErzeugen und anlegen (auf einem Swarm-Manager; ein Secret lässt sich nicht auslesen, daher zuerst in eine Datei):\n  umask 077; openssl rand -base64 32 | tr '"'"'+/'"'"' '"'"'-_'"'"' | tr -d '"'"'='"'"' > proxy-token.txt\n  docker secret create %s proxy-token.txt\n  (Wert aus der Datei im Proxy als Header eintragen, danach: rm proxy-token.txt)\n\nROTATION (Secrets sind unveränderlich): neues Secret unter neuem Namen anlegen, DASH_PROXY_TOKEN_SECRET=<neu> und DASH_PROXY_TOKEN_PREVIOUS_SECRET=<alt> setzen, ausrollen (beide gelten), Header im Proxy auf den neuen Wert umstellen, danach DASH_PROXY_TOKEN_PREVIOUS_SECRET wieder entfernen und ausrollen.' "$name" ;;
+    DASH_PROXY_TOKEN_PREVIOUS)
+      printf 'Das vorherige Proxy-Token (nur während einer Rotation) liegt ebenfalls als Docker-Secret. Ohne Rotation ist es dasselbe Secret wie das aktuelle (%s). Rotation: siehe DASH_PROXY_TOKEN; Namen in DASH_PROXY_TOKEN_SECRET und DASH_PROXY_TOKEN_PREVIOUS_SECRET.' "$name" ;;
     DB_PASSWORD)
       printf 'Das Datenbank-Passwort liegt als Docker-Secret, nie in der .env.\n\nAnlegen (auf einem Swarm-Manager; die Eingabe erscheint nicht in der Shell-Historie):\n  read -rs PW; printf %%s "$PW" | docker secret create %s -\n  unset PW\n\nDer Name steht in DB_PASSWORD_SECRET. Ein Secret lässt sich nicht ändern: zum Ersetzen unter neuem Namen anlegen und DB_PASSWORD_SECRET anpassen.' "$name" ;;
     *) printf 'Geheimnisse gehören als Docker-Secret in den Swarm, nie in die .env:\n  docker secret create NAME DATEI' ;;
@@ -406,6 +413,15 @@ check_all() {
   fi
   if [ "$(eff_value DASH_ENABLED)" = true ]; then
     if [ -z "$(eff_value DASH_ORIGIN)" ]; then chk_err "DASH_ENABLED=true, aber DASH_ORIGIN fehlt (https-Adresse, unter der das Dashboard aufgerufen wird)."; fi
+    cur="$(secret_name_for DASH_PROXY_TOKEN)"; prev="$(secret_name_for DASH_PROXY_TOKEN_PREVIOUS)"
+    for name in "$cur" $([ "$prev" = "$cur" ] || printf '%s' "$prev"); do
+      st="$(secret_status "$name")"
+      case "$st" in
+        fehlt) chk_err "DASH_ENABLED=true, aber das Docker-Secret $name (Proxy-Token) fehlt (Anleitung im Menü bei DASH_PROXY_TOKEN, oder: docker secret create $name DATEI)." ;;
+        unbekannt) chk_warn "Docker-Secret $name (Proxy-Token) konnte nicht geprüft werden (docker nicht erreichbar oder kein Manager)." ;;
+      esac
+    done
+    if [ "$(eff_value DASH_PROXY_TOKEN_REQUIRED)" = false ]; then chk_warn "DASH_PROXY_TOKEN_REQUIRED=false wirkt im Swarm-Stack nicht: das Secret wird immer eingehängt und geprüft."; fi
     if [ ! -f "$DASH_OVERLAY" ]; then chk_warn "Dashboard noch nicht verfügbar in dieser Version (deploy/swarm/stack.dashboard.yaml fehlt); ein Rollout bricht ab."
     elif ! dash_command_ready; then chk_note "Dashboard: Overlay vorhanden, Dienstbefehl folgt (WP5): der Befehl 'radar dashboard' ist in dieser Version noch nicht bestätigt; der Dienst startet erst mit einem Image, das ihn enthält."; fi
   fi

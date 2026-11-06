@@ -31,12 +31,14 @@ say() { echo "$*"; }
 die() { echo "$*" >&2; exit 1; }
 # shellcheck source=lib.sh
 . ./lib.sh
-if [[ -z "${PUSH_ENABLED+x}" || -z "${APNS_KEY_SECRET+x}" || -z "${DASH_ENABLED+x}" ]]; then
+if [[ -z "${PUSH_ENABLED+x}" || -z "${APNS_KEY_SECRET+x}" || -z "${DASH_ENABLED+x}" || -z "${DASH_PROXY_TOKEN_SECRET+x}" || -z "${DASH_PROXY_TOKEN_PREVIOUS_SECRET+x}" ]]; then
   for envf in "${ENV_FILE:-}" "$PWD/../../.env" "$PWD/.env"; do
     [[ -n "$envf" && -f "$envf" ]] || continue
     [[ -n "${PUSH_ENABLED+x}" ]] || PUSH_ENABLED="$(env_value "$envf" PUSH_ENABLED)"
     [[ -n "${DASH_ENABLED+x}" ]] || DASH_ENABLED="$(env_value "$envf" DASH_ENABLED)"
     [[ -n "${APNS_KEY_SECRET+x}" ]] || APNS_KEY_SECRET="$(env_value "$envf" APNS_KEY_SECRET)"
+    [[ -n "${DASH_PROXY_TOKEN_SECRET+x}" ]] || DASH_PROXY_TOKEN_SECRET="$(env_value "$envf" DASH_PROXY_TOKEN_SECRET)"
+    [[ -n "${DASH_PROXY_TOKEN_PREVIOUS_SECRET+x}" ]] || DASH_PROXY_TOKEN_PREVIOUS_SECRET="$(env_value "$envf" DASH_PROXY_TOKEN_PREVIOUS_SECRET)"
     break
   done
 fi
@@ -46,11 +48,14 @@ if [[ "${PUSH_ENABLED:-false}" == true ]]; then
   compose_args+=(-c stack.push.yaml)
   echo "Push enabled: stack files ${compose_args[*]}"
 fi
-# Optional dashboard (DASH_ENABLED=true): own service "dashboard" from the overlay stack.dashboard.yaml (no published port).
+# Optional dashboard (DASH_ENABLED=true): own service "dashboard" from the overlay stack.dashboard.yaml (one ingress port, see the overlay).
 # The overlay exists since the dashboard work package; it stops with a clear message when the file is missing (old scripts folder).
 if [[ "${DASH_ENABLED:-false}" == true ]]; then
   require_dashboard_overlay ""
   compose_args+=(-c stack.dashboard.yaml)
+  # The proxy token is a Swarm secret that the overlay always mounts: check it before anything is deployed (clear error instead of a
+  # failed deploy or a container that aborts at start). Also exports the secret names for `docker stack deploy`.
+  require_dashboard_secret ""
   # DASH_ORIGIN is required (the overlay aborts without it). DASH_RP_ID is optional: when empty, use the host of DASH_ORIGIN
   # (no scheme, no port, lower case) - the WebAuthn RP ID must be a registrable domain suffix of that host.
   if [[ -z "${DASH_RP_ID:-}" && -n "${DASH_ORIGIN:-}" ]]; then
