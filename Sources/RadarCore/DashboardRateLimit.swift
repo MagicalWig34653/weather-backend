@@ -24,7 +24,8 @@ public final class DashboardRateLimits: @unchecked Sendable {
             case .setupFinish, .loginFinish: return 5
             case .configWrite: return 30
             case .restart: return 2
-            case .other, .session: return 600
+            case .session: return 600
+            case .other: return 3000
             case .challengeProbe: return 120
             }
         }

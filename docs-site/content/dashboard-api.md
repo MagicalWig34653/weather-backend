@@ -95,7 +95,7 @@ Sitzung und CSRF erforderlich, Body `{}`. Antwort 204 mit zurückgesetztem Cooki
 
 ### Ratenbegrenzung
 
-Ohne IP, global je Prozess (im Speicher): `setup/begin` und `login/begin` 10 pro Minute, `setup/finish` 5 pro Minute, Konfigurationsschreiben 30 pro Minute, `GET session` 600 pro Minute (eigener Eimer), alle übrigen Routen 600 pro Minute, unbekannte oder abgelaufene Challenge-IDs 120 pro Minute (kein Fehlversuch). `login/finish` hat keinen eigenen Eimer; die Last begrenzt `login/begin`, weil jede Anmeldung eine Einmal-Challenge braucht. Fehlversuche verzögern nur die Ersteinrichtung (Setup): drei frei, danach 5 s, 10 s, 20 s … bis höchstens 60 s (429 mit `Retry-After`); ein Erfolg setzt zurück, Fehlversuche verfallen nach 15 Minuten. Der Login wird nie durch Fehlversuche gesperrt (eine falsche Signatur wird nie richtig; eine globale Sperre wäre nur ein Aussperr-Hebel für anonyme Aufrufer). Mit mehreren Dashboard-Replikaten gilt jede Grenze je Prozess.
+Ohne IP, global je Prozess (im Speicher): `setup/begin` und `login/begin` 10 pro Minute, `setup/finish` 5 pro Minute, Konfigurationsschreiben 30 pro Minute, `GET session` 600 pro Minute (eigener Eimer), alle übrigen authentifizierten Routen 3000 pro Minute (seit 6.11.2026; vorher 600), unbekannte oder abgelaufene Challenge-IDs 120 pro Minute (kein Fehlversuch). `login/finish` hat keinen eigenen Eimer; die Last begrenzt `login/begin`, weil jede Anmeldung eine Einmal-Challenge braucht. Fehlversuche verzögern nur die Ersteinrichtung (Setup): drei frei, danach 5 s, 10 s, 20 s … bis höchstens 60 s (429 mit `Retry-After`); ein Erfolg setzt zurück, Fehlversuche verfallen nach 15 Minuten. Der Login wird nie durch Fehlversuche gesperrt (eine falsche Signatur wird nie richtig; eine globale Sperre wäre nur ein Aussperr-Hebel für anonyme Aufrufer). Mit mehreren Dashboard-Replikaten gilt jede Grenze je Prozess.
 
 ### Notfall: `radar dashboard-reset --yes`
 
@@ -125,7 +125,7 @@ Status: **eingefroren**. Änderungen nur additiv (neue optionale Felder, neue Au
 - **Keine IDs, Tokens, IPs, Koordinaten, Zellen, Installations- oder Abo-IDs, keine freien Zeichenketten aus Nutzerdaten** in Insights-Antworten. Replikat-IDs sind 8 Hexzeichen eines SHA-256 (kein Hostname). Die einzige Nutzereingabe in Antworten ist die Gerätebezeichnung (`label`, höchstens 40 Zeichen, vom Betreiber vergeben).
 - Fehler: `{"error":"<code>"}`, kein Detail. Gemeinsame Codes: `validation` (400, Body/Query ungültig), `unauthorized` (401, keine Sitzung), `forbidden` (403, Host/Origin/CSRF), `not_found` (404), `conflict` (409), `rate_limited` (429 mit `Retry-After`), `data_unavailable` (503, Datenbank nicht erreichbar). Weitere Codes stehen je Route.
 - Texte (Titel, Beschreibungen, Befundsätze) liefert **nicht** der Server: Er sendet Codes und Parameter, das Frontend formuliert Deutsch.
-- Ratenlimit (im Speicher je Prozess): Insights-Routen und alle Lesezugriffe 600 pro Minute gesamt; Schreib- und Aktionsrouten wie unten je Route. Insights werden serverseitig 5 Sekunden gecacht, Zähler stammen aus dem Flush alle 60 Sekunden (Verzug bis 60 s; `generatedAt` nennt den Rechenzeitpunkt).
+- Ratenlimit (im Speicher je Prozess): Insights-Routen und alle Lesezugriffe 3000 pro Minute gesamt; Schreib- und Aktionsrouten wie unten je Route. Insights werden serverseitig 5 Sekunden gecacht, Zähler stammen aus dem Flush alle 60 Sekunden (Verzug bis 60 s; `generatedAt` nennt den Rechenzeitpunkt).
 
 ### Gemeinsame Typen
 

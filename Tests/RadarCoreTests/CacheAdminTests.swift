@@ -429,3 +429,136 @@ struct CacheRefreshTests {
         #expect(try await repo.refreshJob(id: created.created[0].id)?.error == "timeout")
     }
 }
+
+// MARK: Insights error behaviour (stale-while-error, single flight)
+
+private struct FlakySource: InsightsDataSource {
+    let failing: Locked<Bool>
+    let calls: Locked<Int>
+    let delay: UInt64
+    func context() async -> InsightsContext { InsightsContext(pushEnabled: false, caps: InsightsCapLimits(installations: 1, subscriptions: 1, regionCells: 1, activitySubscriptions: 1)) }
+    func dailyStats(from: Date, to: Date) async throws -> [StatRow] {
+        calls.withLock { $0 += 1 }
+        if delay > 0 { try await Task.sleep(nanoseconds: delay) }
+        if failing.withLock({ $0 }) { throw NSError(domain: "db", code: 1) }
+        return []
+    }
+    func layers(now: Date) async throws -> [InsightsLayerState] { [] }
+    func replicaInfo(now: Date) async throws -> InsightsReplicaInfo { InsightsReplicaInfo(replicas: [], generation: 0) }
+    func pushGauges(now: Date) async throws -> InsightsPushGauges? { nil }
+}
+
+@Suite("Insights error behaviour")
+struct InsightsStaleTests {
+    private func rig(_ source: FlakySource, time: Locked<Date>) async throws -> (DashboardApi, String) {
+        let repo = MemoryRepo()
+        let store = try await ConfigStore(env: [:], repo: repo)
+        let auth = DashboardAuth(repo: repo, config: DashboardAuthConfig(origin: origin, rpID: "dash.example.test"), log: { _ in })
+        let clock: @Sendable () -> Date = { time.withLock { $0 } }
+        let api = DashboardApi(auth: auth, repo: repo, store: store, env: [:], staticRoot: NSTemporaryDirectory(), clock: clock,
+                               extra: registerInsightsRoutes(engine: InsightsEngine(source: source, clock: clock), clock: clock))
+        _ = try await repo.insertCredential(credentialID: [1], publicKey: [2], signCount: 0, now: Date())
+        let created = try await auth.sessions.create()
+        return (api, "__Host-dash_session=" + created.cookieValue)
+    }
+    private func get(_ r: (DashboardApi, String), _ path: String) async -> (Int, [String: Any], ApiResponse) {
+        let resp = await r.0.handle(DashboardHTTPRequest(method: "GET", path: path, info: DashboardRequestInfo(method: "GET", cookieHeader: r.1, host: "dash.example.test")))
+        return (resp.status, (try? JSONSerialization.jsonObject(with: Data(resp.body))) as? [String: Any] ?? [:], resp)
+    }
+
+    @Test func lastGoodAnswerSurvivesFailureForTenMinutes() async throws {
+        let time = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        let failing = Locked(false)
+        let r = try await rig(FlakySource(failing: failing, calls: Locked(0), delay: 0), time: time)
+        let first = await get(r, "/dash/api/insights/ops")
+        #expect(first.0 == 200 && first.1["stale"] == nil)
+        failing.withLock { $0 = true }
+        time.withLock { $0 = $0.addingTimeInterval(30) }
+        let stale = await get(r, "/dash/api/insights/ops")
+        #expect(stale.0 == 200 && stale.1["stale"] as? Bool == true && stale.1["staleSeconds"] as? Int == 30)
+        #expect(stale.1["generatedAt"] as? String == first.1["generatedAt"] as? String)
+        time.withLock { $0 = $0.addingTimeInterval(600) }
+        let gone = await get(r, "/dash/api/insights/ops")
+        #expect(gone.0 == 503 && gone.1["error"] as? String == "data_unavailable")
+        #expect(gone.2.headers.contains { $0.0 == "Retry-After" && $0.1 == "5" })
+        failing.withLock { $0 = false }
+        #expect(await get(r, "/dash/api/insights/ops").0 == 200)
+    }
+
+    @Test func parallelIdenticalRequestsShareOneComputation() async throws {
+        let calls = Locked(0)
+        let r = try await rig(FlakySource(failing: Locked(false), calls: calls, delay: 200_000_000), time: Locked(Date(timeIntervalSince1970: 1_800_000_000)))
+        await withTaskGroup(of: Int.self) { group in
+            for _ in 0..<6 { group.addTask { await self.get(r, "/dash/api/insights/ops").0 } }
+            for await s in group { #expect(s == 200) }
+        }
+        #expect(calls.withLock { $0 } == 1)
+    }
+
+    @Test func authenticatedReadsAllowThreeThousandPerMinute() {
+        #expect(DashboardRateLimits.Bucket.other.perMinute == 3000 && DashboardRateLimits.Bucket.session.perMinute == 600)
+    }
+}
+
+extension DatabaseSuites {
+@Suite("Cache admin repo", .serialized)
+struct CacheAdminRepoTests {
+    @Test(arguments: RepoKind.allCases) func repoContract(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let a = TimeUtil.floorStep(now.addingTimeInterval(-3600)), b = a.addingTimeInterval(300)
+        for nominal in [a, b] {
+            let id = TimeUtil.toID(nominal)
+            #expect(try await repo.tryClaim(runID: id, nominal: nominal, owner: "t", leaseSeconds: 60, maxAttempts: 2))
+            for (i, slot) in TimeUtil.slots(of: nominal).prefix(3).enumerated() {
+                try await repo.putSlot(SlotRef(runID: id, slotID: TimeUtil.toID(slot), slotIndex: i, slotTime: slot), contentType: "image/webp", data: [UInt8](repeating: UInt8(i + 1), count: 10))
+            }
+            #expect(try await repo.publish(runID: id, owner: "t", expectedSlots: 3))
+        }
+        let l = a.addingTimeInterval(600), lid = TimeUtil.toID(l)
+        #expect(try await repo.layerTryClaim(layer: "lightning", runID: lid, nominal: l, owner: "t", leaseSeconds: 60, maxAttempts: 2))
+        try await repo.layerPutSlot(layer: "lightning", SlotRef(runID: lid, slotID: lid, slotIndex: 0, slotTime: l), contentType: "image/png", data: [9, 9])
+        let inv = try await repo.cacheInventory(layers: ["radar", "lightning", "clouds"], now: now)
+        #expect(inv[0].runs == 2 && inv[0].slots == 6 && inv[0].bytes == 60 && inv[0].oldestNominal == a && inv[0].newestNominal == b)
+        #expect(inv[0].lastAttemptStatus == "published")
+        #expect(inv[1].runs == 0 && inv[1].lastAttemptStatus == "claimed")      // not published yet: not counted, but a running attempt
+        #expect(inv[2].runs == 0 && inv[2].lastAttemptStatus == nil)
+        let page = try await repo.cacheSlotPage(layer: "radar", before: now, limit: 2)
+        #expect(page.rows.count >= 2 && page.next != nil)
+        #expect(page.rows.map(\.slot) == page.rows.map(\.slot).sorted(by: >))
+        let blob = try #require(try await repo.cacheSlotBlob(layer: "radar", slot: b, run: nil))
+        #expect(blob.data == [UInt8](repeating: 2, count: 10) || blob.data == [UInt8](repeating: 1, count: 10))
+        #expect(try await repo.cacheSlotBlob(layer: "lightning", slot: l, run: nil) == nil)   // unpublished
+        // refresh jobs
+        let created = try await repo.createRefreshJobs(layers: ["radar", "clouds"], now: now)
+        #expect(created.created.count == 2)
+        #expect(try await repo.createRefreshJobs(layers: ["radar"], now: now).pending == ["radar"])
+        #expect(try await repo.queuedRefreshLayers(now: now) == ["radar", "clouds"])
+        let job = try #require(try await repo.claimRefreshJob(layer: "radar", now: now))
+        #expect(try await repo.claimRefreshJob(layer: "radar", now: now) == nil)
+        try await repo.finishRefreshJob(id: job.id, status: .ok, result: "{\"stored\":1}", error: nil, now: now)
+        #expect(try await repo.refreshJob(id: job.id)?.status == .ok)
+        #expect(try await repo.queuedRefreshLayers(now: now.addingTimeInterval(130)) == [])
+        #expect(try await repo.refreshJob(id: created.created[1].id)?.error == "no_ingest_replica")
+        // replica fill
+        try await repo.heartbeat(replicaID: "r1", slot: 1, appliedGeneration: 0, push: nil, now: now)
+        try await repo.reportCacheFill(replicaID: "r1", fill: ReplicaCacheFill(bytes: 5, entries: 1, maxBytes: 9), now: now)
+        #expect(try await repo.replicaCacheFills(now: now)["r1"] == ReplicaCacheFill(bytes: 5, entries: 1, maxBytes: 9))
+    }
+}
+}
+
+extension DatabaseSuites {
+@Suite("Dead pooled connection", .serialized)
+struct DeadConnectionTests {
+    @Test(arguments: RepoKind.allCases.filter { $0 == .maria }) func idleConnectionKilledByServerIsReplaced(kind: RepoKind) async throws {
+        let repo = try await kind.make() as! MariaRepo
+        try await repo.ping()
+        try await repo.rawExecute("SET GLOBAL wait_timeout = 2")
+        defer { Task { try? await repo.rawExecute("SET GLOBAL wait_timeout = 28800") } }
+        try await Task.sleep(nanoseconds: 3_500_000_000)
+        for _ in 0..<4 { try await repo.ping() }     // every pooled connection was closed by the server meanwhile
+        _ = try await repo.cacheInventory(layers: ["radar"], now: Date())
+    }
+}
+}

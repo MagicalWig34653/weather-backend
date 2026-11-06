@@ -35,9 +35,19 @@ public final class MariaRepo: Repo, @unchecked Sendable {
     // MARK: connection helpers
 
     func connection<T>(_ body: (MySQLConnection) async throws -> T) async throws -> T {
-        let conn = try await pool.requestConnection().get()
+        var conn = try await pool.requestConnection().get()
+        // A pooled connection can be dead without the pool knowing (server wait_timeout, proxy idle timeout, database restart): the
+        // first statement then fails. Nothing of the caller's work has run yet, so retry once on a fresh connection instead of
+        // surfacing a 503 ("Aktualisierung fehlgeschlagen" in the dashboard).
         do {
             _ = try await conn.simpleQuery("SET time_zone='+00:00'").get()
+        } catch {
+            _ = try? await conn.close().get()
+            pool.releaseConnection(conn)
+            conn = try await pool.requestConnection().get()
+            do { _ = try await conn.simpleQuery("SET time_zone='+00:00'").get() } catch { pool.releaseConnection(conn); throw error }
+        }
+        do {
             let result = try await body(conn)
             pool.releaseConnection(conn)
             return result
