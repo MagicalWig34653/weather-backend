@@ -27,6 +27,7 @@ struct MemoryPushStore {
         var nextAttemptAt: Date
         var status: String
         var finishedAt: Date?
+        var createdAt = Date.distantPast
     }
     var installs: [String: Install] = [:]
     var subs: [String: Sub] = [:]
@@ -34,6 +35,9 @@ struct MemoryPushStore {
     var activities: [String: PushActivity] = [:]
     var nextOutboxID = 1
     var lastRun: String?
+    var pausedSince: Date?
+    var cacheGeneration = 0
+    var cacheScope = "all"
 
     mutating func removeInstall(_ id: String) {
         installs[id] = nil
@@ -159,7 +163,7 @@ extension MemoryRepo {
             push.nextOutboxID += 1
             push.outbox[id] = .init(id: id, subID: item.subID, dedupeKey: item.dedupeKey, collapseID: item.collapseID,
                                     payload: item.payloadJSON, expiresAt: item.expiresAt, attempts: 0, nextAttemptAt: now,
-                                    status: "pending", finishedAt: nil)
+                                    status: "pending", finishedAt: nil, createdAt: now)
         }
         return true
     }
@@ -281,5 +285,39 @@ extension MemoryRepo {
         guard let activity = push.activities[subscriptionID], matchingToken == nil || activity.activityToken == matchingToken else { return false }
         push.activities[subscriptionID] = nil
         return true
+    }
+}
+
+extension MemoryRepo: PushOperatorRepo {
+    public func pushPausedSince() async throws -> Date? { push.pausedSince }
+
+    @discardableResult public func setPushPaused(_ paused: Bool, now: Date) async throws -> Date? {
+        if !paused { push.pausedSince = nil } else if push.pausedSince == nil { push.pausedSince = now }
+        return push.pausedSince
+    }
+
+    public func cacheClearState() async throws -> CacheClearState { CacheClearState(generation: push.cacheGeneration, scope: push.cacheScope) }
+
+    public func requestCacheClear(scope: String) async throws -> Int {
+        push.cacheGeneration += 1
+        push.cacheScope = scope
+        return push.cacheGeneration
+    }
+
+    public func outboxGauge(now: Date) async throws -> OutboxGauge {
+        var gauge = OutboxGauge()
+        var oldest: Date?
+        for item in push.outbox.values {
+            if item.status == "pending", item.expiresAt > now {
+                gauge.waiting += 1
+                if item.attempts > 0 { gauge.retrying += 1 }
+                oldest = min(oldest ?? item.createdAt, item.createdAt)
+            }
+            let since = now.addingTimeInterval(-86400)
+            if item.status == "dropped", (item.finishedAt ?? item.expiresAt) >= since { gauge.droppedOrExpired24h += 1 }
+            else if item.status == "pending", item.expiresAt <= now, item.expiresAt >= since { gauge.droppedOrExpired24h += 1 }
+        }
+        gauge.oldestAgeSeconds = oldest.map { max(0, Int(now.timeIntervalSince($0))) }
+        return gauge
     }
 }

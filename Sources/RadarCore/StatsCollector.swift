@@ -119,7 +119,7 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
 
     /// Allowed metrics with their fixed label sets.
     public static var labelRules: [String: LabelRule] {
-        return [
+        return pushLabelRules.merging([
             "requests": .requestLabel,
             "bytes_out": .routeGroup,
             "errors_5xx": .routeGroup,
@@ -136,7 +136,7 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             "ingest_dur": .layerBucket(StatsBuckets.ingestDuration),
             "cache_evict": .fixed(["radar", "layer"]),
             "stats_dropped": .fixed([""]),
-        ]
+        ]) { push, _ in push }
     }
 
     private struct Key: Hashable { let metric: String; let label: String }

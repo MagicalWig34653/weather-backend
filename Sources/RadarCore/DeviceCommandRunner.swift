@@ -59,7 +59,7 @@ extension PushService {
         let now = clock()
         let recorder = RecordingSender(sender)
         let worker = PushService(config: config, repo: repo, sender: recorder, owner: owner, clock: clock, stats: stats,
-                                 probeAlert: command.kind == .laProbe)
+                                 probeAlert: command.kind == .laProbe, observer: NoPushObserver())
         do {
             switch command.kind {
             case .test:

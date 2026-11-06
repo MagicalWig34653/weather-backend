@@ -74,7 +74,8 @@ extension PushService {
             guard let work else { break }
             _ = budget.spend()
             let now = clock()
-            try await evaluateActivity(target: work.target, classes: work.classes, notify: work.notify, reference: work.reference, now: now, result: &result)
+            try await evaluateActivity(target: work.target, classes: work.classes, notify: work.notify, reference: work.reference, now: now, result: &result,
+                                       trigger: work.trigger)
         }
         guard result.isLeader, budget.available else { return }
         try await expireActivities(&result, budget: &budget)
@@ -88,9 +89,12 @@ extension PushService {
     }
 
     func evaluateActivity(target: PushActivityTarget, classes: [Int], notify: Bool, reference: Date, now: Date,
-                          result: inout PushTick) async throws {
+                          result: inout PushTick, trigger: PushTrigger = .laRainStart) async throws {
         let sub = target.subscription
-        guard config.push.environments.contains(target.installation.env) else { return }
+        guard config.push.environments.contains(target.installation.env) else {
+            if notify { observer.skipped(trigger, .envNotAllowed, by: 1) }
+            return
+        }
         let content = PushActivityPayload.content(classes: classes, threshold: sub.threshold, reference: reference)
         if let activity = target.activity {
             // Only known-dry slots end an activity; unknown pixels keep it running (it still ends at its deadline).
@@ -98,10 +102,13 @@ extension PushService {
             let dry = !window.contains { $0 >= sub.threshold || $0 < 0 }
             let event: PushActivityEvent = dry || activity.endsAt <= now ? .end : .update
             try await sendActivity(target: target, event: event, content: content, now: now, result: &result)
-        } else if notify, sub.enabled, sub.liveActivity, sub.kind == .point,
-                  target.installation.liveActivityStartToken != nil,
-                  try await repo.reserveActivity(subscriptionID: sub.id, now: now) {
-            try await sendActivity(target: target, event: .start, content: content, now: now, result: &result)
+        } else if notify, sub.enabled, sub.liveActivity, sub.kind == .point, target.installation.liveActivityStartToken != nil {
+            if try await repo.reserveActivity(subscriptionID: sub.id, now: now) {
+                try await sendActivity(target: target, event: .start, content: content, now: now, result: &result)
+            } else {
+                // Another subscription of the same installation holds the one activity slot; the start is lost (lock stays).
+                observer.skipped(trigger, .activitySlotBusy, by: 1)
+            }
         }
     }
 
@@ -116,7 +123,7 @@ extension PushService {
             for target in page {
                 guard budget.spend() else { return }
                 let content = PushActivityPayload.content(classes: [], threshold: target.subscription.threshold, reference: now)
-                try await sendActivity(target: target, event: .end, content: content, now: now, result: &result)
+                try await sendActivity(target: target, event: .end, content: content, now: now, result: &result, expire: true)
             }
             guard page.count == Self.batchSize, let last = page.last else { return }
             after = last.subscription.id
@@ -124,16 +131,16 @@ extension PushService {
     }
 
     func sendActivity(target: PushActivityTarget, event: PushActivityEvent, content: [String: Any], now: Date,
-                      result: inout PushTick) async throws {
+                      result: inout PushTick, expire: Bool = false) async throws {
         guard config.push.environments.contains(target.installation.env) else { return }
         let subID = target.subscription.id
         let token = event == .start ? target.installation.liveActivityStartToken : target.activity?.activityToken
         guard let token else {
             if event == .end {
                 // Only a still tokenless reservation is deleted. If the app registered a token meanwhile, end it via APNs.
-                if try await repo.deleteReservation(subscriptionID: subID) { return }
+                if try await repo.deleteReservation(subscriptionID: subID) { observer.reservationExpired(); return }
                 if let fresh = try await repo.activityTarget(subscriptionID: subID), fresh.activity?.activityToken != nil {
-                    try await sendActivity(target: fresh, event: .end, content: content, now: now, result: &result)
+                    try await sendActivity(target: fresh, event: .end, content: content, now: now, result: &result, expire: expire)
                 }
             }
             return
@@ -143,25 +150,34 @@ extension PushService {
                                   payload: try PushActivityPayload.encode(event: event, subscriptionID: subID, content: content, now: now, locale: target.installation.locale == "en" ? "en" : "de", probe: probeAlert),
                                   collapseID: "activity-" + subID,
                                   expiration: Int(now.addingTimeInterval(PushEvaluator.maxRunAge).timeIntervalSince1970), activityEvent: event)
+        let env = target.installation.env
+        let kind: PushSendKind = event == .start ? .start : (event == .update ? .update : .end)
         switch await sender.send(request) {
         case .delivered:
             result.sent += 1
+            observer.sent(kind: kind, env: env, outcome: .delivered, reason: nil, expire: expire)
             if event == .end { _ = try await repo.deleteActivity(subscriptionID: subID, matchingToken: token) }
         case .unregistered:
             result.unregistered += 1
+            observer.sent(kind: kind, env: env, outcome: .rejected, reason: "Unregistered", expire: expire)
+            observer.tokenInvalidated(event == .start ? .start : .activity, .gone)
             if event == .start {
                 try await repo.clearLiveActivityStartToken(installationID: target.installationID, matchingToken: token)
                 _ = try await repo.deleteReservation(subscriptionID: subID)
             } else { _ = try await repo.deleteActivity(subscriptionID: subID, matchingToken: token) }
-        case .retry:
+        case .retry(let reason):
             // Keep the reservation on ambiguous start failure: never accidentally create a second activity.
             // Updates retry with the next run; end retries on the next tick. A reservation without token expires after
             // `reservationTimeout` (review A7), so a transient failure cannot block the slot for hours.
+            // NOTE (WP11b finding): the 60-minute lock was already set when the run was committed, so a failed start is not retried.
             result.retried += 1
+            observer.sent(kind: kind, env: env, outcome: .retry, reason: reason, expire: expire)
         case .badToken(let reason):
             // BadDeviceToken on the push-to-start token: the token is unusable, drop it with the reservation (review A8).
             result.dropped += 1
             result.apnsReasons[String(reason.prefix(64)), default: 0] += 1
+            observer.sent(kind: kind, env: env, outcome: .rejected, reason: reason, expire: expire)
+            if event != .update { observer.tokenInvalidated(event == .start ? .start : .activity, .badDeviceToken) }
             if event == .start {
                 try await repo.clearLiveActivityStartToken(installationID: target.installationID, matchingToken: token)
                 _ = try await repo.deleteReservation(subscriptionID: subID)
@@ -169,6 +185,7 @@ extension PushService {
         case .rejected(let reason):
             result.dropped += 1
             result.apnsReasons[String(reason.prefix(64)), default: 0] += 1
+            observer.sent(kind: kind, env: env, outcome: .rejected, reason: reason, expire: expire)
             if event == .start { _ = try await repo.deleteReservation(subscriptionID: subID) }
             else if event == .end { _ = try await repo.deleteActivity(subscriptionID: subID, matchingToken: token) }
         }

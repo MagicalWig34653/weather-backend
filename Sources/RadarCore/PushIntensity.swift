@@ -72,6 +72,13 @@ public enum PushEvaluator {
         public var notifyMinutes: Int?
     }
 
+    /// Dry now, rain within the lead time (the "rain is beginning" condition of the automaton).
+    public static func isBeginning(threshold: Int, leadMinutes: Int, classes: [Int]) -> Bool {
+        guard classes.count == TimeUtil.forecastSlots, classes[0] < threshold else { return false }
+        let leadSlots = max(1, min(leadMinutes / 5, classes.count - 1))
+        return (1...leadSlots).contains { classes[$0] >= threshold }
+    }
+
     public static func step(state: PushState, threshold: Int, leadMinutes: Int, lastSentAt: Date?, classes: [Int], now: Date) -> Step {
         guard classes.count == TimeUtil.forecastSlots else { return Step(state: state, notifyMinutes: nil) }
         let wetNow = classes[0] >= threshold

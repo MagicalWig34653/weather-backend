@@ -78,6 +78,7 @@ public final class PushApi: Sendable {
     let sender: (any ApnsSender)?
     private let limiter = RateLimiter()
     let stats: any StatsSink
+    let observer: any PushObserver
     /// Test override; nil = built from `config.deviceLink` with the bundled Apple root.
     private let verifierOverride: AppTransactionVerifier?
     /// Test override of the global request limit; nil = `config.push.rateLimits.globalRequest`.
@@ -97,7 +98,7 @@ public final class PushApi: Sendable {
     public init(repo: any Repo, configProvider: ConfigProvider, sender: (any ApnsSender)? = nil, globalRequestLimit: Int? = nil,
                 clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(),
                 appTransactionVerifier: AppTransactionVerifier? = nil) {
-        self.stats = stats; self.verifierOverride = appTransactionVerifier
+        self.stats = stats; self.observer = StatsPushObserver(stats: stats); self.verifierOverride = appTransactionVerifier
         self.repo = repo; self.configProvider = configProvider; self.sender = sender; self.clock = clock; self.globalRequestLimitOverride = globalRequestLimit
     }
 
@@ -163,7 +164,18 @@ public final class PushApi: Sendable {
     }
 
     /// nil when the path is not a push route (or push is disabled): the caller answers 404.
+    /// Rejected registrations are counted by their fixed error code (`push_api_reject`); nothing else leaves this method.
     public func handle(method: String, path rawPath: String, secret: String?, body: [UInt8]) async -> ApiResponse? {
+        let response = await handleRoute(method: method, path: rawPath, secret: secret, body: body)
+        if let response, response.status >= 400, response.status < 600,
+           let object = try? JSONSerialization.jsonObject(with: Data(response.body)) as? [String: Any], let code = object["error"] as? String,
+           StatsCollector.pushApiRejectCodes.contains(code) {
+            observer.apiRejected(code)
+        }
+        return response
+    }
+
+    func handleRoute(method: String, path rawPath: String, secret: String?, body: [UInt8]) async -> ApiResponse? {
         let path = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? rawPath
         guard config.push.enabled, path.hasPrefix(Self.prefix) else { return nil }
         var parts = path.dropFirst(Self.prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
