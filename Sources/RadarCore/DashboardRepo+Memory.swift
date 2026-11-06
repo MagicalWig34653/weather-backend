@@ -8,6 +8,7 @@ struct MemoryDashboardStore {
     var sessions: [[UInt8]: DashboardSessionRecord] = [:]
     /// Keyed by "day|metric|label".
     var stats: [String: StatRow] = [:]
+    var statsHourly: [String: StatHourRow] = [:]
     var overrides: [String: DashboardOverride] = [:]
     var configRevision = 0
     var audit: [DashboardAuditEntry] = []
@@ -102,6 +103,29 @@ extension MemoryRepo: DashboardRepo {
         return doomed.count
     }
 
+    public func addStatsHourly(hour: Date, _ deltas: [StatDelta]) async throws {
+        guard deltas.allSatisfy(DashboardValidation.isValid) else { throw DashboardRepoError.invalidStat }
+        let start = DashboardValidation.hourStart(hour)
+        for delta in deltas where delta.value > 0 {
+            let key = "\(DashboardValidation.hour(start))|\(delta.metric)|\(delta.label)"
+            let current = dashboard.statsHourly[key]?.value ?? 0
+            dashboard.statsHourly[key] = StatHourRow(hour: start, metric: delta.metric, label: delta.label, value: current + delta.value)
+        }
+    }
+
+    public func statsHourly(from: Date, to: Date) async throws -> [StatHourRow] {
+        let lower = DashboardValidation.hourStart(from), upper = DashboardValidation.hourStart(to)
+        return dashboard.statsHourly.values.filter { $0.hour >= lower && $0.hour <= upper }
+            .sorted { ($0.hour, $0.metric, $0.label) < ($1.hour, $1.metric, $1.label) }
+    }
+
+    public func purgeStatsHourly(now: Date) async throws -> Int {
+        let cutoff = DashboardValidation.statsHourlyCutoff(now: now)
+        let doomed = dashboard.statsHourly.filter { $0.value.hour < cutoff }.map(\.key)
+        for key in doomed { dashboard.statsHourly[key] = nil }
+        return doomed.count
+    }
+
     public func configState() async throws -> DashboardConfigState {
         DashboardConfigState(revision: dashboard.configRevision, overrides: dashboard.overrides.values.sorted { $0.key < $1.key })
     }
@@ -182,6 +206,7 @@ extension MemoryRepo: DashboardRepo {
         for key in stale { dashboard.replicas[key] = nil }
         result.replicas = stale.count
         result.stats = try await purgeStats(now: now)
+        result.statsHourly = try await purgeStatsHourly(now: now)
         result.audit = try await purgeAudit(now: now)
         return result
     }

@@ -170,6 +170,44 @@ extension MariaRepo: DashboardRepo {
         }
     }
 
+    public func addStatsHourly(hour: Date, _ deltas: [StatDelta]) async throws {
+        guard deltas.allSatisfy(DashboardValidation.isValid) else { throw DashboardRepoError.invalidStat }
+        var merged: [String: StatDelta] = [:]
+        for delta in deltas where delta.value > 0 {
+            let key = delta.metric + "\u{0}" + delta.label
+            merged[key] = StatDelta(metric: delta.metric, label: delta.label, value: (merged[key]?.value ?? 0) + delta.value)
+        }
+        let items = merged.values.sorted { ($0.metric, $0.label) < ($1.metric, $1.label) }
+        guard !items.isEmpty else { return }
+        let hourText = ts(DashboardValidation.hourStart(hour))
+        try await transaction { conn in
+            for chunk in stride(from: 0, to: items.count, by: 100).map({ Array(items[$0..<min($0 + 100, items.count)]) }) {
+                var binds: [MySQLData] = []
+                for item in chunk { binds += [hourText, str(item.metric), str(item.label), MySQLData(int: item.value)] }
+                _ = try await query(conn,
+                    "INSERT INTO stats_hourly (hour, metric, label, value) VALUES " + Array(repeating: "(?,?,?,?)", count: chunk.count).joined(separator: ",")
+                    + " ON DUPLICATE KEY UPDATE value = value + VALUES(value)", binds)
+            }
+        }
+    }
+
+    public func statsHourly(from: Date, to: Date) async throws -> [StatHourRow] {
+        try await connection { conn in
+            try await query(conn,
+                "SELECT DATE_FORMAT(hour, '%Y-%m-%d %H:%i:%s') AS hour_s, metric, label, value FROM stats_hourly WHERE hour >= ? AND hour <= ? ORDER BY hour, metric, label",
+                [ts(DashboardValidation.hourStart(from)), ts(DashboardValidation.hourStart(to))]).rows.map {
+                StatHourRow(hour: TimeUtil.fromSQL($0.column("hour_s")?.string ?? "") ?? Date(timeIntervalSince1970: 0), metric: $0.column("metric")?.string ?? "",
+                            label: $0.column("label")?.string ?? "", value: $0.column("value")?.int ?? 0)
+            }
+        }
+    }
+
+    public func purgeStatsHourly(now: Date) async throws -> Int {
+        try await connection { conn in
+            Int(try await query(conn, "DELETE FROM stats_hourly WHERE hour < ?", [ts(DashboardValidation.statsHourlyCutoff(now: now))]).affected)
+        }
+    }
+
     // MARK: configuration
 
     private func override(_ row: MySQLRow) -> DashboardOverride {
@@ -321,6 +359,7 @@ extension MariaRepo: DashboardRepo {
                                                   [ts(now.addingTimeInterval(-DashboardRetention.replicaStale))]).affected)
         }
         result.stats = try await purgeStats(now: now)
+        result.statsHourly = try await purgeStatsHourly(now: now)
         result.audit = try await purgeAudit(now: now)
         return result
     }

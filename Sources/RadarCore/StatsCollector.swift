@@ -76,6 +76,11 @@ public enum StatsRoute {
         }
     }
 
+    /// Precomputed `group:bucket` latency labels.
+    static let latencyLabels: [String: [String: String]] = Dictionary(uniqueKeysWithValues: groups.map { g in
+        (g, Dictionary(uniqueKeysWithValues: StatsBuckets.latency.names.map { ($0, g + ":" + $0) }))
+    })
+
     static let statusClasses = ["2xx", "304", "3xx", "4xx", "5xx", "other"]
     /// Precomputed `group:class` labels: no string building per request.
     static let requestLabels: [String: [String: String]] = Dictionary(uniqueKeysWithValues: groups.map { g in
@@ -97,7 +102,18 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
         case routeGroup
         /// `<layer>:<result>`.
         case ingestLabel
+        /// `<route group>:<bucket>` of a bucket scheme (unknown group becomes `other`, unknown bucket drops the sample).
+        case routeBucket(StatsBucketScheme)
+        /// `<layer>:<bucket>` (`radar` or a layer id) of a bucket scheme.
+        case layerBucket(StatsBucketScheme)
     }
+
+    /// Metrics that are additionally kept per UTC hour (`stats_hourly`, 72 h); all others only per day.
+    static let hourlyMetrics: Set<String> = [
+        "requests", "errors_5xx", "ingest_run", "ingest_lag", "ingest_dur", "latency", "cache_hit", "cache_miss", "cache_evict",
+        "push_sent", "push_failed", "la_event", "apns_error", "token_invalidated", "push_trigger", "push_skipped",
+    ]
+    static func isHourly(_ metric: String) -> Bool { hourlyMetrics.contains(metric) }
 
     public static let ingestResults: Set<String> = ["ok", "error", "missed"]
 
@@ -115,6 +131,10 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             "rate_limited": .fixed(["push", "dashboard", "other"]),
             "page_view": .fixed(Set(StatsRoute.pages)),
             "device_link_reject": .fixed(Set(AppTransactionReject.allCases.map(\.rawValue))),
+            "latency": .routeBucket(StatsBuckets.latency),
+            "ingest_lag": .layerBucket(StatsBuckets.ingestLag),
+            "ingest_dur": .layerBucket(StatsBuckets.ingestDuration),
+            "cache_evict": .fixed(["radar", "layer"]),
             "stats_dropped": .fixed([""]),
         ]
     }
@@ -125,16 +145,22 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     private var current: [Key: Int] = [:]
     /// Batches of failed flushes with the UTC day they belong to.
     private var carry: [String: [Key: Int]] = [:]
-    /// Write side of the repo as two closures (lets tests inject failures without a full `DashboardRepo` double).
+    /// Batches of failed hourly writes with the UTC hour (`yyyy-MM-dd HH`) they belong to. Daily and hourly writes fail and retry
+    /// independently, so a failure of one table never double counts in the other.
+    private var carryHourly: [String: [Key: Int]] = [:]
+    /// Write side of the repo as closures (lets tests inject failures without a full `DashboardRepo` double).
     struct Writer: Sendable {
         let addStats: @Sendable (Date, [StatDelta]) async throws -> Void
         let purge: @Sendable (Date) async throws -> Void
-        init(addStats: @escaping @Sendable (Date, [StatDelta]) async throws -> Void, purge: @escaping @Sendable (Date) async throws -> Void) {
-            self.addStats = addStats; self.purge = purge
+        let addHourly: @Sendable (Date, [StatDelta]) async throws -> Void
+        init(addStats: @escaping @Sendable (Date, [StatDelta]) async throws -> Void, purge: @escaping @Sendable (Date) async throws -> Void,
+             addHourly: @escaping @Sendable (Date, [StatDelta]) async throws -> Void = { _, _ in }) {
+            self.addStats = addStats; self.purge = purge; self.addHourly = addHourly
         }
         init(_ repo: any DashboardRepo) {
             addStats = { try await repo.addStats(day: $0, $1) }
             purge = { _ = try await repo.purgeDashboard(now: $0) }
+            addHourly = { try await repo.addStatsHourly(hour: $0, $1) }
         }
     }
     private var repo: Writer?
@@ -178,6 +204,16 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             if let colon = label.firstIndex(of: ":"), ingestLayers.contains(String(label[..<colon])),
                Self.ingestResults.contains(String(label[label.index(after: colon)...])) { return label }
             return "other:error"
+        case .routeBucket(let scheme):
+            guard let colon = label.firstIndex(of: ":") else { return nil }
+            let bucket = String(label[label.index(after: colon)...])
+            guard scheme.names.contains(bucket) else { return nil }
+            let group = String(label[..<colon])
+            return (StatsRoute.requestLabels[group] != nil ? group : "other") + ":" + bucket
+        case .layerBucket(let scheme):
+            guard let colon = label.firstIndex(of: ":"), ingestLayers.contains(String(label[..<colon])),
+                  scheme.names.contains(String(label[label.index(after: colon)...])) else { return nil }
+            return label
         }
     }
 
@@ -190,8 +226,7 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     /// Caller holds the lock.
     private func add(_ key: Key, _ value: Int) {
         if let existing = current[key] { current[key] = existing &+ value; return }
-        let stored = current.count + carry.values.reduce(0) { $0 + $1.count }
-        guard stored < maxKeys else {
+        guard storedKeys() < maxKeys else {
             // Table full: drop the new combination and count the loss (the key exists or is created from the reserve).
             current[Key(metric: "stats_dropped", label: ""), default: 0] += value
             return
@@ -200,13 +235,16 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     }
 
     /// One finished request. Derives `requests`, `bytes_out`, `errors_5xx`, `rate_limited` (429) and `page_view` from the
-    /// route group and status. `path` is only classified, never stored.
-    public func recordRequest(path: String, status: Int, bytes: Int) {
+    /// route group and status. `path` is only classified, never stored. With `seconds` (handling time of the request) it also
+    /// counts one `latency` sample into the bucket of the route group.
+    public func recordRequest(path: String, status: Int, bytes: Int, seconds: Double? = nil) {
         let group = StatsRoute.group(path: path)
         let cls = StatsRoute.statusClass(status)
         let label = StatsRoute.requestLabels[group]![cls]!
         let page = status == 200 ? StatsRoute.page(path: path) : nil
+        let latency: String? = seconds.flatMap { StatsBuckets.latency.name(forSeconds: $0) }.map { StatsRoute.latencyLabels[group]![$0]! }
         lock.withLock {
+            if let latency { add(Key(metric: "latency", label: latency), 1) }
             add(Key(metric: "requests", label: label), 1)
             if bytes > 0 { add(Key(metric: "bytes_out", label: group), bytes) }
             if status >= 500 && status < 600 { add(Key(metric: "errors_5xx", label: group), 1) }
@@ -224,7 +262,12 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
         }
     }
 
-    public var keyCount: Int { lock.withLock { current.count + carry.values.reduce(0) { $0 + $1.count } } }
+    public var keyCount: Int { lock.withLock { storedKeys() } }
+
+    /// Counter pairs held in memory (current, daily carry, hourly carry). Caller holds the lock.
+    private func storedKeys() -> Int {
+        current.count + carry.values.reduce(0) { $0 + $1.count } + carryHourly.values.reduce(0) { $0 + $1.count }
+    }
 
     // MARK: flushing
 
@@ -234,28 +277,43 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     /// Returns true when nothing is left to write. Safe to call concurrently: each call takes its own batch.
     @discardableResult
     public func flush() async -> Bool {
-        let (writer, batches): (Writer?, [String: [Key: Int]]) = lock.withLock {
-            guard let target = self.repo else { return (nil, [:]) }
-            var all = carry
-            carry = [:]
-            if !current.isEmpty { all[Self.utcDay(clock()), default: [:]].merge(current, uniquingKeysWith: +); current = [:] }
-            return (target, all)
+        typealias Batches = [String: [Key: Int]]
+        let (writer, daily, hourly): (Writer?, Batches, Batches) = lock.withLock {
+            guard let target = self.repo else { return (nil, [:], [:]) }
+            var days = carry, hours = carryHourly
+            carry = [:]; carryHourly = [:]
+            if !current.isEmpty {
+                let now = clock()
+                days[Self.utcDay(now), default: [:]].merge(current, uniquingKeysWith: +)
+                let selected = current.filter { Self.isHourly($0.key.metric) }
+                if !selected.isEmpty { hours[DashboardValidation.hour(now), default: [:]].merge(selected, uniquingKeysWith: +) }
+                current = [:]
+            }
+            return (target, days, hours)
         }
         guard let writer else { return true }
-        var failed: [String: [Key: Int]] = [:]
-        for (day, counters) in batches {
-            let deltas = counters.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) }
-            do { try await writer.addStats(DashboardValidation.date(day: day), deltas) } catch { failed[day] = counters }
+        func deltas(_ counters: [Key: Int]) -> [StatDelta] { counters.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) } }
+        var failedDaily: Batches = [:], failedHourly: Batches = [:]
+        for (day, counters) in daily {
+            do { try await writer.addStats(DashboardValidation.date(day: day), deltas(counters)) } catch { failedDaily[day] = counters }
         }
-        if failed.isEmpty { return true }
+        for (hour, counters) in hourly {
+            do { try await writer.addHourly(DashboardValidation.date(hour: hour), deltas(counters)) } catch { failedHourly[hour] = counters }
+        }
+        if failedDaily.isEmpty && failedHourly.isEmpty { return true }
         lock.withLock {
             // Put back, bounded: surplus combinations are dropped and counted.
             var dropped = 0
-            for (day, counters) in failed {
+            for (day, counters) in failedDaily {
                 for (key, value) in counters {
-                    let stored = current.count + carry.values.reduce(0) { $0 + $1.count }
-                    if stored >= maxKeys { dropped += value; continue }
+                    if storedKeys() >= maxKeys { dropped += value; continue }
                     carry[day, default: [:]][key, default: 0] += value
+                }
+            }
+            for (hour, counters) in failedHourly {
+                for (key, value) in counters {
+                    if storedKeys() >= maxKeys { dropped += value; continue }
+                    carryHourly[hour, default: [:]][key, default: 0] += value
                 }
             }
             if dropped > 0 { current[Key(metric: "stats_dropped", label: ""), default: 0] += dropped }

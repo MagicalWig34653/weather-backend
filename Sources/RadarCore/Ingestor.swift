@@ -25,17 +25,19 @@ public final class Ingestor: Sendable {
     let owner: String
     let sleep: @Sendable (Double) async -> Void
     let stats: any StatsSink
+    let clock: @Sendable () -> Date
 
     public convenience init(config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                            stats: any StatsSink = NoStatsSink()) {
-        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, stats: stats)
+                            stats: any StatsSink = NoStatsSink(), clock: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, stats: stats, clock: clock)
     }
 
     public init(configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                stats: any StatsSink = NoStatsSink()) {
+                stats: any StatsSink = NoStatsSink(), clock: @escaping @Sendable () -> Date = { Date() }) {
         self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner; self.sleep = sleep; self.stats = stats
+        self.clock = clock
     }
 
     private func renew(_ runID: String) async throws {
@@ -71,6 +73,7 @@ public final class Ingestor: Sendable {
         guard try await repo.tryClaim(runID: runID, nominal: run, owner: owner, leaseSeconds: config.leaseSeconds,
                                       maxAttempts: config.maxRunAttempts) else { return false }
         let slots = TimeUtil.slots(of: run)
+        let started = clock()
         do {
             func store(_ index: Int, _ slot: Date, _ data: [UInt8]) async throws {
                 try await repo.putSlot(SlotRef(runID: runID, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot),
@@ -112,6 +115,10 @@ public final class Ingestor: Sendable {
         let keepSince = run.addingTimeInterval(-(Double(config.historyHours) * 3600 + 900))
         _ = try? await repo.retain(keepPublished: config.retentionRuns, keepAnalysisSince: keepSince, staleAfter: Self.staleAfter)
         stats.record("ingest_run", label: "radar:ok")
+        let published = clock()
+        // Lag: nominal run time to availability; duration: claim to publish of this replica's run.
+        stats.observe("ingest_lag", key: "radar", seconds: published.timeIntervalSince(run))
+        stats.observe("ingest_dur", key: "radar", seconds: published.timeIntervalSince(started))
         return true
     }
 }

@@ -47,6 +47,18 @@ public struct StatRow: Sendable, Equatable {
     }
 }
 
+/// One counter value of one UTC hour (`stats_hourly`).
+public struct StatHourRow: Sendable, Equatable {
+    /// Start of the UTC hour.
+    public let hour: Date
+    public let metric: String
+    public let label: String
+    public let value: Int
+    public init(hour: Date, metric: String, label: String, value: Int) {
+        self.hour = hour; self.metric = metric; self.label = label; self.value = value
+    }
+}
+
 public struct DashboardOverride: Sendable, Equatable {
     public let key: String
     public let value: String
@@ -110,7 +122,7 @@ public struct ReplicaRecord: Sendable, Equatable {
 }
 
 public struct DashboardPurgeResult: Sendable, Equatable {
-    public var sessions = 0, challenges = 0, stats = 0, audit = 0, replicas = 0
+    public var sessions = 0, challenges = 0, stats = 0, statsHourly = 0, audit = 0, replicas = 0
     public init() {}
 }
 
@@ -118,6 +130,8 @@ public enum DashboardRepoError: Error, Equatable { case invalidStat }
 
 public enum DashboardRetention {
     public static let statsDays = 30
+    /// Hourly counters (`stats_hourly`) are kept for this many hours.
+    public static let statsHourlyHours = 72
     public static let auditDays = 365
     /// Replica rows older than this are ignored and deleted.
     public static let replicaStale: TimeInterval = 600
@@ -158,6 +172,12 @@ public protocol DashboardRepo: Sendable {
     func stats(from: Date, to: Date) async throws -> [StatRow]
     /// Deletes days older than `statsDays` before the UTC day of `now`; returns the number of deleted rows.
     func purgeStats(now: Date) async throws -> Int
+    /// Adds the deltas to the counters of the UTC hour of `hour` (minutes truncated; same rules as `addStats`).
+    func addStatsHourly(hour: Date, _ deltas: [StatDelta]) async throws
+    /// Rows with hour in [from, to] (UTC hours, both truncated), ordered by hour, metric, label.
+    func statsHourly(from: Date, to: Date) async throws -> [StatHourRow]
+    /// Deletes hours older than `statsHourlyHours` before the UTC hour of `now`; returns the number of deleted rows.
+    func purgeStatsHourly(now: Date) async throws -> Int
 
     // MARK: configuration overrides and audit
     func configState() async throws -> DashboardConfigState
@@ -220,6 +240,13 @@ enum DashboardValidation {
     static func date(day: String) -> Date { TimeUtil.fromSQL(day + " 00:00:00") ?? Date(timeIntervalSince1970: 0) }
     static func statsCutoffDay(now: Date) -> String {
         day(now.addingTimeInterval(-Double(DashboardRetention.statsDays) * 86400))
+    }
+    /// `yyyy-MM-dd HH` of the UTC hour.
+    static func hour(_ date: Date) -> String { String(TimeUtil.toSQL(date).prefix(13)) }
+    static func date(hour: String) -> Date { TimeUtil.fromSQL(hour + ":00:00") ?? Date(timeIntervalSince1970: 0) }
+    static func hourStart(_ date: Date) -> Date { self.date(hour: hour(date)) }
+    static func statsHourlyCutoff(now: Date) -> Date {
+        hourStart(now).addingTimeInterval(-Double(DashboardRetention.statsHourlyHours) * 3600)
     }
     static func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02X", $0) }.joined() }
     static func bytes(hex: String) -> [UInt8] {

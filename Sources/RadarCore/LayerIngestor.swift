@@ -99,6 +99,13 @@ public final class LayerIngestor: Sendable {
         SlotRef(runID: runID, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot)
     }
 
+    /// Lag (nominal slot/run time to availability) and duration (claim to publish) of one published run.
+    private func recordPublished(nominal: Date, started: Date) {
+        let now = clock()
+        stats.observe("ingest_lag", key: layer, seconds: now.timeIntervalSince(nominal))
+        stats.observe("ingest_dur", key: layer, seconds: now.timeIntervalSince(started))
+    }
+
     // MARK: observation (one run per slot)
 
     /// Newest slot that may be fetched: EUMETView from its capabilities (a future TIME answers 502), DWD from a fixed delay.
@@ -143,6 +150,7 @@ public final class LayerIngestor: Sendable {
             guard try await repo.layerTryClaim(layer: layer, runID: runID, nominal: slot, owner: owner,
                                                leaseSeconds: Self.runLeaseSeconds, maxAttempts: spec.maxAttempts) else { continue }
             budget -= 1
+            let started = clock()
             do {
                 let url = LayerSources.mapURL(spec: spec, config: config, run: slot, slot: slot)
                 let data = try await fetchWebP(url: url, slot: slot, attempts: 2, backoffs: [3]) {
@@ -154,6 +162,7 @@ public final class LayerIngestor: Sendable {
                 guard try await repo.layerPublish(layer: layer, runID: runID, owner: owner, expectedSlots: 1) else { throw LeaseLost() }
                 result.stored += 1; inARow = 0
                 result.published = runID
+                recordPublished(nominal: slot, started: started)
             } catch is LeaseLost {
                 break
             } catch is CancellationError {
@@ -193,6 +202,7 @@ public final class LayerIngestor: Sendable {
 
     func processForecast(run: Date, result: inout LayerTickResult) async throws -> ForecastOutcome {
         let runID = TimeUtil.toID(run)
+        let started = clock()
         let slots = (0...config.forecastHours(for: spec)).map { run.addingTimeInterval(Double($0) * spec.stepSeconds) }
         func url(_ slot: Date) -> String { LayerSources.mapURL(spec: spec, config: config, run: run, slot: slot) }
         // Probe slot 0 before claiming: a reference time that the source does not offer yet answers with an XML error.
@@ -228,6 +238,7 @@ public final class LayerIngestor: Sendable {
         }
         _ = try? await repo.layerRetain(layer: layer, keepNewest: config.pressureRetentionRuns,
                                         keepSince: Date(timeIntervalSince1970: 4_000_000_000), staleAfter: Self.staleAfter)
+        recordPublished(nominal: run, started: started)
         return .published
     }
 

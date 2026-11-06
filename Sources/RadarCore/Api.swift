@@ -6,6 +6,12 @@ public struct ApiResponse: Sendable {
     public var body: [UInt8]
 }
 
+public struct SlotCacheSnapshot: Codable, Sendable, Equatable {
+    public let bytes: Int
+    public let entries: Int
+    public let maxBytes: Int
+}
+
 /// Byte-bounded LRU with single-flight loading. Entries are immutable by construction (ids never change content).
 public actor SlotCache {
     private var items: [String: (blob: SlotBlob, tick: Int)] = [:]
@@ -49,8 +55,12 @@ public actor SlotCache {
         while size > maxBytes, let oldest = items.min(by: { $0.value.tick < $1.value.tick }) {
             size -= oldest.value.blob.data.count
             items[oldest.key] = nil
+            stats.record("cache_evict", label: oldest.key.hasPrefix("layer:") ? "layer" : "radar")
         }
     }
+
+    /// Current fill level (gauge for the dashboard; per replica, not aggregated in the database).
+    public func snapshot() -> SlotCacheSnapshot { SlotCacheSnapshot(bytes: size, entries: items.count, maxBytes: maxBytes) }
 
     public func contains(_ key: String) -> Bool { items[key] != nil }
 
