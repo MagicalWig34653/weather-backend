@@ -98,8 +98,17 @@ public struct DashboardAuthConfig: Sendable, Equatable {
     /// Reads `DASH_ORIGIN`, `DASH_RP_ID`, `DASH_SESSION_HOURS`, `DASH_IDLE_MINUTES`, `DASH_SETUP_WINDOW_MINUTES`.
     /// Nil when origin or RP ID is missing or the origin is not a plain `scheme://host[:port]`.
     public static func fromEnvironment(_ env: [String: String]) -> DashboardAuthConfig? {
-        guard let origin = env["DASH_ORIGIN"], !origin.isEmpty, let rp = env["DASH_RP_ID"], !rp.isEmpty,
-              Self.hostPart(ofOrigin: origin) != nil else { return nil }
+        guard let origin = env["DASH_ORIGIN"], !origin.isEmpty, let hostPort = Self.hostPart(ofOrigin: origin) else { return nil }
+        // Host without port; IPv6 literals are not usable as RP ID.
+        let host = hostPort.hasPrefix("[") ? "" : String(hostPort.split(separator: ":", maxSplits: 1).first ?? "")
+        guard !host.isEmpty else { return nil }
+        // `DASH_RP_ID` is optional and must be the origin host or one of its parent domains (WebAuthn rule).
+        var rp = host
+        if let custom = env["DASH_RP_ID"], !custom.isEmpty {
+            let lower = custom.lowercased()
+            guard host == lower || host.hasSuffix("." + lower) else { return nil }
+            rp = lower
+        }
         func int(_ key: String, _ fallback: Int) -> Int { env[key].flatMap { Int($0) } ?? fallback }
         return DashboardAuthConfig(origin: origin, rpID: rp, sessionHours: int("DASH_SESSION_HOURS", 12),
                                    idleMinutes: int("DASH_IDLE_MINUTES", 30), setupWindowMinutes: int("DASH_SETUP_WINDOW_MINUTES", 15))

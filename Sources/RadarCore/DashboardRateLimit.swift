@@ -10,6 +10,7 @@ public final class DashboardRateLimits: @unchecked Sendable {
         case loginBegin = "global:dash:login-begin"
         case loginFinish = "global:dash:login-finish"
         case configWrite = "global:dash:config-write"
+        case restart = "global:dash:restart"
         case other = "global:dash:other"
 
         /// Allowed calls per minute.
@@ -18,6 +19,7 @@ public final class DashboardRateLimits: @unchecked Sendable {
             case .setupBegin, .loginBegin: return 10
             case .setupFinish, .loginFinish: return 5
             case .configWrite: return 30
+            case .restart: return 2
             case .other: return 600
             }
         }

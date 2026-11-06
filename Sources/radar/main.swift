@@ -31,8 +31,8 @@ func httpFetch(config: Config) -> Fetch {
     }
 }
 
-func runIngestLoop(config: Config, repo: any Repo, heartbeat: Heartbeat, activity: ActivityFlag, logger: Logger) async {
-    let ingestor = Ingestor(config: config, repo: repo, fetch: httpFetch(config: config), owner: replicaID())
+func runIngestLoop(config: Config, provider: ConfigProvider, stats: any StatsSink, repo: any Repo, heartbeat: Heartbeat, activity: ActivityFlag, logger: Logger) async {
+    let ingestor = Ingestor(configProvider: provider, repo: repo, fetch: httpFetch(config: config), owner: replicaID(), stats: stats)
     var failures = 0
     while !Task.isCancelled {
         heartbeat.beat()
@@ -59,8 +59,8 @@ func runIngestLoop(config: Config, repo: any Repo, heartbeat: Heartbeat, activit
 }
 
 /// Low-priority history backfill (leader only); starts after the first regular run and pauses while that one works.
-func runBackfillLoop(config: Config, repo: any Repo, activity: ActivityFlag, logger: Logger) async {
-    let backfiller = Backfiller(config: config, repo: repo, fetch: httpFetch(config: config), owner: replicaID(),
+func runBackfillLoop(config: Config, provider: ConfigProvider, repo: any Repo, activity: ActivityFlag, logger: Logger) async {
+    let backfiller = Backfiller(configProvider: provider, repo: repo, fetch: httpFetch(config: config), owner: replicaID(),
                                 isBusy: { activity.isBusy })
     try? await Task.sleep(nanoseconds: UInt64((45 + Double.random(in: 0..<15)) * 1e9))
     var lastRemaining = -1
@@ -87,8 +87,8 @@ func runBackfillLoop(config: Config, repo: any Repo, activity: ActivityFlag, log
 }
 
 /// Loop of one additional layer (leader-only work inside `tick`); polls gently, never faster than every 2 minutes.
-func runLayerLoop(spec: LayerSpec, config: Config, repo: any Repo, logger: Logger) async {
-    let ingestor = LayerIngestor(spec: spec, config: config, repo: repo, fetch: httpFetch(config: config), owner: replicaID())
+func runLayerLoop(spec: LayerSpec, config: Config, provider: ConfigProvider, stats: any StatsSink, repo: any Repo, logger: Logger) async {
+    let ingestor = LayerIngestor(spec: spec, configProvider: provider, repo: repo, fetch: httpFetch(config: config), owner: replicaID(), stats: stats)
     let interval = spec.kind == .forecast ? 600.0 : max(120.0, spec.stepSeconds / 3)
     try? await Task.sleep(nanoseconds: UInt64((20 + Double.random(in: 0..<30)) * 1e9))
     var failures = 0
@@ -140,9 +140,9 @@ func makeApnsSender(config: Config, client: HTTPClient, logger: Logger) -> (any 
     }
 }
 
-func runPushLoop(config: Config, repo: any Repo, sender: (any ApnsSender)?, logger: Logger) async {
+func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (any ApnsSender)?, logger: Logger) async {
     guard config.push.enabled, let sender else { return }
-    let service = PushService(config: config, repo: repo, sender: sender, owner: replicaID())
+    let service = PushService(config: config, repo: repo, sender: sender, owner: replicaID(), stats: stats)
     while !Task.isCancelled {
         do {
             let tick = try await service.tick()
@@ -159,73 +159,215 @@ func runPushLoop(config: Config, repo: any Repo, sender: (any ApnsSender)?, logg
     await service.release()
 }
 
-func serve(config: Config) async throws {
-    var env = Environment(name: "production", arguments: ["radar", "serve", "--hostname", "0.0.0.0", "--port", String(config.httpPort)])
-    try LoggingSystem.bootstrap(from: &env)
-    let app = try await Application.make(env)
-    let repo = MariaRepo(config: config)
+/// Statistics for every finished request (route group and status class only; the path is classified, never stored).
+struct StatsMiddleware: AsyncMiddleware {
+    let stats: StatsCollector
+
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        do {
+            let response = try await next.respond(to: request)
+            stats.recordRequest(path: request.url.path, status: Int(response.status.code), bytes: max(0, response.body.count))
+            return response
+        } catch {
+            let status = (error as? any AbortError)?.status.code ?? 500
+            stats.recordRequest(path: request.url.path, status: Int(status), bytes: 0)
+            throw error
+        }
+    }
+}
+
+/// No access logs (no IPs, no paths). Database errors never leak details to clients.
+func vaporResponse(_ result: ApiResponse) -> Response {
+    var headers = HTTPHeaders()
+    for (name, value) in result.headers { headers.add(name: name, value: value) }
+    return Response(status: HTTPResponseStatus(statusCode: result.status), headers: headers, body: .init(buffer: ByteBuffer(bytes: result.body)))
+}
+
+func makeEnvironment(port: Int) -> Environment {
+    Environment(name: "production", arguments: ["radar", "serve", "--hostname", "0.0.0.0", "--port", String(port)])
+}
+
+/// Dashboard auth configuration, fail closed: `DASH_ORIGIN` is required (plan 2.1); origin and RP ID only ever come from the environment.
+func dashboardAuthConfig() throws -> DashboardAuthConfig {
+    guard let config = DashboardAuthConfig.fromEnvironment(ProcessInfo.processInfo.environment) else {
+        throw StartupError.message("dashboard needs a valid DASH_ORIGIN (https://host[:port]) and, optionally, DASH_RP_ID as parent domain of its host")
+    }
+    return config
+}
+
+enum StartupError: Error, CustomStringConvertible {
+    case message(String)
+    var description: String { if case .message(let m) = self { return m }; return "" }
+}
+
+func queryItems(_ req: Request) -> [String: String] {
+    var result: [String: String] = [:]
+    for item in URLComponents(string: req.url.string)?.queryItems ?? [] { if let v = item.value { result[item.name] = v } }
+    return result
+}
+
+/// Second HTTP listener (own `Application`, own port). Answers only `/dash/**`; everything else is 404.
+func makeDashboardApp(port: Int, api: DashboardApi, stats: StatsCollector) async throws -> Application {
+    let app = try await Application.make(makeEnvironment(port: port))
+    app.http.server.configuration.serverName = nil
+    app.middleware.use(StatsMiddleware(stats: stats))
+    @Sendable func translate(_ req: Request, method: String, body: [UInt8]) -> DashboardHTTPRequest {
+        DashboardHTTPRequest(
+            method: method, path: req.url.path, query: queryItems(req), body: body,
+            info: DashboardRequestInfo(method: method, cookieHeader: req.headers.first(name: .cookie), origin: req.headers.first(name: .origin),
+                                       host: req.headers.first(name: .host), contentType: req.headers.first(name: .contentType),
+                                       csrfToken: req.headers.first(name: "X-CSRF-Token")))
+    }
+    app.get("**") { req async -> Response in vaporResponse(await api.handle(translate(req, method: "GET", body: []))) }
+    for method in [HTTPMethod.POST, .PUT, .DELETE] {
+        app.on(method, "**", body: .collect(maxSize: "32kb")) { req async -> Response in
+            var buffer = req.body.data ?? ByteBuffer()
+            return vaporResponse(await api.handle(translate(req, method: method.rawValue, body: buffer.readBytes(length: buffer.readableBytes) ?? [])))
+        }
+    }
+    return app
+}
+
+/// Builds the dashboard API on the shared repo and store.
+func makeDashboardApi(repo: any Repo, store: ConfigStore, authConfig: DashboardAuthConfig, logger: Logger) -> (DashboardApi, DashboardAuth) {
+    // `notice`: these lines (open setup window, login result) must be visible at the production log level.
+    let auth = DashboardAuth(repo: repo, config: authConfig, log: { logger.notice("\($0)") })
+    let root = ProcessInfo.processInfo.environment["DASH_STATIC_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? "/app/dashboard"
+    return (DashboardApi(auth: auth, repo: repo, store: store, staticRoot: root, restartPolicy: RestartPolicy.fromEnvironment()), auth)
+}
+
+/// Minute log of the open setup window (plan 2.4, point 5), until a passkey exists.
+func runSetupHintLoop(auth: DashboardAuth) async {
+    while !Task.isCancelled {
+        if await auth.logSetupHintIfNeeded() == nil { return }
+        try? await Task.sleep(nanoseconds: 60_000_000_000)
+    }
+}
+
+func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
+    let env = ProcessInfo.processInfo.environment
+    let dashboardEnabled = dashboardOnly || env["DASH_ENABLED"] == "true"
+    let dashboardPort = env["DASH_PORT"].flatMap(Int.init) ?? 9090
+    // Fail closed before anything is opened: without a valid DASH_ORIGIN the dashboard does not start.
+    let dashboardAuthSettings = dashboardEnabled ? try dashboardAuthConfig() : nil
+    var bootEnv = makeEnvironment(port: dashboardOnly ? dashboardPort : bootstrap.httpPort)
+    try LoggingSystem.bootstrap(from: &bootEnv)
+    let logger = Logger(label: "radar")
+    let repo = MariaRepo(config: bootstrap)
+    let stats = StatsCollector(repo: repo)
+    let configStore: ConfigStore
+    do { configStore = try await ConfigStore(env: env, repo: repo, warn: { logger.warning("\($0)") }) }
+    catch { await repo.shutdown(); throw error }
+    let config = configStore.snapshot()
+    let provider = configStore.provider
     let heartbeat = Heartbeat()
     let apnsClient = HTTPClient(eventLoopGroupProvider: .singleton)
-    let sender = makeApnsSender(config: config, client: apnsClient, logger: app.logger)
-    let api = Api(repo: repo, config: config, sender: sender, alive: { heartbeat.isAlive })
+    let sender = dashboardOnly ? nil : makeApnsSender(config: config, client: apnsClient, logger: logger)
+
+    // `radar dashboard`: the main application IS the dashboard listener (no ingest loops, no public routes).
+    // `radar serve` with DASH_ENABLED=true: a second application on DASH_PORT next to the public one.
+    let app: Application
+    var dashboard: Application?
+    var dashAuth: DashboardAuth?
+    if dashboardEnabled, let dashboardAuthSettings {
+        let (api, auth) = makeDashboardApi(repo: repo, store: configStore, authConfig: dashboardAuthSettings, logger: logger)
+        dashAuth = auth
+        let dashApp = try await makeDashboardApp(port: dashboardPort, api: api, stats: stats)
+        if dashboardOnly { app = dashApp } else { app = try await Application.make(makeEnvironment(port: bootstrap.httpPort)); dashboard = dashApp }
+    } else {
+        app = try await Application.make(makeEnvironment(port: bootstrap.httpPort))
+    }
     app.http.server.configuration.serverName = nil
 
-    // No access logs (no IPs, no paths). Database errors never leak details to clients.
-    func respond(_ result: ApiResponse) -> Response {
-        var headers = HTTPHeaders()
-        for (name, value) in result.headers { headers.add(name: name, value: value) }
-        return Response(status: HTTPResponseStatus(statusCode: result.status), headers: headers, body: .init(buffer: ByteBuffer(bytes: result.body)))
-    }
-    app.get("**") { req async -> Response in
-        let path = req.url.path
-        if path.hasPrefix(PushApi.prefix) {
-            return respond(await api.handlePush(method: "GET", path: path, secret: req.headers.first(name: "X-Installation-Secret"), body: []))
+    let pushApi = !dashboardOnly
+    if pushApi {
+        let api = Api(repo: repo, configProvider: provider, sender: sender, alive: { heartbeat.isAlive }, stats: stats)
+        app.middleware.use(StatsMiddleware(stats: stats))
+        app.get("**") { req async -> Response in
+            let path = req.url.path
+            if path.hasPrefix(PushApi.prefix) {
+                return vaporResponse(await api.handlePush(method: "GET", path: path, secret: req.headers.first(name: "X-Installation-Secret"), body: []))
+            }
+            do {
+                return vaporResponse(try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch)))
+            } catch {
+                return Response(status: .serviceUnavailable, headers: ["Cache-Control": "no-store"])
+            }
         }
-        do {
-            return respond(try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch)))
-        } catch {
-            return Response(status: .serviceUnavailable, headers: ["Cache-Control": "no-store"])
-        }
-    }
-    // Push registration (small JSON bodies); answers 404 unless PUSH_ENABLED=true.
-    for method in [HTTPMethod.POST, .PUT, .DELETE] {
-        app.on(method, "**", body: .collect(maxSize: "4kb")) { req async -> Response in
-            var buffer = req.body.data ?? ByteBuffer()
-            return respond(await api.handlePush(method: method.rawValue, path: req.url.path,
-                                                secret: req.headers.first(name: "X-Installation-Secret"),
-                                                body: buffer.readBytes(length: buffer.readableBytes) ?? []))
+        // Push registration (small JSON bodies); answers 404 unless PUSH_ENABLED=true. `/dash` is always 404 here.
+        for method in [HTTPMethod.POST, .PUT, .DELETE] {
+            app.on(method, "**", body: .collect(maxSize: "8kb")) { req async -> Response in
+                var buffer = req.body.data ?? ByteBuffer()
+                return vaporResponse(await api.handlePush(method: method.rawValue, path: req.url.path,
+                                                          secret: req.headers.first(name: "X-Installation-Secret"),
+                                                          body: buffer.readBytes(length: buffer.readableBytes) ?? []))
+            }
         }
     }
 
-    let logger = app.logger
     try await repo.ping()
-    let activity = ActivityFlag()
-    let loop = Task { await runIngestLoop(config: config, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
-    let backfill = Task { await runBackfillLoop(config: config, repo: repo, activity: activity, logger: logger) }
-    let pushLoop = Task { await runPushLoop(config: config, repo: repo, sender: sender, logger: logger) }
-    let layerLoops = config.layers.compactMap { id in
-        LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, repo: repo, logger: logger) } }
+    var tasks: [Task<Void, Never>] = []
+    let statsTask = Task { await stats.run() }
+    let configTask = Task { await configStore.run() }
+    var pushTask: Task<Void, Never>?
+    var loop: Task<Void, Never>?
+    var backfill: Task<Void, Never>?
+    var layerLoops: [Task<Void, Never>] = []
+    var restartTask: Task<Void, Never>?
+    if pushApi {
+        let activity = ActivityFlag()
+        loop = Task { await runIngestLoop(config: config, provider: provider, stats: stats, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
+        backfill = Task { await runBackfillLoop(config: config, provider: provider, repo: repo, activity: activity, logger: logger) }
+        pushTask = Task { await runPushLoop(config: config, stats: stats, repo: repo, sender: sender, logger: logger) }
+        layerLoops = config.layers.compactMap { id in
+            LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, provider: provider, stats: stats, repo: repo, logger: logger) } }
+        }
+        // Controlled restart (plan 5.3): the leader flag is not known here, so replicas leave in slot order.
+        let coordinator = try? await RestartCoordinator.make(
+            repo: repo, replicaID: replicaID(), slot: RestartPolicy.slot(env), policy: RestartPolicy.fromEnvironment(env),
+            isLeader: { false }, leaderSlot: { nil }, shutdown: { logger.info("controlled restart: leaving"); raise(SIGTERM) })
+        if let coordinator { restartTask = Task { await coordinator.run() } }
+        else { logger.warning("restart coordinator not started (database)") }
     }
+    let setupHint = dashAuth.map { auth in Task { await runSetupHintLoop(auth: auth) } }
+    tasks = [loop, backfill, pushTask, restartTask, setupHint].compactMap { $0 } + layerLoops
+
+    func stopAll() async {
+        tasks.forEach { $0.cancel() }
+        configTask.cancel()
+        for t in tasks { await t.value }
+        await configTask.value
+        statsTask.cancel()
+        await statsTask.value  // final flush
+        try? await apnsClient.shutdown()
+    }
+
     do {
+        try await dashboard?.startup()
+        if dashboardEnabled { logger.notice("dashboard listening on port \(dashboardPort)") }
         try await app.execute()
     } catch {
-        loop.cancel(); backfill.cancel(); pushLoop.cancel(); layerLoops.forEach { $0.cancel() }
-        for t in layerLoops { await t.value }
-        await loop.value; await backfill.value; await pushLoop.value
-        try? await apnsClient.shutdown()
+        await stopAll()
+        try? await dashboard?.asyncShutdown()
         try? await app.asyncShutdown()
         await repo.shutdown()
         throw error
     }
-    loop.cancel(); backfill.cancel(); pushLoop.cancel(); layerLoops.forEach { $0.cancel() }
-    for t in layerLoops { await t.value }
-    await backfill.value
-    await pushLoop.value
-    try? await apnsClient.shutdown()
-    await loop.value  // let a running ingest hand its run over before the DB pool goes away
+    await stopAll()
+    try? await dashboard?.asyncShutdown()
     try await app.asyncShutdown()
     await repo.shutdown()
     logger.info("stopped")
+}
+
+func dashboardReset(config: Config) async throws {
+    let repo = MariaRepo(config: config)
+    do {
+        let auth = DashboardAuth(repo: repo, config: DashboardAuthConfig(origin: "https://reset.invalid", rpID: "reset.invalid"), log: { _ in })
+        let existed = try await auth.resetViaCLI()
+        print(existed ? "passkey and sessions deleted; the setup window opens at the next dashboard start" : "no passkey existed; audit entry written")
+    } catch { await repo.shutdown(); throw error }
+    await repo.shutdown()
 }
 
 func migrate(config: Config) async throws {
@@ -245,6 +387,14 @@ struct Radar {
             switch command {
             case "serve":
                 try await serve(config: config)
+            case "dashboard":
+                try await serve(config: config, dashboardOnly: true)
+            case "dashboard-reset":
+                guard arguments.contains("--yes") else {
+                    FileHandle.standardError.write(Data("dashboard-reset deletes the passkey and all sessions: pass --yes to confirm\n".utf8))
+                    exit(64)
+                }
+                try await dashboardReset(config: config)
             case "migrate":
                 guard arguments.contains("--yes") else {
                     FileHandle.standardError.write(Data("migrate changes the database schema: pass --yes to confirm\n".utf8))
@@ -252,7 +402,7 @@ struct Radar {
                 }
                 try await migrate(config: config)
             default:
-                FileHandle.standardError.write(Data("usage: radar [serve | migrate --yes]\n".utf8))
+                FileHandle.standardError.write(Data("usage: radar [serve | dashboard | dashboard-reset --yes | migrate --yes]\n".utf8))
                 exit(64)
             }
         } catch {

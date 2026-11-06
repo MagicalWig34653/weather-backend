@@ -349,7 +349,9 @@ struct DashboardAuthTests {
         #expect(DashboardAuthConfig.fromEnvironment([:]) == nil)
         #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "https://d.example.test/x", "DASH_RP_ID": "d.example.test"]) == nil)
         #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "ftp://d.example.test", "DASH_RP_ID": "d.example.test"]) == nil)
-        #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "https://d.example.test", "DASH_RP_ID": ""]) == nil)
+        #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "https://d.example.test", "DASH_RP_ID": "other.test"]) == nil)
+        #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "https://a.d.example.test:8443"])?.rpID == "a.d.example.test")
+        #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "https://a.d.example.test", "DASH_RP_ID": "d.example.test"])?.rpID == "d.example.test")
         #expect(DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "https://d.example.test", "DASH_RP_ID": "d.example.test"])?.sessionHours == 12)
     }
 
