@@ -42,14 +42,8 @@ import Testing
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// Register keys whose rows are not yet in `deploy/swarm/config-registry.tsv` (that directory belongs to WP17 / the deploy
-    /// branch). They are skipped by the comparison; as soon as the table carries them they must match the register again.
-    /// WP17: run `UPDATE_CONFIG_TSV=1 swift test --filter ConfigRegistryTSVTests`, then empty this list.
-    static let pendingKeys: Set<String> = Set(
-        ["DASH_MIN_GROUP", "DEVICE_LINK_ENABLED", "DEVICE_LINK_BUNDLE_ID", "DEVICE_LINK_ALLOWED_ENVS", "DEVICE_LINK_MAX_AGE_HOURS",
-         "DASH_MAX_DEVICES", "DASH_DEVICE_TTL_DAYS", "DASH_DEVICE_STALE_DAYS"]
-        + ["LAYER_AGE_FACTOR", "ERROR_RATE_5XX", "OUTBOX_AGE_SECONDS", "APNS_REJECTION", "TOKEN_INVALIDATION", "CACHE_HIT", "CAP_FILL", "LA_START_RATIO"]
-            .flatMap { ["DASH_WARN_\($0)_YELLOW", "DASH_WARN_\($0)_RED"] })
+    /// Register keys whose rows may be missing from the table (none since WP17: the table carries all of them).
+    static let pendingKeys: Set<String> = []
 
     private static func lines(_ text: String, dropping pending: Bool) -> [String] {
         text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).filter { line in

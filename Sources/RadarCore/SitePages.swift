@@ -19,7 +19,7 @@ public enum SitePages {
     public static let appDocsURL = "https://magicalwig34653.github.io/weather-apple/"
     public static let backendDocsURL = "https://magicalwig34653.github.io/weather-backend/"
     public static let issuesURL = "https://github.com/MagicalWig34653/weather-apple/issues"
-    public static let updated = "30. Oktober 2026"
+    public static let updated = "6. November 2026"
 
     public static let missingNotice = "Angaben zum Verantwortlichen sind noch nicht konfiguriert."
 
@@ -117,6 +117,7 @@ public enum SitePages {
         <ul>
         <li>Kein Benutzerkonto, keine Werbung, kein Tracking, keine Analyse-SDKs.</li>
         <li>Der Radar-Dienst setzt keine Cookies und vergibt keine Kennung.</li>
+        <li>Betriebsstatistik nur als aggregierte, personenlose Zähler; Geräte-Diagnose nur freiwillig und nur in Testversionen (Abschnitte 8 und 9).</li>
         <li>Gespeicherte Orte und Einstellungen bleiben auf deinem Gerät.</li>
         </ul>
 
@@ -139,13 +140,25 @@ public enum SitePages {
         <h2>7. Lokale Einordnung</h2>
         <p>Die kurze Einordnung der Regenlage erstellt Apple Foundation Models auf dem Gerät. Dabei werden keine Koordinaten oder Ortsnamen an Dritte gesendet.</p>
 
-        <h2>8. Keine Debuglogs mit Personenbezug</h2>
+        <h2>8. Betriebsstatistik des Radar-Dienstes</h2>
+        <p>Der Radar-Dienst zählt für den Betrieb aggregierte, personenlose Werte: zum Beispiel Anfragen je Routengruppe und Statusklasse, Antwortzeiten in groben Klassen, Abruf- und Fehlerzähler der Datenquellen sowie Ergebnisse des Push-Versands. Es werden weder IP-Adressen noch Orte, Geräte- oder Installationskennungen gezählt. Die Zähler liegen tageweise (30 Tage) und als Stundenzähler (72 Stunden) in der Datenbank und werden danach gelöscht. Der Zugriff darauf ist nur dem Betreiber über ein geschütztes Dashboard möglich.</p>
+
+        <h2>9. Betreiber-Diagnose (nur Testversionen, freiwillig)</h2>
+        <p>In Testversionen (TestFlight) kann der Betreiber ein Gerät zur Fehlersuche bei Regenhinweisen und Live Activities koppeln. Das ist standardmäßig aus und nur in den Einstellungen der App einschaltbar. In Versionen aus dem App Store ist die Funktion nicht verfügbar.</p>
+        <ul>
+        <li>Beim Einschalten zeigt die App einen kurzen Koppelcode (10 Minuten gültig, einmal verwendbar), den der Betreiber im Dashboard eingibt und dem Gerät dabei eine eigene Bezeichnung gibt.</li>
+        <li>Dafür sendet die App einmalig einen von Apple signierten Nachweis (App-Transaktion), dass sie aus einer Testversion stammt. Der Server prüft ihn und speichert ihn nicht.</li>
+        <li>Gespeichert werden die Zuordnung zur Push-Registrierung des Geräts, die Bezeichnung, Zeitpunkte (Kopplung, zuletzt gesehen) und ein Verlauf technischer Versandergebnisse der letzten 48 Stunden (zum Beispiel Testmitteilung zugestellt oder von Apple abgelehnt). Es werden keine Standortdaten gespeichert.</li>
+        <li>Die Kopplung gilt bis zum Widerruf. Du kannst sie jederzeit durch Ausschalten in der App widerrufen; dabei wird sie auf dem Server gelöscht. Der Betreiber kann sie ebenfalls entfernen. Höchstens drei Geräte können gleichzeitig gekoppelt sein.</li>
+        </ul>
+
+        <h2>10. Keine Debuglogs mit Personenbezug</h2>
         <p>Die App protokolliert keine URLs, Standorte oder Fehler-Rohdaten. Zwischenspeicher liegen im Arbeitsspeicher beziehungsweise lokal auf dem Gerät.</p>
 
-        <h2>9. Deine Rechte</h2>
+        <h2>11. Deine Rechte</h2>
         <p>Dir stehen nach der Datenschutz-Grundverordnung (DSGVO) insbesondere die Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch zu (Art. 15 bis 21 DSGVO). Zudem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren. Wende dich für Anfragen an die oben genannte Stelle.</p>
 
-        <h2>10. Quellen</h2>
+        <h2>12. Quellen</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet.</p>
         """
         return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der Showers-App und des Radar-Dienstes.", body: body)
