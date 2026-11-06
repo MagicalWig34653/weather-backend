@@ -71,3 +71,6 @@ jobs:
         run: |
           DB_HOST=db.example.internal docker compose -f deploy/swarm/stack.yaml config --quiet
           docker compose -f compose.yaml config --quiet
+          # Dashboard overlay: valid together with the stack, and no published port anywhere in the dashboard service.
+          DB_HOST=db.example.internal DASH_ORIGIN=https://dash.example.internal docker compose -f deploy/swarm/stack.yaml -f deploy/swarm/stack.dashboard.yaml config --format json \
+            | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]["dashboard"]; assert not s.get("ports"), s.get("ports"); assert s.get("read_only") is True; assert s["environment"]["PUSH_ENABLED"] == "false"; assert "APNS_KEY_FILE" not in s["environment"]; assert all("docker.sock" not in str(v) for v in s.get("volumes", []))'

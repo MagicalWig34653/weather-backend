@@ -1,0 +1,139 @@
+version: '3.8'
+# Optional overlay: the dashboard (statistics, traffic, configuration) as its own service `dashboard`.
+# swarm-deploy.sh / update.sh add this file when DASH_ENABLED=true is set (shell first, then the env file); by hand use BOTH files:
+#   docker stack deploy --resolve-image never -c stack.yaml -c stack.dashboard.yaml <stack>     (plus -c stack.push.yaml with push)
+# dashboard-command: ready
+# ^ marker for settings.sh: `ready` since the command `radar dashboard` exists in the image (WP5, commit 6ae080d); `pending` would make
+#   settings.sh show the hint "Dienstbefehl folgt".
+#
+# ACCESS (decision 2026-11-03): NO `ports:` here, neither ingress nor host. The service is only reachable inside the overlay network
+# `internal` as dashboard:${DASH_PORT:-9090}. Your existing internal reverse proxy terminates TLS and forwards to it; it must be
+# attached to that network (or reach it otherwise), pass the Host header UNCHANGED and use HTTPS (DASH_ORIGIN is checked against
+# Host/Origin; WebSockets are not needed). Check: `docker stack config` shows no `ports` below `dashboard` (CI asserts it).
+#
+# One replica only (in-memory rate limits and the setup window are per process); during an update or restart the dashboard is
+# unavailable for a short time. restart_policy `any` as for radar. No Docker socket, no extra capabilities, read-only root file
+# system with a small tmpfs for /tmp. The image has no curl: the healthcheck uses bash and /dev/tcp.
+# The environment repeats the one of radar (same keys, so the dashboard sees which values the operator set through the environment
+# and shows them as locked; empty means: not set by the operator); check-config-tables.sh keeps both lists in sync. Two deliberate differences: PUSH_ENABLED is fixed
+# `false` and there is no APNS_KEY_FILE (the dashboard never sends push and does not mount the APNs secret).
+services:
+  dashboard:
+    image: ghcr.io/magicalwig34653/weather-backend-radar:${RADAR_IMAGE_TAG:-edge}
+    command: [dashboard]
+    networks: [internal]
+    read_only: true
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 16777216
+    environment:
+      DASH_ENABLED: 'true'
+      DASH_PORT: ${DASH_PORT:-9090}
+      DASH_ORIGIN: ${DASH_ORIGIN:?DASH_ORIGIN required (https address of the dashboard, no path)}
+      # swarm-deploy.sh derives the RP ID from the host of DASH_ORIGIN when it is empty; set it by hand for a manual deploy.
+      DASH_RP_ID: ${DASH_RP_ID:-}
+      DASH_SETUP_WINDOW_MINUTES: ${DASH_SETUP_WINDOW_MINUTES:-15}
+      DASH_SESSION_HOURS: ${DASH_SESSION_HOURS:-12}
+      DASH_IDLE_MINUTES: ${DASH_IDLE_MINUTES:-30}
+      PUSH_ENABLED: 'false'
+      DB_HOST: ${DB_HOST:?DB_HOST required}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-showernow}
+      DB_USER: ${DB_USER:-showernow}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-4}
+      CACHE_MAX_MB: ${CACHE_MAX_MB:-}
+      RETENTION_RUNS: ${RETENTION_RUNS:-}
+      HISTORY_HOURS: ${HISTORY_HOURS:-}
+      LAYERS: ${LAYERS:-}
+      PRESSURE_FORECAST_HOURS: ${PRESSURE_FORECAST_HOURS:-}
+      PRESSURE_RETENTION_RUNS: ${PRESSURE_RETENTION_RUNS:-}
+      LIGHTNING_HISTORY_HOURS: ${LIGHTNING_HISTORY_HOURS:-}
+      CLOUDS_HISTORY_HOURS: ${CLOUDS_HISTORY_HOURS:-}
+      CLOUDMASK_HISTORY_HOURS: ${CLOUDMASK_HISTORY_HOURS:-}
+      CLOUDMASK_VIS_HISTORY_HOURS: ${CLOUDMASK_VIS_HISTORY_HOURS:-}
+      CLOUDMASK_VIS_EU_HISTORY_HOURS: ${CLOUDMASK_VIS_EU_HISTORY_HOURS:-}
+      PRESSURE_EU_FORECAST_HOURS: ${PRESSURE_EU_FORECAST_HOURS:-}
+      LAYER_PAUSE_SECONDS: ${LAYER_PAUSE_SECONDS:-2}
+      FETCH_WORKERS: ${FETCH_WORKERS:-}
+      IMAGE_WIDTH: ${IMAGE_WIDTH:-1024}
+      AVAILABILITY_DELAY_SECONDS: ${AVAILABILITY_DELAY_SECONDS:-200}
+      JITTER_SECONDS: ${JITTER_SECONDS:-}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-}
+      USER_AGENT: ${USER_AGENT:-}
+      WMS_URL: ${WMS_URL:-https://maps.dwd.de/geoserver/ows}
+      EUMETSAT_WMS_URL: ${EUMETSAT_WMS_URL:-https://view.eumetsat.int/geoserver/wms}
+      OPERATOR_NAME: ${OPERATOR_NAME:-}
+      OPERATOR_ADDRESS: ${OPERATOR_ADDRESS:-}
+      OPERATOR_EMAIL: ${OPERATOR_EMAIL:-}
+      PROXY_LOG_NOTE: ${PROXY_LOG_NOTE:-}
+      APP_STORE_URL: ${APP_STORE_URL:-}
+      TESTFLIGHT_URL: ${TESTFLIGHT_URL:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_TOPIC: ${APNS_TOPIC:-}
+      APNS_ENV: ${APNS_ENV:-}
+      PUSH_MAX_INSTALLATIONS: ${PUSH_MAX_INSTALLATIONS:-}
+      PUSH_MAX_SUBSCRIPTIONS: ${PUSH_MAX_SUBSCRIPTIONS:-}
+      PUSH_MAX_REGION_CELLS: ${PUSH_MAX_REGION_CELLS:-}
+      PUSH_MAX_ACTIVITY_SUBSCRIPTIONS: ${PUSH_MAX_ACTIVITY_SUBSCRIPTIONS:-}
+      PUSH_MAX_REGIONS_PER_INSTALLATION: ${PUSH_MAX_REGIONS_PER_INSTALLATION:-}
+      PUSH_MAX_CELLS_PER_INSTALLATION: ${PUSH_MAX_CELLS_PER_INSTALLATION:-}
+      PUSH_RATE_PER_INSTALLATION: ${PUSH_RATE_PER_INSTALLATION:-}
+      PUSH_RATE_GLOBAL_REGISTRATIONS: ${PUSH_RATE_GLOBAL_REGISTRATIONS:-}
+      PUSH_RATE_GLOBAL_REQUESTS: ${PUSH_RATE_GLOBAL_REQUESTS:-}
+      PUSH_RATE_FAILED_AUTH: ${PUSH_RATE_FAILED_AUTH:-}
+      PUSH_TEST_LIMIT_PER_HOUR: ${PUSH_TEST_LIMIT_PER_HOUR:-}
+      RESTART_STAGGER_SECONDS: ${RESTART_STAGGER_SECONDS:-}
+      DASH_WARN_LAYER_AGE_FACTOR_YELLOW: ${DASH_WARN_LAYER_AGE_FACTOR_YELLOW:-}
+      DASH_WARN_LAYER_AGE_FACTOR_RED: ${DASH_WARN_LAYER_AGE_FACTOR_RED:-}
+      DASH_WARN_ERROR_RATE_5XX_YELLOW: ${DASH_WARN_ERROR_RATE_5XX_YELLOW:-}
+      DASH_WARN_ERROR_RATE_5XX_RED: ${DASH_WARN_ERROR_RATE_5XX_RED:-}
+      DASH_WARN_OUTBOX_AGE_SECONDS_YELLOW: ${DASH_WARN_OUTBOX_AGE_SECONDS_YELLOW:-}
+      DASH_WARN_OUTBOX_AGE_SECONDS_RED: ${DASH_WARN_OUTBOX_AGE_SECONDS_RED:-}
+      DASH_WARN_APNS_REJECTION_YELLOW: ${DASH_WARN_APNS_REJECTION_YELLOW:-}
+      DASH_WARN_APNS_REJECTION_RED: ${DASH_WARN_APNS_REJECTION_RED:-}
+      DASH_WARN_TOKEN_INVALIDATION_YELLOW: ${DASH_WARN_TOKEN_INVALIDATION_YELLOW:-}
+      DASH_WARN_TOKEN_INVALIDATION_RED: ${DASH_WARN_TOKEN_INVALIDATION_RED:-}
+      DASH_WARN_CACHE_HIT_YELLOW: ${DASH_WARN_CACHE_HIT_YELLOW:-}
+      DASH_WARN_CACHE_HIT_RED: ${DASH_WARN_CACHE_HIT_RED:-}
+      DASH_WARN_CAP_FILL_YELLOW: ${DASH_WARN_CAP_FILL_YELLOW:-}
+      DASH_WARN_CAP_FILL_RED: ${DASH_WARN_CAP_FILL_RED:-}
+      DASH_WARN_LA_START_RATIO_YELLOW: ${DASH_WARN_LA_START_RATIO_YELLOW:-}
+      DASH_WARN_LA_START_RATIO_RED: ${DASH_WARN_LA_START_RATIO_RED:-}
+      DASH_MIN_GROUP: ${DASH_MIN_GROUP:-}
+      DEVICE_LINK_ENABLED: ${DEVICE_LINK_ENABLED:-}
+      DEVICE_LINK_BUNDLE_ID: ${DEVICE_LINK_BUNDLE_ID:-}
+      DEVICE_LINK_ALLOWED_ENVS: ${DEVICE_LINK_ALLOWED_ENVS:-}
+      DEVICE_LINK_MAX_AGE_HOURS: ${DEVICE_LINK_MAX_AGE_HOURS:-}
+      DASH_MAX_DEVICES: ${DASH_MAX_DEVICES:-}
+      DASH_DEVICE_TTL_DAYS: ${DASH_DEVICE_TTL_DAYS:-}
+      DASH_DEVICE_STALE_DAYS: ${DASH_DEVICE_STALE_DAYS:-}
+    secrets: [db_password]
+    healthcheck:
+      # Liveness: TCP connect plus any HTTP status line (the Host check of the dashboard answers 403 for "localhost", that is fine).
+      test: [CMD, /bin/bash, -c, 'exec 3<>/dev/tcp/127.0.0.1/$${DASH_PORT:-9090} && printf "GET /dash/api/session HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && IFS= read -r status <&3 && [[ "$$status" == HTTP/* ]]']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '${DASH_CPU_LIMIT:-0}'
+          memory: ${DASH_MEMORY_LIMIT:-0}
+      update_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+        monitor: 60s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s

@@ -10,7 +10,10 @@ mkdir -p "$WORK/repo/deploy/swarm" "$WORK/bin"
 cp "$SRC"/swarm-deploy.sh "$SRC"/update.sh "$SRC"/lib.sh "$SRC"/stack.yaml "$SRC"/stack.push.yaml "$WORK/repo/deploy/swarm/"
 cat > "$WORK/bin/docker" <<'STUB'
 #!/usr/bin/env bash
-echo "docker $*" >> "$STUB_LOG"
+echo "docker $* [rp=${DASH_RP_ID:-}]" >> "$STUB_LOG"
+case "$1 $2" in
+  "config create") cat > /dev/null ;;  # read the piped lock text like docker does (else printf dies with SIGPIPE under pipefail: flaky rc 141)
+esac
 case "$1 $2" in
   "secret inspect") [ "${STUB_SECRET:-yes}" = yes ] || exit 1 ;;
   "service inspect") exit 1 ;;
@@ -71,6 +74,20 @@ printf 'PUSH_ENABLED=true\nDASH_ENABLED=true\n' > "$WORK/both.env"
 run both-dashboard-part yes ENV_FILE="$WORK/both.env"
 CHECK=stack.push.yaml
 run both-push-part yes ENV_FILE="$WORK/both.env"
+unset CHECK
+# With the real overlay: DASH_RP_ID defaults to the host of DASH_ORIGIN (lower case, no scheme/port/path); an explicit value wins.
+cp "$SRC/stack.dashboard.yaml" "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
+CHECK=stack.dashboard.yaml
+run dash-real-overlay yes DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+run dash-rp-derived yes DASH_ENABLED=true DASH_ORIGIN=https://Dash.Example.internal:8443/
+grep -q 'stack deploy.*\[rp=dash.example.internal\]' "$WORK/dash-rp-derived.log" || { echo "FAIL RP ID not derived from DASH_ORIGIN"; fail=1; }
+run dash-rp-explicit yes DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal DASH_RP_ID=example.internal
+grep -q 'stack deploy.*\[rp=example.internal\]' "$WORK/dash-rp-explicit.log" || { echo "FAIL explicit DASH_RP_ID overridden"; fail=1; }
+run dash-off-no-rp no DASH_ENABLED=false DASH_ORIGIN=https://dash.example.internal
+grep -q '\[rp=\]' "$WORK/dash-off-no-rp.log" || { echo "FAIL RP ID derived although the dashboard is off"; fail=1; }
+run dash-push-and-dash yes DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+CHECK=stack.push.yaml
+run dash-push-and-dash-push yes DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 unset CHECK
 
 # ---- update.sh stops before any change when the overlay is missing (dry run, no network: --tag given) ----

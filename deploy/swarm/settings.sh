@@ -28,6 +28,13 @@ TSV_REGISTRY="${SETTINGS_REGISTRY:-$SCRIPT_DIR/config-registry.tsv}"
 TSV_EXTRA="${SETTINGS_EXTRA:-$SCRIPT_DIR/config-extra.tsv}"
 ENV_FILE=""
 DASH_OVERLAY="$SCRIPT_DIR/stack.dashboard.yaml"
+# The overlay carries a marker line "# dashboard-command: ready" once the image knows `radar dashboard` (WP5); until then the
+# overlay exists but the service command is still missing ("Overlay vorhanden, Dienstbefehl folgt (WP5)": a hint, no error).
+dash_command_ready() { [ -f "$DASH_OVERLAY" ] && grep -q '^# dashboard-command: ready' "$DASH_OVERLAY"; }
+dash_prepared_text() { # Zustand des Dashboards: leer = bereit
+  if [ ! -f "$DASH_OVERLAY" ]; then echo "vorbereitet (Overlay noch nicht vorhanden)"
+  elif ! dash_command_ready; then echo "Overlay vorhanden, Dienstbefehl folgt (WP5)"; fi
+}
 BACKTITLE="Showers Radar-Backend: Einstellungen"
 # Variablen, die das System setzt (Image, Swarm); in der .env sinnlos.
 SYSTEM_KEYS=" REPLICA_SLOT BUILD_REVISION MIGRATIONS_DIR HTTP_PORT "
@@ -71,6 +78,7 @@ apply_label() {
   if is_system_key "$k"; then echo "System"; return; fi
   if [ "${T_SECRET[$k]}" = 1 ]; then echo "Secret"; return; fi
   if [ "$k" = DASH_ENABLED ] && [ ! -f "$DASH_OVERLAY" ]; then echo "vorbereitet"; return; fi
+  if [ "$k" = DASH_ENABLED ] && ! dash_command_ready; then echo "Befehl folgt"; return; fi
   case "${T_APPLY[$k]}" in
     live) echo "live" ;;
     restart) echo "Neustart" ;;
@@ -84,6 +92,7 @@ load_stack_text() { STACK_TEXT="$(cat "$SCRIPT_DIR"/stack*.yaml 2>/dev/null || t
 passes_through() {
   local k="$1"
   [ -n "$STACK_TEXT" ] || return 0
+  [ "$k" = DASH_ENABLED ] && return 0 # wird von swarm-deploy.sh/update.sh ausgewertet (Overlay-Auswahl), nicht vom Dienst
   [[ $STACK_TEXT == *'${'"$k"':'* || $STACK_TEXT == *'${'"$k"'}'* ]]
 }
 
@@ -329,12 +338,13 @@ secret_hint() { # KEY -> Text mit dem docker-secret-create-Befehl
 }
 
 # ---------------------------------------------------------------- Prüfung der gesamten .env
-declare -a CHK_ERR=() CHK_WARN=()
+declare -a CHK_ERR=() CHK_WARN=() CHK_NOTE=()
 chk_err() { CHK_ERR+=("$*"); }
 chk_warn() { CHK_WARN+=("$*"); }
+chk_note() { CHK_NOTE+=("$*"); } # Hinweis: weder Fehler noch Warnung
 
 check_all() {
-  CHK_ERR=(); CHK_WARN=()
+  CHK_ERR=(); CHK_WARN=(); CHK_NOTE=()
   local k v name st
   if [ "$ENV_EXISTS" = 0 ]; then chk_warn "Datei $ENV_FILE existiert noch nicht (wird beim Speichern angelegt)."; fi
   # Zeilen und Werte der Datei
@@ -386,7 +396,8 @@ check_all() {
   fi
   if [ "$(eff_value DASH_ENABLED)" = true ]; then
     if [ -z "$(eff_value DASH_ORIGIN)" ]; then chk_err "DASH_ENABLED=true, aber DASH_ORIGIN fehlt (https-Adresse, unter der das Dashboard aufgerufen wird)."; fi
-    if [ ! -f "$DASH_OVERLAY" ]; then chk_warn "Dashboard noch nicht verfügbar in dieser Version (deploy/swarm/stack.dashboard.yaml fehlt); ein Rollout bricht ab."; fi
+    if [ ! -f "$DASH_OVERLAY" ]; then chk_warn "Dashboard noch nicht verfügbar in dieser Version (deploy/swarm/stack.dashboard.yaml fehlt); ein Rollout bricht ab."
+    elif ! dash_command_ready; then chk_note "Dashboard: Overlay vorhanden, Dienstbefehl folgt (WP5): der Befehl 'radar dashboard' ist in dieser Version noch nicht bestätigt; der Dienst startet erst mit einem Image, das ihn enthält."; fi
   fi
   if [ "$ENV_EXISTS" = 1 ]; then
     name="$(secret_name_for DB_PASSWORD)"; st="$(secret_status "$name")"
@@ -402,6 +413,7 @@ print_check() { # gibt Meldungen aus; Rückgabe 1 bei Fehlern
   local m
   for m in ${CHK_ERR[@]+"${CHK_ERR[@]}"}; do echo "FEHLER   $m"; done
   for m in ${CHK_WARN[@]+"${CHK_WARN[@]}"}; do echo "WARNUNG  $m"; done
+  for m in ${CHK_NOTE[@]+"${CHK_NOTE[@]}"}; do echo "HINWEIS  $m"; done
   echo "Ergebnis: ${#CHK_ERR[@]} Fehler, ${#CHK_WARN[@]} Warnungen."
   [ "${#CHK_ERR[@]}" -eq 0 ]
 }
@@ -641,6 +653,8 @@ detail_text() { # KEY
     else note=$'\nHinweis:  der Stack reicht die Variable nicht durch; ein Wert wirkt (noch) nicht'; fi
   elif [ "$k" = DASH_ENABLED ] && [ ! -f "$DASH_OVERLAY" ]; then
     note=$'\nStatus:   vorbereitet (Overlay noch nicht vorhanden): Dashboard noch nicht verfügbar in dieser Version'
+  elif [ "$k" = DASH_ENABLED ] && ! dash_command_ready; then
+    note=$'\nStatus:   Overlay vorhanden, Dienstbefehl folgt (WP5)'
   fi
   printf '%s\n\nTyp:      %s\nDefault:  %s\nAktuell:  %s (%s)\nWirkung:  %s%s' \
     "${T_SUM[$k]}" "$(describe_type "$k")" "$(show_val "$k" "${T_DEF[$k]}")" "$(show_val "$k" "$cur")" "$src" "$(effect_text "$k")" "$note"
@@ -728,6 +742,8 @@ EOF
 )"
   if [ ! -f "$DASH_OVERLAY" ]; then
     ui_msg "Dashboard noch nicht verfügbar" "In dieser Version fehlt deploy/swarm/stack.dashboard.yaml. Die Werte werden vorbereitet; ein Rollout mit DASH_ENABLED=true bricht ab, bis das Overlay vorhanden ist (nach pull-scripts)."
+  elif ! dash_command_ready; then
+    ui_msg "Dienstbefehl folgt" "Overlay vorhanden, Dienstbefehl folgt (WP5): Der Befehl 'radar dashboard' ist in dieser Version noch nicht bestätigt. Die Werte werden gespeichert; der Dienst startet erst mit einem Image, das den Befehl enthält."
   fi
   origin="$(eff_value DASH_ORIGIN)"
   if [ -z "$origin" ]; then
@@ -750,7 +766,7 @@ group_menu() { # Index
     while IFS= read -r k; do [ -n "$k" ] || continue; items+=("$k" "$(item_desc "$k")"); done < <(group_keys "$idx")
     [ "${#items[@]}" -gt 0 ] || return 0
     intro="Wert | Zustand | Wirkung"
-    if [ "$idx" = 5 ] && [ ! -f "$DASH_OVERLAY" ]; then intro="Dashboard: vorbereitet (Overlay noch nicht vorhanden)"; fi
+    if [ "$idx" = 5 ] && [ -n "$(dash_prepared_text)" ]; then intro="Dashboard: $(dash_prepared_text)"; fi
     fit_menu $(( ${#items[@]} / 2 )) 3
     if wt --title "${MENU_TITLES[$idx]}" ${sel:+--default-item "$sel"} --cancel-button Zurück --menu "$intro" "$FIT_H" @W "$FIT_LH" "${items[@]}"; then
       sel="$WT_OUT"; key_detail "$sel"
@@ -816,10 +832,11 @@ build_review() { # Datei
     done || true
     rm -f "$before" "$after"
     check_all
-    if [ "${#CHK_ERR[@]}" -gt 0 ] || [ "${#CHK_WARN[@]}" -gt 0 ]; then
+    if [ "${#CHK_ERR[@]}" -gt 0 ] || [ "${#CHK_WARN[@]}" -gt 0 ] || [ "${#CHK_NOTE[@]}" -gt 0 ]; then
       echo; echo "PRÜFUNG"
       for m in ${CHK_ERR[@]+"${CHK_ERR[@]}"}; do echo "  FEHLER   $m"; done
       for m in ${CHK_WARN[@]+"${CHK_WARN[@]}"}; do echo "  WARNUNG  $m"; done
+      for m in ${CHK_NOTE[@]+"${CHK_NOTE[@]}"}; do echo "  HINWEIS  $m"; done
     fi
   } > "$f"
 }

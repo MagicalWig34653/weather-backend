@@ -180,9 +180,14 @@ out="$(S --check 2>&1)"; rc=$?
 check "check: DASH_ENABLED ohne DASH_ORIGIN ist Fehler" bash -c "[ $rc -ne 0 ] && grep -q 'DASH_ORIGIN fehlt' <<< \"\$1\"" _ "$out"
 check "check: Dashboard ohne Overlay: Warnung 'noch nicht verfuegbar'" bash -c "grep -q 'Dashboard noch nicht verfügbar in dieser Version' <<< \"\$1\"" _ "$out"
 printf 'DASH_ORIGIN=https://dash.example.internal\n' >> "$ENVF"
-echo 'services: {}' > "$DIR/stack.dashboard.yaml"
+grep -v '^# dashboard-command' "$SRC/stack.dashboard.yaml" > "$DIR/stack.dashboard.yaml"
 out="$(S --check 2>&1)"; rc=$?
 check "check: mit Overlay entfaellt die Dashboard-Warnung" bash -c "[ $rc -eq 0 ] && ! grep -q 'noch nicht verfügbar' <<< \"\$1\"" _ "$out"
+check "check: Overlay ohne Befehlsmarke: Hinweis (kein Fehler, keine Warnung)" bash -c "grep -q '^HINWEIS .*Dienstbefehl folgt (WP5)' <<< \"\$1\" && ! grep '^WARNUNG' <<< \"\$1\" | grep -qv UNKNOWN_THING" _ "$out"
+cp "$SRC/stack.dashboard.yaml" "$DIR/stack.dashboard.yaml"
+check "overlay: Repo-Overlay traegt die Marke ready" grep -q '^# dashboard-command: ready$' "$SRC/stack.dashboard.yaml"
+out="$(S --check 2>&1)"; rc=$?
+check "check: Overlay mit Marke 'ready': kein Hinweis mehr" bash -c "[ $rc -eq 0 ] && ! grep -q 'HINWEIS' <<< \"\$1\"" _ "$out"
 rm -f "$DIR/stack.dashboard.yaml"
 fresh; printf 'DASH_ORIGIN=https://dash.example.internal\nDASH_RP_ID=other.example\n' >> "$ENVF"
 check "set: DASH_RP_ID muss Suffix des Origin-Hosts sein" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --set DASH_RP_ID=example.internal >/dev/null && ! ./settings.sh --env '$ENVF' --set DASH_RP_ID=evil.example >/dev/null 2>&1"

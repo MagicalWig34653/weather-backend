@@ -33,7 +33,7 @@ has_key() { [[ $'\n'"$keys"$'\n' == *$'\n'"$1"$'\n'* ]]; }
 default_of() { awk -F'\t' -v k="$1" '$1 == k { print $4; exit }' <<< "$rows"; }
 
 # ${VAR} der Stack-Dateien
-for f in stack.yaml stack.push.yaml; do
+for f in stack.yaml stack.push.yaml stack.dashboard.yaml; do
   for v in $(grep -o '\${[A-Z_][A-Z0-9_]*' "$DIR/$f" | tr -d '${' | sort -u); do
     has_key "$v" || err "$f: \${$v} fehlt in config-registry.tsv/config-extra.tsv"
   done
@@ -49,6 +49,25 @@ for f in stack.yaml stack.push.yaml; do
     [ "$t" = "$d" ] || err "$f: Default von $v ist '$d', Tabelle sagt '$t'"
   done < <(grep -o '\${[A-Z_][A-Z0-9_]*:-[^}]*}' "$DIR/$f" | sort -u)
 done
+
+# Dashboard overlay: same variables as radar (the dashboard shows which values the operator set), hard security properties.
+ov="$DIR/stack.dashboard.yaml"; ovc="$(grep -v '^ *#' "$ov")"  # ovc: ohne Kommentare
+env_keys() { # file, yaml indent: KEY of the lines `KEY: ${KEY:-...}` that mirror the radar environment
+  grep -oE '^ +([A-Z][A-Z0-9_]*): \$\{\1[:?]' "$1" | sed -E 's/^ +//; s/:.*//' | sort -u
+}
+radar_keys="$(env_keys "$DIR/stack.yaml")"; dash_keys="$(env_keys "$ov")"
+# Radar-only: APNS key secret path is a literal, REPLICA_SLOT is a literal; dashboard-only: DASH_PORT/ORIGIN/RP_ID/SETUP/SESSION/IDLE, DASH_*_LIMIT
+for v in $radar_keys; do
+  [ "$v" = PUSH_ENABLED ] && continue  # im Dashboard fest 'false'
+  [[ $'\n'"$dash_keys"$'\n' == *$'\n'"$v"$'\n'* ]] || err "stack.dashboard.yaml: $v aus stack.yaml fehlt (Umgebung des Dashboards muss die von radar spiegeln)"
+done
+grep -qE '^# dashboard-command: ready$' "$ov" || err "stack.dashboard.yaml: Marke '# dashboard-command: ready' fehlt"
+! grep -qE '^ +ports:' <<< "$ovc" || err "stack.dashboard.yaml: ports: ist verboten (kein Host-/Ingress-Port)"
+! grep -qi 'docker.sock' <<< "$ovc" || err "stack.dashboard.yaml: Docker-Socket verboten"
+grep -qE '^    read_only: true$' "$ov" || err "stack.dashboard.yaml: read_only: true fehlt"
+grep -qE "^      PUSH_ENABLED: 'false'$" "$ov" || err "stack.dashboard.yaml: PUSH_ENABLED muss fest 'false' sein"
+! grep -qiE 'apns_key_file|apns_key[^_]|secrets:.*apns' <<< "$ovc" || err "stack.dashboard.yaml: APNs-Schluessel darf nicht eingebunden werden"
+! grep -qE '^ +(cap_add|privileged|network_mode|pid):' <<< "$ovc" || err "stack.dashboard.yaml: keine zusaetzlichen Rechte"
 
 # .env.example
 for v in $(grep -oE '^#?[A-Z][A-Z0-9_]*=' "$ROOT/.env.example" | tr -d '#=' | sort -u); do
