@@ -78,9 +78,11 @@ unset CHECK
 # With the real overlay: DASH_RP_ID defaults to the host of DASH_ORIGIN (lower case, no scheme/port/path); an explicit value wins.
 cp "$SRC/stack.dashboard.yaml" "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
 # Real overlay: exactly one published ingress port, target = listener port, never host mode.
-grep -Eq '^ +- target: \$\{DASH_PORT:-9090\}$' "$SRC/stack.dashboard.yaml" && grep -Eq '^ +published: \$\{DASH_PUBLISH_PORT:-39090\}$' "$SRC/stack.dashboard.yaml" \
-  && grep -Eq '^ +mode: ingress$' "$SRC/stack.dashboard.yaml" && ! grep -Eq '^ +mode: host$' "$SRC/stack.dashboard.yaml" \
-  && [ "$(grep -cE '^ +- target:' "$SRC/stack.dashboard.yaml")" = 1 ] || { echo "FAIL dashboard overlay port block"; fail=1; }
+ov="$SRC/stack.dashboard.yaml"
+if ! { grep -Eq '^ +- target: \$\{DASH_PORT:-9090\}$' "$ov" && grep -Eq '^ +published: \$\{DASH_PUBLISH_PORT:-39090\}$' "$ov" \
+  && grep -Eq '^ +mode: ingress$' "$ov" && ! grep -Eq '^ +mode: host$' "$ov" && [ "$(grep -cE '^ +- target:' "$ov")" = 1 ]; }; then
+  echo "FAIL dashboard overlay port block"; fail=1
+fi
 CHECK=stack.dashboard.yaml
 run dash-real-overlay yes DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 run dash-rp-derived yes DASH_ENABLED=true DASH_ORIGIN=https://Dash.Example.internal:8443/
