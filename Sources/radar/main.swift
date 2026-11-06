@@ -361,26 +361,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         cacheClearTask = Task { await CacheClearWatcher(repo: repo, cache: api.cache).run() }
         cacheRef.set(api.cache)
         app.middleware.use(StatsMiddleware(stats: stats))
-        app.get("**") { req async -> Response in
-            let path = req.url.path
-            if path.hasPrefix(PushApi.prefix) {
-                return vaporResponse(await api.handlePush(method: "GET", path: path, secret: req.headers.first(name: "X-Installation-Secret"), body: []))
-            }
-            do {
-                return vaporResponse(try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch)))
-            } catch {
-                return Response(status: .serviceUnavailable, headers: ["Cache-Control": "no-store"])
-            }
-        }
-        // Push registration (small JSON bodies); answers 404 unless PUSH_ENABLED=true. `/dash` is always 404 here.
-        for method in [HTTPMethod.POST, .PUT, .DELETE] {
-            app.on(method, "**", body: .collect(maxSize: "8kb")) { req async -> Response in
-                var buffer = req.body.data ?? ByteBuffer()
-                return vaporResponse(await api.handlePush(method: method.rawValue, path: req.url.path,
-                                                          secret: req.headers.first(name: "X-Installation-Secret"),
-                                                          body: buffer.readBytes(length: buffer.readableBytes) ?? []))
-            }
-        }
+        registerPublicRoutes(app, api: api)
     }
 
     try await repo.ping()

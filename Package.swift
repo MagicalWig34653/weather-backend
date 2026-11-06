@@ -46,7 +46,8 @@ let package = Package(
         .testTarget(
             name: "RadarCoreTests",
             dependencies: [
-                "RadarCore", .product(name: "PNG", package: "swift-png"),
+                "RadarCore", "radar", .product(name: "PNG", package: "swift-png"),
+                .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "X509", package: "swift-certificates"), .product(name: "SwiftASN1", package: "swift-asn1"),
             ],
             exclude: ["Fixtures"]
