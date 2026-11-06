@@ -16,11 +16,13 @@ EOF
 chmod +x "$DIR/swarm-deploy.sh" "$DIR/settings.sh"
 cat > "$WORK/bin/docker" <<'EOF'
 #!/usr/bin/env bash
+echo x >> "$STUB_LOG.docker"
 if [ "$1 $2" = "secret ls" ]; then [ "${STUB_DOCKER:-ok}" = ok ] || exit 1; for s in ${STUB_SECRETS:-}; do echo "$s"; done; exit 0; fi
 exit 1
 EOF
 cat > "$WORK/bin/whiptail" <<'EOF'
 #!/usr/bin/env bash
+for a in "$@"; do [ "$a" != --infobox ] || exit 0; done  # Hinweisbox ("Docker-Secrets werden geprüft"): keine Antwort nötig
 n=$(cat "$STUB_STATE" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$STUB_STATE"
 { printf '#%s:' "$n"; printf ' [%s]' "$@"; echo; } >> "$STUB_LOG"
 prev=""; for a in "$@"; do [ "$prev" != --textbox ] || cp "$a" "$STUB_LOG.textbox.$n"; prev="$a"; done
@@ -61,6 +63,8 @@ EOF
 S() { ( cd "$DIR" && timeout 30 ./settings.sh --env "$ENVF" "$@" ); }
 sha() { cksum < "$ENVF"; }
 nbackups() { ls "$ENVF".bak.* 2>/dev/null | wc -l | tr -d ' '; }
+# shellcheck disable=SC2329  # wird per declare -f in bash -c Aufrufen genutzt
+call_n() { awk -v n="$1" '/^#[0-9]+:/ { p = ($0 ~ "^#" n ":") } p' "$WORK/log"; } # ganzer n-ter whiptail-Aufruf (Argumente mit Zeilenumbruch)
 menu() { # Antwortzeilen "RC|Ausgabe" als Argumente; Ausgabe im Menümodus in $WORK/menu.out
   : > "$WORK/script"; for l in "$@"; do printf '%s\n' "$l" >> "$WORK/script"; done
   export STUB_SCRIPT="$WORK/script" STUB_STATE="$WORK/state" STUB_LOG="$WORK/log"
@@ -200,56 +204,84 @@ check "list: unbekannte Variable gekennzeichnet" bash -c "grep -q 'UNKNOWN_THING
 check "list: alle Tabellenzeilen (>= 70 Variablen)" bash -c "[ \$(grep -c . <<< \"\$1\") -ge 70 ]" _ "$out"
 
 # ------------------------------------------------------------- Menüführung (whiptail-Stub)
+# Ablauf: Hauptmenü (Tag = Gruppenname) -> Gruppe (Tag = KEY) -> direkt Eingabe/Auswahl (kein Zwischenmenü), Esc/Zurück = "1|".
 fresh
-menu '0|0' '0|HISTORY_HOURS' '0|E' '0|abc' '0|' '0|30' '1|' '1|' '0|D' '0|' '0|' '0|' '1|'
+menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|abc' '0|' '0|30' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
 check "menue: Eingabe-Ablauf endet normal" bash -c "[ $MENU_RC -eq 0 ] && ! grep -q 'script exhausted' '$WORK/log'"
 check "menue: ungueltige Eingabe 'abc' wird mit Fehlerbox abgelehnt und erneut gefragt" bash -c "grep -q 'HISTORY_HOURS: muss eine ganze Zahl sein' '$WORK/log'"
+check "menue: nach dem Fehler steht 'abc' wieder im selben Eingabefeld" bash -c "$(declare -f call_n); WORK='$WORK'; call_n 5 | grep -q -- '--inputbox' && call_n 5 | grep -q '\[abc\]\$'"
+check "menue: Fehlerbox ohne --scrolltext (Enter schliesst sie)" bash -c "grep '^#4:' '$WORK/log' | grep -q 'msgbox' && ! grep '^#4:' '$WORK/log' | grep -q 'scrolltext'"
 check "menue: gespeichert" grep -qx 'HISTORY_HOURS=30' "$ENVF"
-check "menue: Diff-Uebersicht zeigt Aenderung" bash -c "grep -q 'HISTORY_HOURS: (Default: 48)  ->  30' '$WORK/log.textbox.10'"
+check "menue: Diff-Uebersicht zeigt Aenderung" bash -c "grep -q 'HISTORY_HOURS: (Default: 48)  ->  30' '$WORK/log'"
+check "menue: Uebersicht nennt die Wirkung (live) und den Rollout" bash -c "grep -q 'WIRKUNG' '$WORK/log' && grep -q 'HISTORY_HOURS: live' '$WORK/log' && grep -q 'Rolling Update' '$WORK/log'"
+check "menue: Titel mit Pfad Einstellungen > Gruppe > KEY" bash -c "grep -Eq 'Einstellungen (>|›) Radar & Cache (>|›) HISTORY_HOURS' '$WORK/log'"
+check "menue: nach der Aenderung bleibt die Auswahl auf dem bearbeiteten Eintrag" bash -c "grep '^#6:' '$WORK/log' | grep -q -- '--default-item.*\[HISTORY_HOURS\]'"
+check "menue: Hilfetext aus dem Register im Eingabedialog" bash -c "grep '^#3:' '$WORK/log' | grep -q 'Stunden Radar-Historie'"
 check "menue: Sicherung angelegt" bash -c "[ '$(nbackups)' = 1 ]"
 
 fresh; S --set HISTORY_HOURS=24 >/dev/null; rm -f "$ENVF".bak.*
-menu '0|0' '0|HISTORY_HOURS' '0|R' '0|' '1|' '1|' '0|D' '0|' '0|' '0|' '1|'
-check "menue: Zuruecksetzen kommentiert die Zeile aus" grep -qx '#HISTORY_HOURS=24' "$ENVF"
+menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|' '0|' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
+check "menue: leere Eingabe + Ja setzt auf Default zurueck (Zeile auskommentiert)" grep -qx '#HISTORY_HOURS=24' "$ENVF"
+fresh; before="$(sha)"
+menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|24' '1|' '1|' '0|V'
+check "menue: leere/gleiche Eingaben ohne Aenderung" bash -c "[ '$(sha)' = '$before' ]"
+
+# Kleine Zahlenbereiche und Auswahl statt Freitext
+fresh
+menu '0|Geräte-Kopplung' '0|DASH_MAX_DEVICES' '0|2' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
+check "menue: DASH_MAX_DEVICES (1 bis 5) als Auswahlliste, gespeichert" bash -c "grep -qx 'DASH_MAX_DEVICES=2' '$ENVF' && $(declare -f call_n); WORK='$WORK'; call_n 3 | grep -q -- '--menu' && call_n 3 | grep -q '<- aktuell'"
+fresh
+menu '0|Push' '0|APNS_ENV' '0|sandbox' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
+check "menue: Aufzaehlung APNS_ENV als Auswahlliste" bash -c "grep -qx 'APNS_ENV=sandbox' '$ENVF'"
 
 fresh; before="$(sha)"
-menu '0|6' '0|DB_PASSWORD' '0|' '1|' '1|'
+menu '0|Datenbank & Dienst' '0|DB_PASSWORD' '0|' '1|' '1|'
 check "menue: Geheimnis zeigt Hinweis mit docker secret create, Datei unveraendert" bash -c "grep -q 'docker secret create showernow_db_password' '$WORK/log' && grep -q 'vorhanden' '$WORK/log' && [ '$(sha)' = '$before' ] && [ $MENU_RC -eq 0 ]"
 fresh
-menu '0|6' '0|APNS_KEY' '0|' '1|' '1|'
-check "menue: APNs-Hinweis nennt .p8" bash -c "grep -q 'docker secret create showernow_apns_key /pfad/AuthKey' '$WORK/log'" 
+menu '0|Push' '0|APNS_KEY' '0|' '1|' '1|'
+check "menue: APNs-Hinweis nennt .p8" bash -c "grep -q 'docker secret create showernow_apns_key /pfad/AuthKey' '$WORK/log'"
 export STUB_SECRETS="x"
-menu '0|6' '1|' '1|'
+menu '0|Datenbank & Dienst' '1|' '1|'
 check "menue: Secret-Zeile zeigt 'fehlt' wenn docker ls ohne das Secret laeuft" bash -c "grep -q 'Secret fehlt' '$WORK/log'"
 export STUB_DOCKER=down
-menu '0|6' '1|' '1|'
+menu '0|Datenbank & Dienst' '1|' '1|'
 check "menue: Secret-Zeile zeigt 'unbekannt' ohne docker" bash -c "grep -q 'Secret unbekannt' '$WORK/log'"
 unset STUB_DOCKER; export STUB_SECRETS="showernow_db_password showernow_apns_key"
+# Latenz: docker secret ls hoechstens einmal je Sitzung, nicht bei jedem Menueaufbau
+fresh
+menu '0|Datenbank & Dienst' '1|' '0|Datenbank & Dienst' '1|' '0|Push' '1|' '0|Datenbank & Dienst' '1|' '1|'
+check "menue: docker secret ls nur einmal je Sitzung trotz mehrfachem Menueaufbau" bash -c "[ \$(grep -c . '$WORK/log.docker') -eq 1 ]"
+check "cli: --list ruft docker secret ls nur einmal" bash -c "rm -f '$WORK/log.docker'; export STUB_LOG='$WORK/log'; cd '$DIR' && ./settings.sh --env '$ENVF' --list >/dev/null && [ \$(grep -c . '$WORK/log.docker') -eq 1 ]"
 
 # Dashboard aktivieren (Overlay fehlt: 'vorbereitet')
 fresh
-menu '0|5' '0|DASH_ENABLED' '0|E' '0|true' '0|' '0|' '0|https://Dash.Example.internal' '0|' '1|' '1|' '0|D' '0|' '0|' '0|' '1|'
+menu '0|Dashboard' '0|DASH_ENABLED' '0|true' '0|' '0|' '0|https://Dash.Example.internal' '0|' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
 check "dashboard: Menue zeigt 'vorbereitet'" bash -c "grep -q 'vorbereitet (Overlay noch nicht vorhanden)' '$WORK/log'"
 check "dashboard: Voraussetzungen und Reset-Befehl angezeigt" bash -c "grep -q 'radar dashboard-reset --yes' '$WORK/log' && grep -q 'Host-Header unverändert' '$WORK/log'"
 check "dashboard: DASH_ENABLED, ORIGIN (kleingeschrieben) und RP_ID gespeichert" bash -c "grep -qx 'DASH_ENABLED=true' '$ENVF' && grep -qx 'DASH_ORIGIN=https://dash.example.internal' '$ENVF' && grep -qx 'DASH_RP_ID=dash.example.internal' '$ENVF'"
-check "dashboard: Diff zeigt Warnung 'noch nicht verfuegbar'" bash -c "grep -q 'Dashboard noch nicht verfügbar' '$WORK/log.textbox.12'"
+check "dashboard: Diff zeigt Warnung 'noch nicht verfuegbar'" bash -c "grep -q 'Dashboard noch nicht verfügbar' '$WORK/log'"
+check "dashboard: nach dem Speichern Hinweis auf Setup-Fenster und Aufruf-Adresse" bash -c "grep -q 'Setup-Fenster: 15 Minuten' '$WORK/log' && grep -q 'Aufruf unter https://dash.example.internal' '$WORK/log'"
 fresh; before="$(sha)"
-menu '0|5' '0|DASH_ENABLED' '0|E' '0|true' '0|' '0|' '1|' '0|' '1|' '1|' '1|'
+menu '0|Dashboard' '0|DASH_ENABLED' '0|true' '0|' '0|' '1|' '0|' '1|' '1|'
 check "dashboard: Abbruch bei DASH_ORIGIN laesst DASH_ENABLED aus" bash -c "[ '$(sha)' = '$before' ] && ! grep -q DASH_ENABLED '$ENVF'"
+menu '0|Dashboard-Schwellen' '1|' '1|'
+check "menue: Gruppe Dashboard-Schwellen vorhanden (DASH_WARN_*, DASH_MIN_GROUP)" bash -c "grep -q 'DASH_WARN_CACHE_HIT_RED' '$WORK/log' && grep -q 'DASH_MIN_GROUP' '$WORK/log'"
 
 # Verwerfen beim Beenden, Suche, Anwenden
 fresh; before="$(sha)"
-menu '0|0' '0|HISTORY_HOURS' '0|E' '0|30' '1|' '1|' '1|' '0|V'
+menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|30' '1|' '1|' '0|V'
 check "menue: Verwerfen beim Beenden aendert nichts" bash -c "[ '$(sha)' = '$before' ] && [ $MENU_RC -eq 0 ]"
-menu '0|S' '0|stagger' '0|RESTART_STAGGER_SECONDS' '1|' '1|' '1|'
+menu '0|Suchen' '0|stagger' '0|RESTART_STAGGER_SECONDS' '1|' '1|' '1|' '1|'
 check "menue: Suche findet RESTART_STAGGER_SECONDS" bash -c "grep -q 'RESTART_STAGGER_SECONDS' '$WORK/log' && ! grep -q 'script exhausted' '$WORK/log'"
+menu '0|Suchen' '0|stagger' '0|RESTART_STAGGER_SECONDS' '0|60' '1|' '1|' '1|' '0|V'
+check "menue: Suchergebnis nach Bearbeitung neu aufgebaut, Auswahl bleibt (default-item)" bash -c "$(declare -f call_n); WORK='$WORK'; call_n 5 | grep -q -- '--default-item.*\[RESTART_STAGGER_SECONDS\]' && call_n 5 | grep -q '60 s'"
 fresh
-menu '0|A' '0|S' '1|' '1|'
+menu '0|Anwenden' '0|S' '1|' '1|'
 check "anwenden: ohne Bestaetigung wird nicht ausgerollt" bash -c "[ ! -e '$WORK/log.deploy' ]"
-menu '0|A' '0|S' '0|' '1|'
+menu '0|Anwenden' '0|S' '0|' '1|'
 check "anwenden: mit Bestaetigung ruft swarm-deploy.sh mit Stack und .env-Werten auf" bash -c "grep -q 'STACK=radar DB_HOST=db.example.internal' '$WORK/log.deploy'"
 fresh; printf 'HISTORY_HOURS=500\n' >> "$ENVF"
-menu '0|A' '0|' '1|'
+menu '0|Anwenden' '0|' '1|'
 check "anwenden: bei Pruefungsfehlern wird nicht ausgerollt" bash -c "[ ! -e '$WORK/log.deploy' ] && grep -q 'FEHLER\|Fehler' '$WORK/log'"
 
 # ------------------------------------------------------------- whiptail fehlt

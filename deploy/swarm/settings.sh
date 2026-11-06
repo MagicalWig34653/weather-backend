@@ -314,6 +314,15 @@ load_secret_list() {
   fi
   SECRET_LIST=$'\n'"$out"$'\n'; SECRET_KNOWN=1
 }
+# Wichtig: Der Aufruf `$(secret_status ...)` läuft in einer Unter-Shell; ein dort geladener Cache ginge verloren und jeder Menüaufbau
+# würde `docker secret ls` neu starten (je Aufruf 0,1 bis 5 s). Deshalb vorher einmal in der Haupt-Shell laden (prefetch_secrets).
+prefetch_secrets() { # Haupt-Shell; mit Hinweisbox, weil docker bis zu 5 s brauchen kann
+  [ "$SECRET_KNOWN" = -1 ] || return 0
+  command -v docker >/dev/null 2>&1 || { SECRET_KNOWN=0; return 0; }
+  if [ -n "$UI" ] && [ "${1:-}" = ui ]; then "$UI" --backtitle "$BACKTITLE" --title "Einen Moment" --infobox "Docker-Secrets werden geprüft ..." 5 44 || true; fi
+  load_secret_list
+}
+refresh_secrets() { SECRET_KNOWN=-1; prefetch_secrets "$@"; }
 secret_status() { # Name -> vorhanden | fehlt | unbekannt
   load_secret_list
   if [ "$SECRET_KNOWN" != 1 ]; then echo unbekannt; return; fi
@@ -344,6 +353,7 @@ chk_warn() { CHK_WARN+=("$*"); }
 chk_note() { CHK_NOTE+=("$*"); } # Hinweis: weder Fehler noch Warnung
 
 check_all() {
+  load_secret_list # in der Haupt-Shell, damit `$(secret_status ...)` unten den Cache nutzt (kein docker je Aufruf)
   CHK_ERR=(); CHK_WARN=(); CHK_NOTE=()
   local k v name st
   if [ "$ENV_EXISTS" = 0 ]; then chk_warn "Datei $ENV_FILE existiert noch nicht (wird beim Speichern angelegt)."; fi
@@ -519,7 +529,7 @@ effect_text() {
   local k="$1"
   if is_system_key "$k"; then echo "System: wird vom Image bzw. Swarm gesetzt, nicht in der .env"; return; fi
   case "${T_APPLY[$k]}" in
-    live) echo "live: per Dashboard sofort (30 s); in der .env gilt immer ENV, wirkt nach \"Jetzt anwenden\"" ;;
+    live) echo "live: im Dashboard änderbar (30 s); ein Wert in der .env hat Vorrang und wirkt nach \"Jetzt anwenden\"" ;;
     restart) echo "Neustart: wird beim Start gelesen; wirkt nach \"Jetzt anwenden\"" ;;
     *) echo "nur ENV: nur über die .env, wirkt nach \"Jetzt anwenden\"" ;;
   esac
@@ -533,17 +543,22 @@ state_label() {
   else echo Default; fi
 }
 
-item_desc() { # KEY -> "Wert  Zustand  Wirkung" in höchstens ~34 Zeichen
-  local k="$1" v u st
+item_desc() { # KEY [Breite der Beschreibungsspalte] -> "Wert  Zustand  Wirkung", der Wert wird auf die Breite gekürzt
+  local k="$1" dw="${2:-34}" v u st vb lab
   if [ "${T_SECRET[$k]}" = 1 ]; then
     st="$(secret_status "$(secret_name_for "$k")")"
-    printf '%-14s %-8s %s' "Secret $st" "-" Secret
+    if [ "$dw" -ge 24 ]; then printf '%-16s %s' "Secret $st" "(nicht in .env)"; else printf 'Secret %s' "$st"; fi
     return
   fi
   v="$(eff_value "$k")"; u="${T_UNIT[$k]}"
-  if [ -z "$v" ]; then v="(leer)"; elif [ -n "$u" ] && [ $((${#v} + ${#u} + 1)) -le 14 ]; then v="$v $u"; fi
-  if [ "${#v}" -gt 14 ]; then v="${v:0:13}~"; fi
-  printf '%-14s %-8s %s' "$v" "$(state_label "$k")" "$(apply_label "$k")"
+  if [ "$dw" -ge 32 ]; then vb=$((dw - 19)); elif [ "$dw" -ge 20 ]; then vb=$((dw - 9)); else vb=$dw; fi
+  [ "$vb" -ge 6 ] || vb=6; [ "$vb" -le 26 ] || vb=26
+  if [ -z "$v" ]; then v="(leer)"; elif [ -n "$u" ] && [ $((${#v} + ${#u} + 1)) -le "$vb" ]; then v="$v $u"; fi
+  if [ "${#v}" -gt "$vb" ]; then v="${v:0:$((vb - 1))}~"; fi
+  lab="$(apply_label "$k")"
+  if [ "$dw" -ge 32 ]; then printf '%-*s %-8s %s' "$vb" "$v" "$(state_label "$k")" "$lab"
+  elif [ "$dw" -ge 20 ]; then printf '%-*s %s' "$vb" "$v" "$(state_label "$k")"
+  else printf '%s' "$v"; fi
 }
 
 # ---------------------------------------------------------------- whiptail-Hilfen
@@ -579,14 +594,15 @@ ui_size() {
 # whiptail aufrufen; Auswahl landet in WT_OUT, Rückgabe = Exit-Code. @H, @W und @LH werden durch die aktuelle
 # Fenstergröße ersetzt (Terminalgröße wird bei jedem Aufruf neu gelesen).
 wt() {
-  local rc=0 a
+  local rc=0 a bt="$BACKTITLE | ${ENV_FILE##*/}"
   local -a args=()
   ui_size
+  [ "$(pending_count)" -eq 0 ] || bt+=" | $(pending_count) ungespeichert"
   for a in "$@"; do
     case "$a" in @H) a="$H" ;; @W) a="$W" ;; @LH) a="$LH" ;; *) ;; esac
     args+=("$a")
   done
-  WT_OUT="$("$UI" --backtitle "$BACKTITLE" --ok-button OK --cancel-button Abbrechen --yes-button Ja --no-button Nein "${args[@]}" 3>&1 1>&2 2>&3)" || rc=$?
+  WT_OUT="$("$UI" --backtitle "$bt" --ok-button OK --cancel-button Zurück --yes-button Ja --no-button Nein "${args[@]}" 3>&1 1>&2 2>&3)" || rc=$?
   return "$rc"
 }
 
@@ -599,6 +615,12 @@ fit_menu() {
   return 0
 }
 
+# Wie fit_menu, aber mit dem (umbrochenen) Text selbst statt einer Zeilenzahl.
+fit_menu_text() { # N-Einträge Text
+  local th; th="$(text_height "$2")"
+  fit_menu "$1" $((th - 5))
+}
+
 text_height() { # Zeilen eines Textes (mit Umbruch) + Rahmen
   local text="$1" lines=0 line
   ui_size
@@ -606,9 +628,11 @@ text_height() { # Zeilen eines Textes (mit Umbruch) + Rahmen
   echo $((lines + 6))
 }
 
+# --scrolltext nur, wenn der Text nicht ins Fenster passt: mit --scrolltext liegt der Fokus im Text und Enter schließt die Box NICHT
+# (man müsste erst Tab drücken); das wirkte als "hängt".
 ui_msg() { # Titel Text
-  local h; ui_size; h="$(text_height "$2")"; [ "$h" -gt "$H" ] && h=$H
-  wt --title "$1" --scrolltext --msgbox "$2" "$h" "$W" || true
+  local h st="" t="$1"; ui_size; h="$(text_height "$2")"; if [ "$h" -gt "$H" ]; then h=$H; st=--scrolltext; t+=" (Tab, dann Enter schließt)"; fi
+  wt --title "$t" ${st:+"$st"} --msgbox "$2" "$h" "$W" || true
 }
 ui_yesno() { # Titel Text [--defaultno]
   local h; ui_size; h="$(text_height "$2")"; [ "$h" -gt "$H" ] && h=$H
@@ -618,30 +642,45 @@ ui_input() { # Titel Text Startwert
   local h; ui_size; h="$(text_height "$2")"; h=$((h + 2)); [ "$h" -gt "$H" ] && h=$H
   wt --title "$1" --inputbox "$2" "$h" "$W" "$3"
 }
-ui_textfile() { # Titel Datei
-  wt --title "$1" --scrolltext --textbox "$2" @H @W || true
+ui_textfile() { # Titel Datei: passt der Text ins Fenster, als normale Box (Enter schließt); sonst scrollbar (Pfeile, Bild auf/ab; Esc schließt)
+  local text h; text="$(cat "$2")"; ui_size; h="$(text_height "$text")"
+  if [ "$h" -le "$H" ]; then wt --title "$1" --msgbox "$text" "$h" "$W" || true
+  else wt --title "$1 (Esc schließt)" --scrolltext --textbox "$2" @H @W || true; fi
 }
 
 # ---------------------------------------------------------------- Menüs
-MENU_TITLES=("Radar & Cache" "Zusatzebenen" "Push" "Push-Limits und Raten" "Betreiberseiten" "Dashboard" "Datenbank & Dienst" "Deploy / Image" "Sonstiges")
-MENU_TG=("Radar Cache" "Ebenen" "Push" "Push-Grenzen Push-Ratenlimits" "Betreiberseiten" "Dashboard Neustart" "Datenbank Dienst Quellen" "Deploy" "")
+MENU_TITLES=("Radar & Cache" "Zusatzebenen" "Push" "Push-Limits und Raten" "Betreiberseiten" "Dashboard" "Dashboard-Schwellen" "Geräte-Kopplung" "Datenbank & Dienst" "Deploy / Image" "Sonstiges")
+MENU_TG=("Radar Cache" "Ebenen" "Push" "Push-Grenzen Push-Ratenlimits" "Betreiberseiten" "Dashboard Neustart" "Dashboard-Schwellen" "Geräte-Kopplung" "Datenbank Dienst Quellen" "Deploy" "")
+# Pfad im Titel: "Einstellungen › Push › APNS_ENV" (ohne UTF-8-Locale ">", weil whiptail sonst die Breite falsch berechnet)
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) CRUMB_SEP=" › " ;; *) CRUMB_SEP=" > " ;; esac
+crumb() { local out="Einstellungen" p; for p in "$@"; do out+="$CRUMB_SEP$p"; done; printf '%s' "$out"; }
 
-group_keys() { # Index -> Schlüsselliste (eine je Zeile)
-  local idx="$1" tg k j covered all
-  if [ "$idx" -lt $((${#MENU_TITLES[@]} - 1)) ]; then
+# Schlüssel je Menügruppe einmal je Sitzung berechnen (die Tabellen ändern sich nicht): GROUP_KEYS[idx] = "K1 K2 ..."
+declare -a GROUP_KEYS=()
+build_groups() {
+  local idx k tg n=$((${#MENU_TITLES[@]} - 1))
+  declare -A seen=()
+  GROUP_KEYS=()
+  for idx in "${!MENU_TITLES[@]}"; do
+    GROUP_KEYS[idx]=""
+    [ "$idx" -lt "$n" ] || continue
     for tg in ${MENU_TG[$idx]}; do
-      for k in "${KEYS[@]}"; do [ "${T_GROUP[$k]}" = "$tg" ] && echo "$k"; done
+      for k in "${KEYS[@]}"; do
+        if [ "${T_GROUP[$k]}" = "$tg" ]; then GROUP_KEYS[idx]+="${GROUP_KEYS[idx]:+ }$k"; seen[$k]=1; fi
+      done
     done
-  else
-    all=" ${MENU_TG[*]} "
-    for k in "${KEYS[@]}"; do covered=0; for j in ${all}; do [ "${T_GROUP[$k]}" = "$j" ] && covered=1; done; [ "$covered" = 1 ] || echo "$k"; done
-  fi
+  done
+  for k in "${KEYS[@]}"; do [ -n "${seen[$k]+x}" ] || GROUP_KEYS[n]+="${GROUP_KEYS[n]:+ }$k"; done
 }
+group_keys() { local k; for k in ${GROUP_KEYS[$1]}; do echo "$k"; done; }
 
-group_summary() { # Index -> "n Einträge, m gesetzt"
-  local n=0 m=0 k
-  while IFS= read -r k; do [ -n "$k" ] || continue; n=$((n + 1)); is_set "$k" && m=$((m + 1)); done < <(group_keys "$1")
-  echo "$n Einträge, $m gesetzt"
+group_summary() { # Index -> "n Einträge, m gesetzt[, c geändert]"
+  local n=0 m=0 c=0 k
+  for k in ${GROUP_KEYS[$1]}; do
+    n=$((n + 1)); is_set "$k" && m=$((m + 1))
+    if [ -n "${PEND_SET[$k]+x}" ] || [ -n "${PEND_UNSET[$k]+x}" ]; then c=$((c + 1)); fi
+  done
+  if [ "$c" -gt 0 ]; then echo "$n Einträge, $m gesetzt, $c geändert"; else echo "$n Einträge, $m gesetzt"; fi
 }
 
 detail_text() { # KEY
@@ -660,26 +699,84 @@ detail_text() { # KEY
     "${T_SUM[$k]}" "$(describe_type "$k")" "$(show_val "$k" "${T_DEF[$k]}")" "$(show_val "$k" "$cur")" "$src" "$(effect_text "$k")" "$note"
 }
 
-key_detail() { # KEY
-  local k="$1" choice
+# Bearbeiten eines Eintrags in EINEM Schritt (kein Zwischenmenü): Auswahlliste für bool/choice/kleine Zahlenbereiche, sonst Eingabefeld
+# (leer lassen = auf Default zurücksetzen); ungültige Eingaben bleiben im selben Feld. Titel mit Pfad: Einstellungen › Gruppe › KEY.
+PARENT_CRUMB=""
+edit_key() { # KEY
+  local k="$1" base="${T_TYPE[$1]%%:*}" init prompt tok cur n lo hi ct i choice
+  local -a opts=() ch
+  ct="$(crumb ${PARENT_CRUMB:+"$PARENT_CRUMB"} "$k")"
   if [ "${T_SECRET[$k]}" = 1 ]; then
-    ui_msg "$k (Secret: $(secret_status "$(secret_name_for "$k")"))" "$(secret_hint "$k")"
+    refresh_secrets ui # nach `docker secret create` in einer anderen Sitzung: frischer Status
+    ui_msg "$ct (Secret: $(secret_status "$(secret_name_for "$k")"))" "$(secret_hint "$k")"
     return 0
   fi
   if is_system_key "$k"; then
     local extra=""
     [ "$k" = REPLICA_SLOT ] && extra=$'\n\nDer Swarm setzt den Wert per {{.Task.Slot}}; nicht manuell eintragen.'
-    ui_msg "$k" "$(detail_text "$k")$extra"
+    ui_msg "$ct" "$(detail_text "$k")$extra"
     return 0
   fi
+  init="$(eff_value "$k")"; lo="${T_MIN[$k]}"; hi="${T_MAX[$k]}"
+  # Auswahlliste: Wert, Beschreibung; dazu (wenn gesetzt) "Auf Default zurücksetzen"
+  opts=()
+  case "$base" in
+    bool) opts=(true "an" false "aus") ;;
+    choice) IFS='|' read -ra ch <<< "${T_CHOICES[$k]}"; for tok in "${ch[@]}"; do opts+=("$tok" ""); done ;;
+    int) if [[ $lo =~ ^[0-9]+$ && $hi =~ ^[0-9]+$ ]] && [ $((hi - lo)) -le 5 ]; then for ((i = lo; i <= hi; i++)); do opts+=("$i" ""); done; fi ;;
+  esac
+  if [ "${#opts[@]}" -gt 0 ]; then
+    n=$(( ${#opts[@]} / 2 ))
+    if [ -n "${ENV_COUNT[$k]+x}" ] || [ -n "${PEND_SET[$k]+x}" ]; then opts+=("-" "Auf Default zurücksetzen (${T_DEF[$k]:-leer})"); n=$((n + 1)); fi
+    # aktueller Wert in der Beschreibung markieren
+    for ((i = 0; i < ${#opts[@]}; i += 2)); do [ "${opts[i]}" = "$init" ] && opts[i + 1]="${opts[i + 1]:+${opts[i + 1]}  }<- aktuell"; done
+    prompt="$(detail_text "$k")"
+    fit_menu_text "$n" "$prompt"
+    if wt --title "$ct" --default-item "$init" --menu "$prompt" "$FIT_H" @W "$FIT_LH" "${opts[@]}"; then
+      choice="$WT_OUT"
+      if [ "$choice" = "$init" ]; then :  # unverändert: nichts vormerken (ein explizit gesetzter Wert sperrt im Dashboard das Feld)
+      elif [ "$choice" = - ]; then reset_key "$k"
+      elif [ "$k" = DASH_ENABLED ] && [ "$choice" = true ]; then dashboard_enable_flow
+      else queue_set "$k" "$choice"; fi
+    fi
+    return 0
+  fi
+  if [ "$base" = layers ]; then
+    local -a lopts=() lch
+    IFS='|' read -ra lch <<< "${T_CHOICES[$k]}"
+    for tok in "${lch[@]}"; do
+      if [[ ",$init," == *",$tok,"* ]]; then lopts+=("$tok" "" ON); else lopts+=("$tok" "" OFF); fi
+    done
+    prompt="${T_SUM[$k]}"$'\n'"Aktuell: $(show_val "$k" "$init"). Radar läuft immer; nichts gewählt = nur Radar."$'\n'"Leertaste wählt, Tab wechselt zu OK."
+    fit_menu_text "${#lch[@]}" "$prompt"
+    if wt --title "$ct" --separate-output --checklist "$prompt" "$FIT_H" @W "$FIT_LH" "${lopts[@]}"; then
+      tok="$(printf '%s' "$WT_OUT" | tr '\n' ',')"; tok="${tok%,}"
+      if validate "$k" "${tok:-radar}"; then queue_set "$k" "$V_OUT"; fi
+    fi
+    return 0
+  fi
+  prompt="$(detail_text "$k")"$'\n\n'"Neuer Wert (leer lassen = Default${T_DEF[$k]:+ ${T_DEF[$k]}}):"
+  if [ "$k" = DASH_RP_ID ] && [ -z "$init" ]; then init="$(origin_host "$(eff_value DASH_ORIGIN)")"; fi
   while :; do
-    if wt --title "$k" --cancel-button Zurück --menu "$(detail_text "$k")" @H @W 3 \
-        E "Wert ändern" R "Auf Default zurücksetzen (Zeile auskommentieren)" B "Zurück"; then choice="$WT_OUT"; else return 0; fi
-    case "$choice" in
-      E) edit_key "$k" ;;
-      R) reset_key "$k" ;;
-      *) return 0 ;;
-    esac
+    ui_input "$ct" "$prompt" "$init" || return 0
+    if [ -z "${WT_OUT//[[:space:]]/}" ]; then
+      if [ -n "${ENV_COUNT[$k]+x}" ] || [ -n "${PEND_SET[$k]+x}" ]; then
+        if ui_yesno "$ct" "Leer: $k auf den Default zurücksetzen (${T_DEF[$k]:-leer})?
+Die Zeile in der .env wird beim Speichern auskommentiert."; then reset_key "$k"; return 0; fi
+        init="$(eff_value "$k")"; continue
+      fi
+      ui_msg "$ct" "Nicht gesetzt: es gilt bereits der Default (${T_DEF[$k]:-leer})."; return 0
+    fi
+    if validate "$k" "$WT_OUT"; then
+      # gleicher Wert wie der wirksame Default/Wert: nichts vormerken
+      if [ "$V_OUT" != "$(eff_value "$k")" ] || in_file "$k" || [ -n "${PEND_SET[$k]+x}" ]; then queue_set "$k" "$V_OUT"; fi
+      return 0
+    fi
+    init="$WT_OUT"
+    ui_msg "Ungültiger Wert" "$k: $V_ERR
+
+Erlaubt: $(describe_type "$k")
+Die Eingabe bleibt im Feld stehen und kann korrigiert werden."
   done
 }
 
@@ -689,45 +786,7 @@ reset_key() {
     ui_msg "$k" "Nicht gesetzt: es gilt bereits der Default (${T_DEF[$k]:-leer})."
     return 0
   fi
-  queue_unset "$k"
-  ui_msg "$k" "Wird beim Speichern auf den Default zurückgesetzt: die Zeile in der .env wird auskommentiert (#$k=...), der alte Wert bleibt dort lesbar."
-}
-
-edit_key() {
-  local k="$1" base="${T_TYPE[$1]%%:*}" init prompt items="" tok cur n
-  init="$(eff_value "$k")"
-  case "$base" in
-    bool)
-      cur="$init"
-      if wt --title "$k" --default-item "$cur" --menu "${T_SUM[$k]}" @H @W 2 true "an (true)" false "aus (false)"; then
-        if [ "$k" = DASH_ENABLED ] && [ "$WT_OUT" = true ]; then dashboard_enable_flow; else queue_set "$k" "$WT_OUT"; fi
-      fi ;;
-    choice)
-      local -a opts=() ch
-      IFS='|' read -ra ch <<< "${T_CHOICES[$k]}"
-      for tok in "${ch[@]}"; do opts+=("$tok" ""); done
-      n=${#ch[@]}
-      if wt --title "$k" --default-item "$init" --menu "${T_SUM[$k]}" @H @W "$n" "${opts[@]}"; then queue_set "$k" "$WT_OUT"; fi ;;
-    layers)
-      local -a lopts=() lch
-      IFS='|' read -ra lch <<< "${T_CHOICES[$k]}"
-      for tok in "${lch[@]}"; do
-        if [[ ",$init," == *",$tok,"* ]]; then lopts+=("$tok" "" ON); else lopts+=("$tok" "" OFF); fi
-      done
-      if wt --title "$k" --separate-output --checklist "Zusätzliche Ebenen (Radar läuft immer). Leer lassen = nur Radar. Leertaste wählt." @H @W "${#lch[@]}" "${lopts[@]}"; then
-        tok="$(printf '%s' "$WT_OUT" | tr '\n' ',')"; tok="${tok%,}"
-        if validate "$k" "${tok:-radar}"; then queue_set "$k" "$V_OUT"; fi
-      fi ;;
-    *)
-      prompt="${T_SUM[$k]}"$'\n'"Erlaubt: $(describe_type "$k")"
-      if [ "$k" = DASH_RP_ID ] && [ -z "$init" ]; then init="$(origin_host "$(eff_value DASH_ORIGIN)")"; fi
-      while :; do
-        ui_input "$k" "$prompt" "$init" || return 0
-        if validate "$k" "$WT_OUT"; then queue_set "$k" "$V_OUT"; return 0; fi
-        init="$WT_OUT"
-        ui_msg "Ungültiger Wert" "$k: $V_ERR"
-      done ;;
-  esac
+  queue_unset "$k" # sichtbar als Zustand RESET in der Liste
 }
 
 dashboard_enable_flow() {
@@ -758,41 +817,63 @@ EOF
   fi
 }
 
+declare -A GSEL=()
+longest_key() { local k m=0; for k in "$@"; do [ "${#k}" -le "$m" ] || m=${#k}; done; echo "$m"; }
+
 group_menu() { # Index
-  local idx="$1" k sel="" intro
-  local -a items
+  local idx="$1" k kw dw intro title
+  local -a items keys
+  title="${MENU_TITLES[$idx]}"
+  read -ra keys <<< "${GROUP_KEYS[$idx]}"
+  [ "${#keys[@]}" -gt 0 ] || return 0
+  kw="$(longest_key "${keys[@]}")"
+  PARENT_CRUMB="$title"
   while :; do
+    ui_size; dw=$((W - kw - 9)) # Spalte Beschreibung: Fensterbreite minus Schlüsselspalte und Rahmen
     items=()
-    while IFS= read -r k; do [ -n "$k" ] || continue; items+=("$k" "$(item_desc "$k")"); done < <(group_keys "$idx")
-    [ "${#items[@]}" -gt 0 ] || return 0
-    intro="Wert | Zustand | Wirkung"
-    if [ "$idx" = 5 ] && [ -n "$(dash_prepared_text)" ]; then intro="Dashboard: $(dash_prepared_text)"; fi
-    fit_menu $(( ${#items[@]} / 2 )) 3
-    if wt --title "${MENU_TITLES[$idx]}" ${sel:+--default-item "$sel"} --cancel-button Zurück --menu "$intro" "$FIT_H" @W "$FIT_LH" "${items[@]}"; then
-      sel="$WT_OUT"; key_detail "$sel"
+    for k in "${keys[@]}"; do items+=("$k" "$(item_desc "$k" "$dw")"); done
+    intro="Enter: bearbeiten, Esc: zurück. Spalten: Wert | Zustand | Wirkung"
+    if [ "$idx" = 5 ] && [ -n "$(dash_prepared_text)" ]; then intro="Dashboard: $(dash_prepared_text)"$'\n'"$intro"; fi
+    fit_menu "${#keys[@]}" "$(grep -c '' <<< "$intro")"
+    if wt --title "$(crumb "$title")" ${GSEL[$idx]:+--default-item "${GSEL[$idx]}"} --menu "$intro" "$FIT_H" @W "$FIT_LH" "${items[@]}"; then
+      GSEL[$idx]="$WT_OUT"; edit_key "$WT_OUT"
     else return 0; fi
   done
 }
 
+# Suche/Filter: Text in Name, Beschreibung, Gruppe oder Zustand ("gesetzt", "neu", "default", "reset"); die Trefferliste wird nach jeder
+# Änderung neu aufgebaut, die Auswahl bleibt auf dem zuletzt bearbeiteten Eintrag; Esc in der Liste führt zurück zur Eingabe.
 search_menu() {
-  local term k hay lt
-  local -a items
-  ui_input "Suche" "Suchbegriff (Name, Beschreibung, Gruppe):" "" || return 0
-  term="${WT_OUT,,}"; [ -n "$term" ] || return 0
-  items=()
-  for k in "${KEYS[@]}"; do
-    hay="${k,,} ${T_SUM[$k],,} ${T_GROUP[$k],,}"
-    if [[ $hay == *"$term"* ]]; then items+=("$k" "$(item_desc "$k")"); fi
+  local term="" k hay lt sel="" kw dw
+  local -a items keys
+  while :; do
+    ui_input "$(crumb Suche)" "Suchbegriff (Name, Beschreibung, Gruppe oder Zustand wie gesetzt/neu):" "$term" || return 0
+    term="${WT_OUT,,}"; term="${term#"${term%%[![:space:]]*}"}"; term="${term%"${term##*[![:space:]]}"}"
+    [ -n "$term" ] || { ui_msg "$(crumb Suche)" "Bitte einen Suchbegriff eingeben."; continue; }
+    sel=""
+    while :; do
+      items=(); keys=()
+      for k in "${KEYS[@]}"; do
+        hay="${k,,} ${T_SUM[$k],,} ${T_GROUP[$k],,} $(state_label "$k" | tr '[:upper:]' '[:lower:]')"
+        if [[ $hay == *"$term"* ]]; then keys+=("$k"); fi
+      done
+      if [ "${#keys[@]}" -eq 0 ]; then ui_msg "$(crumb Suche)" "Keine Treffer für '$term'."; break; fi
+      kw="$(longest_key "${keys[@]}")"; ui_size; dw=$((W - kw - 9))
+      for k in "${keys[@]}"; do items+=("$k" "$(item_desc "$k" "$dw")"); done
+      lt=${#keys[@]}
+      fit_menu "$lt" 3
+      PARENT_CRUMB="Suche"
+      if wt --title "$(crumb Suche "'$term'")" ${sel:+--default-item "$sel"} --menu "$lt Treffer. Enter: bearbeiten, Esc: neue Suche" "$FIT_H" @W "$FIT_LH" "${items[@]}"; then
+        sel="$WT_OUT"; edit_key "$sel"
+      else break; fi
+    done
   done
-  if [ "${#items[@]}" -eq 0 ]; then ui_msg "Suche" "Keine Treffer für '$WT_OUT'."; return 0; fi
-  lt=$(( ${#items[@]} / 2 ))
-  while wt --title "Treffer: $term" --cancel-button Zurück --menu "$lt Treffer" @H @W @LH "${items[@]}"; do key_detail "$WT_OUT"; done
 }
 
 show_notes() {
-  ui_msg "Hinweise" "$(cat <<'EOF'
+  ui_msg "$(crumb Hinweise)" "$(cat <<'EOF'
 Wirkung der Einstellungen
-- live: Der Dienst übernimmt den Wert alle 30 s, wenn er über das kommende Dashboard gesetzt wird. Eine Variable in der .env ist immer ENV und hat Vorrang; sie wirkt erst nach einem neuen Rollout (Jetzt anwenden).
+- live: Der Dienst übernimmt den Wert alle 30 s, wenn er im Dashboard gesetzt wird. Eine Variable in der .env ist immer ENV und hat Vorrang; sie wirkt erst nach einem neuen Rollout (Jetzt anwenden).
 - Neustart: wird beim Start der Dienste gelesen; wirkt nach einem Rollout.
 - nur ENV: nur über die .env, wirkt nach einem Rollout.
 - vorbereitet / "reicht der Stack nicht durch": Variable ist vorgesehen, wirkt in dieser Version noch nicht.
@@ -817,6 +898,20 @@ build_review() { # Datei
       if [ -n "${PEND_SET[$k]+x}" ]; then new="$(show_val "$k" "${PEND_SET[$k]}")"; else new="(Default: $(show_val "$k" "${T_DEF[$k]-}"), Zeile wird auskommentiert)"; fi
       echo "  $k: $old  ->  $new"
     done
+    echo
+    echo "WIRKUNG (erst nach \"Jetzt anwenden\", also nach dem Rollout)"
+    local lbl n_restart=0 n_dash=0 n_env=0
+    for k in $(printf '%s\n' ${PEND_SET[@]+"${!PEND_SET[@]}"} ${PEND_UNSET[@]+"${!PEND_UNSET[@]}"} | sort -u); do
+      [ -n "$k" ] || continue
+      lbl="$(apply_label "$k")"
+      case "$lbl" in Neustart) n_restart=$((n_restart + 1)) ;; "nur ENV") n_env=$((n_env + 1)) ;; esac
+      case "$k" in DASH_*|DEVICE_LINK_*) n_dash=$((n_dash + 1)) ;; esac
+      echo "  $k: $lbl"
+    done
+    echo "  Der Rollout startet die Radar-Replikate nacheinander neu (Rolling Update, kurze Unterbrechung je Replikat)."
+    if [ "$n_restart" -gt 0 ]; then echo "  $n_restart Wert(e) mit Wirkung 'Neustart' werden erst beim Start der Dienste gelesen."; fi
+    if [ "$n_env" -gt 0 ]; then echo "  $n_env Wert(e) 'nur ENV' lassen sich nie im Dashboard ändern."; fi
+    if [ "$n_dash" -gt 0 ] && [ "$(eff_value DASH_ENABLED)" = true ]; then echo "  Dashboard-Dienst wird mit den neuen Werten gestartet bzw. neu angelegt."; fi
     echo
     echo "DIFF der Datei $ENV_FILE (ohne Kontext)"
     local before after
@@ -843,21 +938,32 @@ build_review() { # Datei
 in_file_raw() { [ -n "${ENV_COUNT[$1]+x}" ]; }
 
 save_flow() { # Rückgabe 0 = gespeichert
-  local f
+  local f chg dh
   if [ "$(pending_count)" -eq 0 ]; then ui_msg "Speichern" "Keine Änderungen."; return 1; fi
   f="$(mktemp)"; TMPFILES+=("$f")
   build_review "$f"
-  ui_textfile "Änderungen prüfen" "$f"
+  ui_textfile "$(crumb "Änderungen prüfen")" "$f"
   if [ "${#CHK_ERR[@]}" -gt 0 ]; then
     ui_yesno "Fehler in der Prüfung" "Die Prüfung meldet ${#CHK_ERR[@]} Fehler (siehe Übersicht). Trotzdem speichern?" --defaultno || return 1
-  elif ! ui_yesno "Speichern" "Änderungen in $ENV_FILE speichern?\nVorher wird eine Sicherung angelegt."; then
+  elif ! ui_yesno "Speichern" "Änderungen in $ENV_FILE speichern?
+Vorher wird eine Sicherung angelegt."; then
     return 1
   fi
+  chg=" $(printf '%s ' ${PEND_SET[@]+"${!PEND_SET[@]}"} ${PEND_UNSET[@]+"${!PEND_UNSET[@]}"}) "
   write_env
-  ui_msg "Gespeichert" "${BACKUP_PATH:+Sicherung: $BACKUP_PATH
+  dh=""
+  if [[ $chg == *" DASH_ENABLED "* || $chg == *" DASH_ORIGIN "* || $chg == *" DASH_SETUP_WINDOW_MINUTES "* ]] && [ "$(eff_value DASH_ENABLED)" = true ]; then
+    dh="
+
+Dashboard nach dem Ausrollen:
+- Aufruf unter $(eff_value DASH_ORIGIN) (über Ihren internen Reverse Proxy, Port $(eff_value DASH_PORT) im Overlay-Netz).
+- Setup-Fenster: $(eff_value DASH_SETUP_WINDOW_MINUTES) Minuten ab Dienststart; in dieser Zeit den ersten Passkey registrieren (nur im internen Netz).
+- Ist das Fenster abgelaufen: Dienst neu starten (docker service update --force $(eff_value RADAR_STACK)_dashboard) oder Notfall-Reset: radar dashboard-reset --yes."
+  fi
+  ui_msg "$(crumb Gespeichert)" "${BACKUP_PATH:+Sicherung: $BACKUP_PATH
 }Datei: $ENV_FILE
 
-Die Dienste laufen noch mit den alten Werten. Wirksam wird die Änderung erst nach 'Jetzt anwenden' (oder update.sh / swarm-deploy.sh)."
+Die Dienste laufen noch mit den alten Werten. Wirksam wird die Änderung erst nach 'Jetzt anwenden' (oder update.sh / swarm-deploy.sh).$dh"
   return 0
 }
 
@@ -875,7 +981,7 @@ $(printf '%s\n' "${CHK_ERR[@]}")"
     return 0
   fi
   stack="$(eff_value RADAR_STACK)"
-  wt --title "Jetzt anwenden" --cancel-button Zurück --menu "Nichts wird ohne Bestätigung ausgerollt." @H @W 3 \
+  wt --title "$(crumb Anwenden)" --cancel-button Zurück --menu "Nichts wird ohne Bestätigung ausgerollt." @H @W 3 \
     S "Nur diese Einstellungen ausrollen (swarm-deploy.sh, Image-Tag $(eff_value RADAR_IMAGE_TAG) bleibt)" \
     U "Auf neuestes Image aktualisieren (update.sh --force)" \
     B "Zurück" || return 0
@@ -905,7 +1011,7 @@ Ist die Datenbank gesichert? Jetzt ausrollen?" --defaultno || return 0
 leave_menu() { # Rückgabe 0 = beenden
   local choice
   if [ "$(pending_count)" -eq 0 ]; then return 0; fi
-  if wt --title "Ungespeicherte Änderungen" --menu "$(pending_count) Änderung(en) sind nicht gespeichert." @H @W 3 \
+  if wt --title "$(crumb Beenden)" --cancel-button "Zurück zum Menü" --menu "$(pending_count) Änderung(en) sind nicht gespeichert." @H @W 3 \
       S "Speichern und beenden" V "Verwerfen und beenden" Z "Zurück zum Menü"; then choice="$WT_OUT"; else return 1; fi
   case "$choice" in
     S) save_flow && return 0 || return 1 ;;
@@ -915,23 +1021,32 @@ leave_menu() { # Rückgabe 0 = beenden
 }
 
 main_menu() {
-  local sel="" i
+  local sel="" i t d dw
   local -a items
+  ui_size
+  prefetch_secrets ui
   while :; do
+    ui_size; dw=$((W - 21 - 9)) # Beschreibungsbreite: Fenster minus längster Gruppenname minus Rahmen (zu breite Zeilen zerlegen whiptail)
     items=()
     for i in "${!MENU_TITLES[@]}"; do
-      if [ -n "$(group_keys "$i")" ]; then items+=("$i" "${MENU_TITLES[$i]}  ($(group_summary "$i"))"); fi
+      [ -n "${GROUP_KEYS[$i]}" ] || continue
+      d="($(group_summary "$i"))"
+      if [ "${#d}" -gt "$dw" ]; then d="${d/ Einträge/}"; d="${d/ gesetzt/ ges.}"; fi
+      items+=("${MENU_TITLES[$i]}" "${d:0:dw}")
     done
-    items+=(S "Suche / Filter" H "Hinweise (live, Neustart, nur ENV)" D "Änderungen anzeigen und speichern ($(pending_count) offen)" A "Jetzt anwenden (ausrollen)")
-    fit_menu $(( ${#items[@]} / 2 )) 2
-    if wt --title "Einstellungen (${ENV_FILE##*/})" ${sel:+--default-item "$sel"} --cancel-button Beenden --menu "Datei: $ENV_FILE" "$FIT_H" @W "$FIT_LH" "${items[@]}"; then
+    d="Prüfen, speichern ($(pending_count) offen)"
+    items+=("Suchen" "Filtern nach Text" "Hinweise" "live / Neustart / nur ENV" "Speichern" "${d:0:dw}" "Anwenden" "Ausrollen (mit Bestätigung)")
+    t="Gruppe wählen (Enter), Esc beendet."
+    if [ "$ROWS" -lt 24 ] || [ "$COLS" -lt 80 ]; then t+=$'\n'"Terminal ${COLS}x${ROWS}: empfohlen 80x24 oder größer."; fi
+    fit_menu $(( ${#items[@]} / 2 )) "$(grep -c '' <<< "$t")"
+    if wt --title "$(crumb)" --cancel-button Beenden ${sel:+--default-item "$sel"} --menu "$t" "$FIT_H" @W "$FIT_LH" "${items[@]}"; then
       sel="$WT_OUT"
       case "$sel" in
-        S) search_menu ;;
-        H) show_notes ;;
-        D) save_flow || true ;;
-        A) apply_now ;;
-        *) group_menu "$sel" ;;
+        Suchen) search_menu ;;
+        Hinweise) show_notes ;;
+        Speichern) save_flow || true ;;
+        Anwenden) apply_now ;;
+        *) for i in "${!MENU_TITLES[@]}"; do if [ "${MENU_TITLES[$i]}" = "$sel" ]; then group_menu "$i"; break; fi; done ;;
       esac
     else
       if leave_menu; then return 0; fi
@@ -944,6 +1059,7 @@ usage() { sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 cli_list() {
   local k v src extra
+  load_secret_list
   printf '%-38s %-26s %-18s %s\n' VARIABLE WERT DEFAULT QUELLE
   for k in "${KEYS[@]}"; do
     if [ "${T_SECRET[$k]}" = 1 ]; then
@@ -964,6 +1080,7 @@ cli_list() {
 
 cli_get() {
   local k="$1"
+  load_secret_list
   if [ -z "${T_GROUP[$k]+x}" ]; then
     if [ -n "${ENV_VAL[$k]+x}" ] && ! is_secretlike "$k"; then printf '%s\n' "${ENV_VAL[$k]}"; return 0; fi
     echo "Unbekannte Variable: $k" >&2; return 2
@@ -1023,6 +1140,7 @@ main() {
 
   if [ "$want_menu" = 1 ]; then
     ui_init
+    build_groups
     main_menu
     return 0
   fi
@@ -1055,4 +1173,5 @@ main() {
   return "$rc"
 }
 
-main "$@"
+# Beim Einbinden per `source` (Tests, Messungen) wird nicht gestartet.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi
