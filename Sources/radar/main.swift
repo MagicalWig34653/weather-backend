@@ -96,13 +96,13 @@ func runLayerLoop(spec: LayerSpec, config: Config, provider: ConfigProvider, sta
         var pause = interval
         do {
             let r = try await ingestor.tick()
-            if r.stored > 0 || r.failed > 0 { logger.info("layer \(spec.id): stored \(r.stored), failed \(r.failed)") }
+            if r.stored > 0 || r.failed > 0 { logger.info("layer \(spec.id): stored \(r.stored), failed \(r.failed), class \(r.failureClass ?? "none")") }
             failures = r.failed > 0 && r.stored == 0 ? failures + 1 : 0
         } catch is CancellationError {
             break
         } catch {
             failures += 1
-            logger.warning("layer \(spec.id) tick failed (\(type(of: error)))")
+            logger.warning("layer \(spec.id) tick failed (\(ingestor.failureClassOfLastError))")
         }
         if failures > 2 { pause += Double(min(60 * (failures - 2), 600)) }
         var slept = 0.0

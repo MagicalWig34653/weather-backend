@@ -292,6 +292,38 @@ struct LayerServiceTests {
         #expect(try await repo.layerIsPublished(layer: "pressure", runID: "20261031T0600Z"))
     }
 
+    @Test func lateCompletedForecastRunIsRetriedBeyondTwoAttempts() async throws {
+        let now = Locked(fixedNow)
+        let repo = MemoryRepo(clock: { now.withLock { $0 } })
+        let cfg = layerConfig(["pressure"]) { $0.pressureForecastHours = 3 }
+        let src = FakeSources(cfg)
+        // Slot +2 h of the 06:00 run is not there yet (the source completes the run late); 00:00 is not offered at all.
+        src.xmlFor = { $0.contains("DIM_REFERENCE_TIME=2026-10-31T06") && $0.contains("TIME=2026-10-31T08") || $0.contains("DIM_REFERENCE_TIME=2026-10-31T00") }
+        let ing = LayerIngestor(spec: testSpec("pressure"), config: cfg, repo: repo, fetch: src.fetch, owner: "a", sleep: { _ in },
+                                clock: { now.withLock { $0 } })
+        for _ in 0..<4 {  // four failed claims: the old limit of two attempts would have given the run up for good
+            do { _ = try await ing.tick() } catch { #expect(LayerTickResult.classify(error) == "unavailable") }
+            now.withLock { $0 = $0.addingTimeInterval(400) }
+        }
+        #expect(try await !repo.layerIsPublished(layer: "pressure", runID: "20261031T0600Z"))
+        src.xmlFor = { _ in false }
+        let done = try await ing.tick()
+        #expect(done.published == "20261031T0600Z")
+    }
+
+    @Test func publishCadenceIsTheRunIntervalForForecastLayers() {
+        #expect(LayerCatalog.specs["pressure"]!.publishCadenceSeconds == 6 * 3600)
+        #expect(LayerCatalog.specs["pressure_eu"]!.publishCadenceSeconds == 6 * 3600)
+        #expect(LayerCatalog.specs["lightning"]!.publishCadenceSeconds == 300)
+    }
+
+    @Test func failureClassesAreFixedLabels() {
+        #expect(LayerTickResult.classify(ImageError.invalid("incomplete image (3 black cells)")) == "incomplete")
+        #expect(LayerTickResult.classify(ImageError.invalid("truncated")) == "invalid")
+        #expect(LayerTickResult.classify(RunUnavailable(description: "x")) == "unavailable")
+        #expect(LayerTickResult.classify(LeaseLost()) == "lease")
+    }
+
     @Test(arguments: RepoKind.allCases)
     func statusEndpointDistinguishesDisabledAndEmptyLayers(kind: RepoKind) async throws {
         let repo = try await kind.make()

@@ -5,6 +5,15 @@ public struct LayerTickResult: Sendable, Equatable {
     public var stored = 0
     public var failed = 0
     public var published: String?
+    /// Fixed class of the last failure in this tick (`fetch`, `incomplete`, `invalid`, `unavailable`, `lease`, `other`); never data.
+    public var failureClass: String?
+
+    public static func classify(_ error: Error) -> String {
+        if let image = error as? ImageError, case .invalid(let reason) = image { return reason.hasPrefix("incomplete") ? "incomplete" : "invalid" }
+        if error is RunUnavailable { return "unavailable" }
+        if error is LeaseLost { return "lease" }
+        return "other"
+    }
 }
 
 /// Ingest of one additional layer. Only the leader replica of a layer works (lease `layer:<id>`), one request at a time with a
@@ -16,6 +25,9 @@ public final class LayerIngestor: Sendable {
     public static let maxSlotAttempts = 4
     public static let failCooldownSeconds = 150
     public static let slotsPerTick = 8
+    /// Claims of one forecast run before it is given up (cooldown 300 s each, about 40 min): a run that the source completes
+    /// late (slots appear one by one) must not be abandoned after two quick failures (Luftdruck gap, Nov 2026).
+    public static let forecastMaxAttempts = 8
     public static let forecastRunInterval: TimeInterval = 6 * 3600
     public static let staleAfter: TimeInterval = 3600
 
@@ -41,6 +53,10 @@ public final class LayerIngestor: Sendable {
         self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.sleep = sleep; self.clock = clock; self.stats = stats
     }
+
+    /// Class of the last tick that threw (for the log line of the loop).
+    let lastFailure = PushGuarded<String?>(nil)
+    public var failureClassOfLastError: String { lastFailure.withLock { $0 } ?? "other" }
 
     public var leaderName: String { "layer:\(spec.id)" }
     private var layer: String { spec.id }
@@ -171,6 +187,7 @@ public final class LayerIngestor: Sendable {
             } catch {
                 try? await repo.layerFail(layer: layer, runID: runID, owner: owner, cooldownSeconds: Self.failCooldownSeconds)
                 result.failed += 1; inARow += 1
+                result.failureClass = LayerTickResult.classify(error)
             }
             await sleep(config.layerPauseSeconds)
         }
@@ -209,9 +226,9 @@ public final class LayerIngestor: Sendable {
         let first: [UInt8]
         do {
             first = try await fetchWebP(url: url(slots[0]), slot: slots[0], attempts: 2, backoffs: [3]) { try await self.keepLeadership() }
-        } catch is RunUnavailable { result.failed += 1; return .unavailable }
+        } catch is RunUnavailable { result.failed += 1; result.failureClass = "unavailable"; return .unavailable }
         guard try await repo.layerTryClaim(layer: layer, runID: runID, nominal: run, owner: owner,
-                                           leaseSeconds: Self.runLeaseSeconds, maxAttempts: 2) else { return .busy }
+                                           leaseSeconds: Self.runLeaseSeconds, maxAttempts: Self.forecastMaxAttempts) else { return .busy }
         do {
             try await repo.layerPutSlot(layer: layer, ref(runID, slots[0], 0), contentType: Manifest.contentType, data: first)
             result.stored += 1
@@ -234,6 +251,7 @@ public final class LayerIngestor: Sendable {
         } catch {
             try? await repo.layerFail(layer: layer, runID: runID, owner: owner, cooldownSeconds: 300)
             result.failed += 1
+            result.failureClass = LayerTickResult.classify(error)
             throw error
         }
         _ = try? await repo.layerRetain(layer: layer, keepNewest: config.pressureRetentionRuns,
@@ -250,6 +268,7 @@ public final class LayerIngestor: Sendable {
             return result
         } catch {
             if !(error is CancellationError) { stats.record("ingest_run", label: "\(spec.id):error") }
+            lastFailure.withLock { $0 = LayerTickResult.classify(error) }
             throw error
         }
     }

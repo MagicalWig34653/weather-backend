@@ -82,6 +82,10 @@ public struct LayerSpec: Sendable {
     }
 
     public var stepMinutes: Int { Int(stepSeconds / 60) }
+
+    /// How often a new run is published at best: forecast layers once per ICON run (6 h), observation layers per slot.
+    /// Staleness checks must use this, not `stepSeconds` (an hourly forecast step is not an hourly publication).
+    public var publishCadenceSeconds: Int { kind == .forecast ? Int(LayerIngestor.forecastRunInterval) : Int(stepSeconds) }
 }
 
 public enum LayerCatalog {
