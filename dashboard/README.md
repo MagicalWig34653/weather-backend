@@ -16,7 +16,7 @@ node scripts/screenshots.mjs <Ordner> [Seiten] [normal|empty|error|slow]  # Scre
 npm run build         # statischer Build nach build/ inkl. CSP-Nachbearbeitung
 ```
 
-Im Mock-Modus wählt `?mock=setup|closed|login|auth` den Anfangszustand, `?mockstate=empty|slice1|error|slow|limited` den Datenzustand (`limited`: Schreibzugriffe antworten 429) und `?mockcmd=failed|expired` das Ergebnis von Geräteaufträgen.
+Im Mock-Modus wählt `?mock=setup|closed|login|auth` den Anfangszustand, `?mockstate=empty|slice1|error|slow|limited|pairopen|pairending` den Datenzustand (`limited`: Schreibzugriffe antworten 429; `pairopen`/`pairending`: Kopplungsfenster offen bzw. kurz vor Ablauf) und `?mockcmd=failed|expired` das Ergebnis von Geräteaufträgen.
 
 **Echte Daten statt Mock:** Ohne `--mode mock` ist `__MOCK__` eine Literalkonstante `false`; die Datenschicht (`src/lib/client.ts`) nutzt dann `fetch` gegen `/dash/api`. Der Mock, die Passkey-Attrappe, das Mock-Banner und die Design-Vorschau (`/dash/_design`) fehlen im Produktionsbuild; `scripts/postbuild.mjs` bricht den Build ab, wenn Marker davon (Texte, Dateinamen) auftauchen. `npm run dev` mit `DASH_API_TARGET` leitet `/dash/api` an ein Backend weiter und setzt `Origin` auf das Ziel; die Passkey-Anmeldung braucht dafür `DASH_ORIGIN`/`DASH_RP_ID` passend zum Zielhost (nicht geprüft; im Betrieb liefert das Backend das Frontend selbst unter `/dash`).
 

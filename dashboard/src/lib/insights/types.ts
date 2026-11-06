@@ -241,10 +241,21 @@ export interface Device {
 	env: 'sandbox' | 'production';
 	summary: { level: Level; code: string };
 }
+/** Kopplungsfenster: nur solange es offen ist, zeigt die App einen Koppelcode an. */
+export interface PairingState {
+	open: boolean;
+	endsAt: string | null;
+}
+export interface PairingWindow extends PairingState {
+	defaultMinutes: number;
+	maxMinutes: number;
+}
 export interface DeviceList {
 	linkEnabled: boolean;
 	max: number;
 	devices: Device[];
+	/** Fehlt bei aelteren Servern; dann entfaellt das Panel. */
+	pairing?: PairingWindow;
 }
 export interface DeviceDetail {
 	device: Device;

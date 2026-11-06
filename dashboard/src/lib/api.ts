@@ -119,7 +119,9 @@ export const AUDIT_ACTIONS = [
 	'device_unpair',
 	'device_action',
 	'push_pause',
-	'cache_clear'
+	'cache_clear',
+	'device_pairing_open',
+	'device_pairing_close'
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

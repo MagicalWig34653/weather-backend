@@ -296,6 +296,15 @@ export const eventReasonName: Record<string, string> = { ...skipName };
 /** Fehlercodes des Servers als Klartext. */
 export { errorText } from '#lib/errors.js';
 
+/** Fehlertexte des Kopplungsfensters (haben Vorrang vor den allgemeinen Texten). */
+export const pairingErrorText: Record<string, string> = {
+	validation: 'Ungültige Dauer. Erlaubt sind 1 bis 15 Minuten.',
+	unauthorized: 'Sitzung abgelaufen. Bitte neu anmelden.',
+	rate_limited: 'Das Kopplungsfenster wurde zu oft geöffnet oder geschlossen.',
+	link_disabled: 'Die Gerätekopplung ist ausgeschaltet (DEVICE_LINK_ENABLED).',
+	not_found: 'Das Kopplungsfenster ist auf diesem Server nicht verfügbar.'
+};
+
 /** Entscheidung der Neuauswertung je Abo (Vertrag: Ergebnisform `reeval`). */
 export const decisionName: Record<string, string> = {
 	would_trigger: 'würde auslösen',

@@ -109,3 +109,36 @@ for (const state of ['empty', 'error', 'slice1'] as const) {
 		}
 	});
 }
+
+// Kopplungsfenster: offen und ablaufend, hell/dunkel, Desktop/Telefon.
+for (const scheme of ['light', 'dark'] as const) {
+	for (const [name, size] of [
+		['desktop', { width: 1280, height: 900 }],
+		['phone', { width: 390, height: 844 }]
+	] as const) {
+		test.describe(`Kopplungsfenster ${scheme} ${name}`, () => {
+			test.use({ colorScheme: scheme, viewport: size });
+			for (const state of ['pairopen', 'pairending', 'limited']) {
+				test(`axe /geraete (${state})`, async ({ page }) => {
+					await page.goto(`/dash/geraete?mock=auth&mockstate=${state}`);
+					await page.waitForSelector('main h1');
+					await page.waitForTimeout(700);
+					if (state === 'limited')
+						await page.getByRole('button', { name: /Kopplung freigeben \(/ }).click();
+					const r = await new AxeBuilder({ page })
+						.withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+						.analyze();
+					expect(
+						r.violations.map(
+							(v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`
+						)
+					).toEqual([]);
+					const overflow = await page.evaluate(
+						() => document.documentElement.scrollWidth - window.innerWidth
+					);
+					expect(overflow).toBeLessThanOrEqual(0);
+				});
+			}
+		});
+	}
+}

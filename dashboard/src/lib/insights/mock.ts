@@ -25,7 +25,7 @@ import type {
 	TrafficInsights
 } from './types';
 
-export type MockState = 'normal' | 'empty' | 'slice1';
+export type MockState = 'normal' | 'empty' | 'slice1' | 'pairopen' | 'pairending';
 
 const HOUR = 3600_000;
 function rnd(i: number, salt = 0): number {
@@ -190,6 +190,21 @@ const cmds = new Map<
 	{ count: number; kind: string; dryRun: boolean | null; createdAt: string }
 >();
 let devices: Device[] | null = null;
+/** Kopplungsfenster (Ende in ms seit Epoche; null = geschlossen). */
+let pairingEnds: number | null | undefined;
+function pairingNow(state: MockState): { open: boolean; endsAt: string | null } {
+	if (pairingEnds === undefined)
+		pairingEnds =
+			state === 'pairopen'
+				? Date.now() + 5 * 60_000
+				: state === 'pairending'
+					? Date.now() + 40_000
+					: null;
+	if (pairingEnds !== null && pairingEnds <= Date.now()) pairingEnds = null;
+	return pairingEnds === null
+		? { open: false, endsAt: null }
+		: { open: true, endsAt: new Date(pairingEnds).toISOString().replace(/\.\d+Z$/, 'Z') };
+}
 function deviceList(empty: boolean): Device[] {
 	devices ??= [
 		{
@@ -686,8 +701,22 @@ export function mockInsights(
 
 	// ---- Geraete
 	if (path === '/devices' && method === 'GET')
-		return { linkEnabled: true, max: 3, devices: deviceList(empty) };
+		return {
+			linkEnabled: true,
+			max: 3,
+			devices: deviceList(empty),
+			pairing: { ...pairingNow(state), defaultMinutes: 5, maxMinutes: 15 }
+		};
+	if (path === '/devices/pairing' && method === 'POST') {
+		pairingEnds = Date.now() + Number(body.minutes) * 60_000;
+		return pairingNow(state);
+	}
+	if (path === '/devices/pairing' && method === 'DELETE') {
+		pairingEnds = null;
+		return pairingNow(state);
+	}
 	if (path === '/devices/pair' && method === 'POST') {
+		pairingEnds = null; // erste erfolgreiche Einloesung schliesst das Fenster
 		const d: Device = {
 			id: crypto.randomUUID(),
 			label: String(body.label ?? 'Gerät'),

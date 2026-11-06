@@ -26,6 +26,7 @@
 	import { formatAgo, formatDateTime } from '#lib/format.js';
 	import { describeError, insights } from '#lib/insights/api.js';
 	import { liveStatic } from '#lib/insights/live.svelte.js';
+	import PairingPanel from '#lib/insights/PairingPanel.svelte';
 	import Skeletons from '#lib/insights/Skeletons.svelte';
 	import {
 		checkName,
@@ -272,12 +273,67 @@
 				/>
 			</Panel>
 		{:else}
+			{@const pairingOpen = !!o.list.pairing?.open}
+			{#if o.list.pairing}
+				<PairingPanel pairing={o.list.pairing} onrefresh={() => void res.load()} />
+			{/if}
+			<Panel
+				title="Gerät koppeln"
+				description={pairingOpen
+					? 'Fenster offen: Code aus der App jetzt eintragen.'
+					: `${o.list.devices.length} von ${o.list.max} Plätzen belegt.`}
+				class={pairingOpen ? 'border-primary/50 ring-primary/30 ring-2' : ''}
+				info="Der Code wird in der App angezeigt, gilt kurz und nur einmal. Es werden nur Zustände und Zähler gespeichert, keine Tokens oder Standorte."
+			>
+				{#if o.list.devices.length >= o.list.max}
+					<p class="text-muted-foreground text-sm">
+						Alle Plätze sind belegt. Widerrufe zuerst eine Kopplung.
+					</p>
+				{:else}
+					<form
+						onsubmit={pair}
+						class="grid max-w-xl gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+					>
+						<div class="space-y-1.5">
+							<Label for="link-code">Koppelcode aus der App</Label>
+							<Input
+								id="link-code"
+								bind:value={code}
+								placeholder="ABCD-EFGH"
+								autocomplete="off"
+								autocapitalize="characters"
+								spellcheck={false}
+								class="font-mono tracking-widest"
+								aria-describedby={formError ? 'link-err' : undefined}
+								aria-invalid={formError ? true : undefined}
+							/>
+						</div>
+						<div class="space-y-1.5">
+							<Label for="link-label">Bezeichnung</Label>
+							<Input
+								id="link-label"
+								bind:value={label}
+								placeholder="Mein iPhone"
+								maxlength={40}
+								autocomplete="off"
+							/>
+						</div>
+						<Button type="submit" disabled={linking || !codeOk || !labelCheck.ok}
+							>{linking ? 'Prüfe …' : 'Koppeln'}</Button
+						>
+					</form>
+					{#if formError}<p id="link-err" role="alert" class="text-destructive mt-2 text-[13px]">
+							{formError}
+						</p>{/if}
+				{/if}
+			</Panel>
+
 			{#if o.list.devices.length === 0}
 				<Panel>
 					<EmptyState
 						icon={SmartphoneIcon}
 						title="Kein Gerät gekoppelt"
-						reason="Aktiviere in der App unter Info den Schalter „Mit Dashboard koppeln“ und gib den angezeigten Code unten ein."
+						reason="Gib oben die Kopplung frei, schalte in der App im Info-Sheet (ganz unten: Betreiber-Diagnose) den Schalter ein und trage den Code oben ein."
 					/>
 				</Panel>
 			{/if}
@@ -454,54 +510,6 @@
 					{/if}
 				</Panel>
 			{/each}
-
-			<Panel
-				title="Gerät koppeln"
-				description="{o.list.devices.length} von {o.list.max} Plätzen belegt."
-				info="Der Code wird in der App angezeigt, gilt kurz und nur einmal. Es werden nur Zustände und Zähler gespeichert, keine Tokens oder Standorte."
-			>
-				{#if o.list.devices.length >= o.list.max}
-					<p class="text-muted-foreground text-sm">
-						Alle Plätze sind belegt. Widerrufe zuerst eine Kopplung.
-					</p>
-				{:else}
-					<form
-						onsubmit={pair}
-						class="grid max-w-xl gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-					>
-						<div class="space-y-1.5">
-							<Label for="link-code">Koppelcode aus der App</Label>
-							<Input
-								id="link-code"
-								bind:value={code}
-								placeholder="ABCD-EFGH"
-								autocomplete="off"
-								autocapitalize="characters"
-								spellcheck={false}
-								class="font-mono tracking-widest"
-								aria-describedby={formError ? 'link-err' : undefined}
-								aria-invalid={formError ? true : undefined}
-							/>
-						</div>
-						<div class="space-y-1.5">
-							<Label for="link-label">Bezeichnung</Label>
-							<Input
-								id="link-label"
-								bind:value={label}
-								placeholder="Mein iPhone"
-								maxlength={40}
-								autocomplete="off"
-							/>
-						</div>
-						<Button type="submit" disabled={linking || !codeOk || !labelCheck.ok}
-							>{linking ? 'Prüfe …' : 'Koppeln'}</Button
-						>
-					</form>
-					{#if formError}<p id="link-err" role="alert" class="text-destructive mt-2 text-[13px]">
-							{formError}
-						</p>{/if}
-				{/if}
-			</Panel>
 		{/if}
 	{/snippet}
 </Loadable>

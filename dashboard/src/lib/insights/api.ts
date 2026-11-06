@@ -6,7 +6,7 @@ import { api } from '#lib/client.js';
 import { ApiError } from '#lib/api.js';
 import { pollCommand, type PollOutcome } from './poll.js';
 import { formatDuration } from '#lib/format.js';
-import { errorText } from './text.js';
+import { errorText, pairingErrorText } from './text.js';
 import type {
 	Device,
 	DeviceAction,
@@ -21,6 +21,7 @@ import type {
 	Level,
 	OpsInsights,
 	OverviewInsights,
+	PairingState,
 	PushInsights,
 	Range,
 	TrafficInsights
@@ -36,6 +37,18 @@ export function describeError(e: unknown): string {
 	return e.code === 'rate_limited' && e.retryAfter
 		? `${base} Erneut möglich in ${formatDuration(e.retryAfter)}.`
 		: base;
+}
+
+/** Klartext fuer Fehler beim Oeffnen/Schliessen des Kopplungsfensters. */
+export function describePairingError(e: unknown): string {
+	if (e instanceof ApiError) {
+		const base = e.serverCode ? pairingErrorText[e.serverCode] : undefined;
+		if (base)
+			return e.code === 'rate_limited' && e.retryAfter
+				? `${base} Erneut möglich in ${formatDuration(e.retryAfter)}.`
+				: base;
+	}
+	return describeError(e);
 }
 
 export const insights = {
@@ -66,6 +79,8 @@ export const insights = {
 		]);
 		return { detail, diagnosis, events: events.events, commands: commands.commands };
 	},
+	openPairing: (minutes: number) => api.post<PairingState>('/devices/pairing', { minutes }),
+	closePairing: () => api.delete<PairingState>('/devices/pairing'),
 	pairDevice: (code: string, label: string) => api.post<Device>('/devices/pair', { code, label }),
 	unpairDevice: (id: string) => api.delete<void>(`/devices/${enc(id)}`),
 	runAction: (id: string, action: DeviceAction, dryRun?: boolean) =>

@@ -3,7 +3,7 @@
  * Enthaelt ausschliesslich erfundene Platzhalterdaten im Wire-Format des Vertrags
  * (docs-site/content/dashboard-api.md). Wird im Produktionsbuild nicht eingebunden.
  *
- * URL-Schalter: ?mock=setup|closed|login|auth (Sitzung), ?mockstate=empty|slice1|error|slow|limited.
+ * URL-Schalter: ?mock=setup|closed|login|auth (Sitzung), ?mockstate=empty|slice1|error|slow|limited|pairopen|pairending.
  */
 import type { AuditEntry, ConfigEntry, ConfigValue, RestartState, SessionState } from './api';
 import { validateValue } from './config/form';
@@ -354,14 +354,26 @@ export function createMockFetch() {
 			path === '/push/pause' ||
 			path === '/cache/clear'
 		) {
+			if (path === '/devices/pairing' && method === 'POST') {
+				const m = body.minutes;
+				if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > 15)
+					return err(400, 'validation');
+				log({ ...nul, action: 'device_pairing_open' });
+			}
+			if (path === '/devices/pairing' && method === 'DELETE')
+				log({ ...nul, action: 'device_pairing_close', outcome: 'manual' });
 			if (path === '/devices/pair' && method === 'POST') {
 				if (!/^[0-9A-Za-z]{4}-?[0-9A-Za-z]{4}$/.test(String(body.code ?? '').trim()))
 					return err(400, 'validation');
 				if (String(body.code).toUpperCase().startsWith('XXXX')) return err(404, 'code_unknown');
 				log({ ...nul, action: 'device_pair', deviceRef: '4be1c09a' });
+				log({ ...nul, action: 'device_pairing_close', outcome: 'redeemed' });
 			}
 			const { mockInsights } = await import('./insights/mock');
-			const mockState = state === 'empty' || state === 'slice1' ? state : 'normal';
+			const mockState =
+				state === 'empty' || state === 'slice1' || state === 'pairopen' || state === 'pairending'
+					? state
+					: 'normal';
 			const out = mockInsights(path, method, url.searchParams, body, mockState) as
 				Record<string, unknown> | null | undefined;
 			if (out === null) return new Response(null, { status: 204 });

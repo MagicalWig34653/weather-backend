@@ -65,6 +65,8 @@ const calls: Record<string, () => Promise<unknown>> = {
 	'PUT /dash/api/push/pause': () => insights.setPaused(true),
 	'POST /dash/api/cache/clear': () => insights.clearCache('all'),
 	'GET /dash/api/devices': () => insights.devices(),
+	'POST /dash/api/devices/pairing': () => insights.openPairing(5),
+	'DELETE /dash/api/devices/pairing': () => insights.closePairing(),
 	'POST /dash/api/devices/pair': () => insights.pairDevice('7KQ2-M9XD', 'Mein iPhone'),
 	'GET /dash/api/devices/{id}': () => api.get(`/devices/${ID}`),
 	'GET /dash/api/devices/{id}/diagnosis': () => api.get(`/devices/${ID}/diagnosis`),

@@ -16,7 +16,9 @@ export const actionLabel: Record<string, string> = {
 	device_unpair: 'Kopplung widerrufen',
 	device_action: 'Geräteaktion',
 	push_pause: 'Push-Pause',
-	cache_clear: 'Cache geleert'
+	cache_clear: 'Cache geleert',
+	device_pairing_open: 'Kopplung freigegeben',
+	device_pairing_close: 'Kopplungsfenster geschlossen'
 };
 export const labelOf = (action: string): string => actionLabel[action] ?? action;
 

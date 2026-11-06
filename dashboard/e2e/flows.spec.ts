@@ -221,6 +221,62 @@ test.describe('Geräte', () => {
 	});
 });
 
+test.describe('Kopplungsfenster', () => {
+	const panel = (page: Page) => page.getByRole('region', { name: 'Kopplung freigeben' });
+
+	test('freigeben, Dauer wählen, schließen; Fokus wandert mit', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth');
+		await expect(panel(page).getByText('Geschlossen', { exact: true })).toBeVisible();
+		await panel(page).getByRole('radio', { name: '10 Minuten' }).click();
+		const open = panel(page).getByRole('button', { name: 'Kopplung freigeben (10 Min.)' });
+		await open.click();
+		await expect(panel(page).getByText('Offen', { exact: true })).toBeVisible();
+		await expect(panel(page).locator('strong.tabular-nums')).toHaveText(/^(09:5\d|10:00)$/);
+		const close = panel(page).getByRole('button', { name: 'Jetzt schließen' });
+		await expect(close).toBeFocused();
+		await expect(
+			page.getByRole('status').filter({ hasText: 'Kopplung freigegeben' })
+		).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Gerät koppeln' })).toHaveClass(/ring-2/);
+		await close.click();
+		await expect(panel(page).getByText('Geschlossen', { exact: true })).toBeVisible();
+		await expect(
+			page.getByRole('status').filter({ hasText: 'Kopplungsfenster geschlossen' })
+		).toBeVisible();
+		await expect(panel(page).getByRole('button', { name: /Kopplung freigeben \(/ })).toBeFocused();
+	});
+
+	test('Einlösen schließt das Fenster ohne Neuladen', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth&mockstate=pairopen');
+		await expect(panel(page).getByText('Offen', { exact: true })).toBeVisible();
+		await page.getByLabel('Koppelcode aus der App').fill('ABCD-EFGH');
+		await page.getByLabel('Bezeichnung').fill('Zweites iPhone');
+		await page.getByRole('button', { name: 'Koppeln', exact: true }).click();
+		await expect(panel(page).getByText('Geschlossen', { exact: true })).toBeVisible();
+		await expect(panel(page)).toContainText('Kopplungsfenster wurde geschlossen');
+		await expect(page.getByRole('status').filter({ hasText: 'wurde geschlossen' })).toHaveCount(1);
+	});
+
+	test('läuft ab und schließt sich selbst', async ({ page }) => {
+		test.setTimeout(90_000);
+		await page.goto('/dash/geraete?mock=auth&mockstate=pairending');
+		await expect(panel(page).getByText('Läuft ab')).toBeVisible({ timeout: 20_000 });
+		await expect(panel(page).getByText('Geschlossen', { exact: true })).toBeVisible({
+			timeout: 45_000
+		});
+		await expect(panel(page)).toContainText('Das Kopplungsfenster ist abgelaufen.');
+	});
+
+	test('429 nennt die Wartezeit', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth&mockstate=limited');
+		await panel(page)
+			.getByRole('button', { name: /Kopplung freigeben \(/ })
+			.click();
+		await expect(panel(page).getByRole('alert')).toContainText('Erneut möglich in 42 s');
+		await expect(panel(page).getByText('Geschlossen', { exact: true })).toBeVisible();
+	});
+});
+
 test.describe('Anmeldung', () => {
 	for (const mock of ['setup', 'closed', 'login']) {
 		test(`${mock}: erreichbar und ohne axe-Verstöße`, async ({ page }) => {
