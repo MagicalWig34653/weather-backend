@@ -273,6 +273,26 @@ public enum ConfigRegistry {
         return try normalize(setting, value)
     }
 
+    /// `DASH_WARN_*` come in pairs (`..._YELLOW`/`..._RED`). Metrics that get worse upwards need yellow < red; the lower bounds
+    /// (cache hit rate, live activity start ratio) need yellow > red. The partner's effective value is env, then stored, then default.
+    static let fallingWarnBases: Set<String> = ["DASH_WARN_CACHE_HIT", "DASH_WARN_LA_START_RATIO"]
+
+    static func checkWarnPair(key: String, env: [String: String], stored: [String: String]) throws {
+        guard key.hasPrefix("DASH_WARN_") else { return }
+        let isYellow = key.hasSuffix("_YELLOW")
+        guard isYellow || key.hasSuffix("_RED") else { return }
+        let base = String(key.dropLast(isYellow ? "_YELLOW".count : "_RED".count))
+        func value(_ k: String) -> Double? {
+            let raw = env[k].flatMap { $0.isEmpty ? nil : $0 } ?? stored[k] ?? index[k]?.defaultValue
+            return raw.flatMap(Double.init)
+        }
+        guard let yellow = value(base + "_YELLOW"), let red = value(base + "_RED") else { return }
+        let falling = fallingWarnBases.contains(base)
+        guard falling ? yellow > red : yellow < red else {
+            throw ConfigWriteError.invalid("\(key): Gelb muss \(falling ? "über" : "unter") Rot liegen (\(base)_YELLOW \(falling ? ">" : "<") \(base)_RED)")
+        }
+    }
+
     private static func normalize(_ setting: ConfigSetting, _ value: String) throws -> String {
         let key = setting.key
         func bad(_ text: String) -> ConfigWriteError { .invalid("\(key): \(text)") }
@@ -373,6 +393,7 @@ public enum ConfigRegistry {
         } catch let error as ConfigError {
             throw ConfigWriteError.invalid(error.description)
         }
+        try checkWarnPair(key: key, env: env, stored: others)
         return value
     }
 

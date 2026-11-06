@@ -156,7 +156,7 @@ Der Betreiber kann **sein eigenes** Gerät freiwillig mit dem Dashboard koppeln,
 
 **Ehrliche Risikobewertung der dauerhaften Kopplung (D3):** (1) Ein weitergegebenes, verkauftes oder verliehenes Gerät bleibt gekoppelt, bis jemand widerruft; Gegenmaßnahmen: Anzeige „zuletzt gesehen“ und `stale`-Markierung im Dashboard (kein automatisches Löschen), „Trennen“ ist jederzeit im Dashboard möglich, die App-Löschung der Installation räumt auf. (2) Es gibt keine Inaktivitätsprüfung mit Löschung; `last_seen_at` ist nur eine Anzeige und kein Beweis der Nutzung. (3) Ereignisse bleiben dennoch auf 48 Stunden und 200 Zeilen begrenzt, es entsteht also kein dauerhaftes Verlaufsprotokoll. (4) Datenschutztext und Datenschutzfolgen sprechen von „bis zum Widerruf“, nicht von einer festen Frist. (5) Wer den Ablauf wünscht, stellt `DASH_DEVICE_TTL_DAYS` ein (Server-Konfiguration, kein Code).
 
-**Begrenzungen:** höchstens 3 gekoppelte Geräte gleichzeitig (`DASH_MAX_DEVICES`, 1 bis 5); Code-Erzeugung höchstens 6 pro Stunde je Installation; Einlösen höchstens 5 Fehlversuche pro Minute global (Code-Raum 2^40, Gültigkeit 10 Minuten, daher nicht ratbar); Einlösen nur mit Passkey-Sitzung + CSRF. **Ein ausgespähter Code ist ohne Betreiber-Sitzung wertlos.**
+**Begrenzungen:** standardmäßig höchstens 3 gekoppelte Geräte gleichzeitig (`DASH_MAX_DEVICES`, 1 bis 5); Code-Erzeugung höchstens 6 pro Stunde je Installation; Einlösen höchstens 5 Fehlversuche pro Minute global (Code-Raum 2^40, Gültigkeit 10 Minuten, daher nicht ratbar); Einlösen nur mit Passkey-Sitzung + CSRF. **Ein ausgespähter Code ist ohne Betreiber-Sitzung wertlos.**
 
 ### 4.4 Gerätebezogene Funktionen (Seite „Geräte“)
 

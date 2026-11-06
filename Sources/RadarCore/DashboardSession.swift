@@ -98,7 +98,9 @@ public struct DashboardAuthConfig: Sendable, Equatable {
     /// Reads `DASH_ORIGIN`, `DASH_RP_ID`, `DASH_SESSION_HOURS`, `DASH_IDLE_MINUTES`, `DASH_SETUP_WINDOW_MINUTES`.
     /// Nil when origin or RP ID is missing or the origin is not a plain `scheme://host[:port]`.
     public static func fromEnvironment(_ env: [String: String]) -> DashboardAuthConfig? {
-        guard let origin = env["DASH_ORIGIN"], !origin.isEmpty, let hostPort = Self.hostPart(ofOrigin: origin) else { return nil }
+        // Scheme and host are case-insensitive and browsers send the origin in lower case: normalise, or every write would fail with 403.
+        guard let rawOrigin = env["DASH_ORIGIN"], !rawOrigin.isEmpty, case let origin = rawOrigin.lowercased(),
+              let hostPort = Self.hostPart(ofOrigin: origin) else { return nil }
         // Host without port; IPv6 literals are not usable as RP ID.
         let host = hostPort.hasPrefix("[") ? "" : String(hostPort.split(separator: ":", maxSplits: 1).first ?? "")
         guard !host.isEmpty else { return nil }

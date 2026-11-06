@@ -78,7 +78,7 @@ Die Zahlen sind Startwerte und mit echten Daten noch nicht kalibriert.
 - **Traffic:** Anfragen, Bytes, Statusklassen, 304-Anteil, Ratenlimit-Treffer, Stunden- und Tagesverlauf. Stundenreihen reichen 72 Stunden zurück, Tageswerte 30 Tage.
 - **Push:** Trichter und Versandbilanz (siehe unten), Outbox, APNs-Fehler, Token-Invalidierungen, Ablehnungen der Registrierung, Füllgrade, Push-Pause.
 - **Geräte:** gekoppelte Testgeräte, Diagnose, Ereignisverlauf, Aktionen.
-- **Aktionen:** Push-Pause, Cache leeren und kontrollierter Neustart (alle ratenbegrenzt und im Audit-Protokoll).
+- **Aktionen:** Push-Pause, Cache leeren und kontrollierter Neustart (alle ratenbegrenzt und im Audit-Protokoll). Das Audit-Protokoll (`config_audit`) wird 365 Tage aufbewahrt, auch Einträge zu Kopplung, Trennen und Geräteaktionen (nur Zeitpunkt, 8-Zeichen-Geräteverweis und Ergebnis; nach dem Trennen nicht mehr auf die Installation zurückführbar).
 
 Nicht erhoben und als „nicht verfügbar“ markiert: Datenbank-Pool und Fehlerzähler, Registrierungsverlauf, Zeitmessung der Auswertung, Anzahl der Leader-Wechsel.
 

@@ -120,3 +120,39 @@ struct PairingLimitTests {
         #expect(await pair(api, cookie, csrf, code: "ABCDEFGH") == 429)
     }
 }
+
+/// N6: small deviations (memory only).
+@Suite("Review fixes WP18 details")
+struct ReviewDetailTests {
+    @Test func originIsNormalisedToLowerCase() throws {
+        let c = DashboardAuthConfig.fromEnvironment(["DASH_ORIGIN": "HTTPS://Dash.Example.Test:8443"])
+        #expect(c?.origin == "https://dash.example.test:8443" && c?.rpID == "dash.example.test")
+        // A browser sends the lower case origin, so the write check must pass.
+        let info = DashboardRequestInfo(method: "POST", cookieHeader: nil, origin: "https://dash.example.test:8443", host: "dash.example.test:8443",
+                                        contentType: "application/json", csrfToken: nil)
+        try DashboardSessions(repo: MemoryRepo(), config: c!, clock: { Date() }).checkWriteOrigin(info)
+    }
+
+    @Test func warnThresholdsKeepYellowBeforeRed() throws {
+        // Rising metrics: yellow < red.
+        #expect(throws: ConfigWriteError.self) {
+            try ConfigRegistry.validateWrite(key: "DASH_WARN_ERROR_RATE_5XX_YELLOW", raw: "0.5", env: [:], stored: [:])   // default red 0.02
+        }
+        #expect(throws: ConfigWriteError.self) {
+            try ConfigRegistry.validateWrite(key: "DASH_WARN_OUTBOX_AGE_SECONDS_RED", raw: "60", env: [:], stored: [:])    // default yellow 120
+        }
+        _ = try ConfigRegistry.validateWrite(key: "DASH_WARN_ERROR_RATE_5XX_YELLOW", raw: "0.01", env: [:], stored: [:])
+        // Falling metrics (lower bound): yellow > red.
+        #expect(throws: ConfigWriteError.self) {
+            try ConfigRegistry.validateWrite(key: "DASH_WARN_CACHE_HIT_YELLOW", raw: "0.4", env: [:], stored: [:])         // default red 0.5
+        }
+        _ = try ConfigRegistry.validateWrite(key: "DASH_WARN_CACHE_HIT_YELLOW", raw: "0.9", env: [:], stored: [:])
+        // The stored partner counts, an ENV value too.
+        #expect(throws: ConfigWriteError.self) {
+            try ConfigRegistry.validateWrite(key: "DASH_WARN_CAP_FILL_RED", raw: "0.7", env: [:], stored: ["DASH_WARN_CAP_FILL_YELLOW": "0.75"])
+        }
+        #expect(throws: ConfigWriteError.self) {
+            try ConfigRegistry.validateWrite(key: "DASH_WARN_CAP_FILL_YELLOW", raw: "0.9", env: ["DASH_WARN_CAP_FILL_RED": "0.85"], stored: [:])
+        }
+    }
+}

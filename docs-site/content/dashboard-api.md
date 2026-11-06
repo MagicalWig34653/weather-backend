@@ -95,7 +95,7 @@ Sitzung und CSRF erforderlich, Body `{}`. Antwort 204 mit zurückgesetztem Cooki
 
 ### Ratenbegrenzung
 
-Ohne IP, global je Prozess (im Speicher): `setup/begin` und `login/begin` 10 pro Minute, `setup/finish` und `login/finish` 5 pro Minute (je getrennt gezählt), Konfigurationsschreiben 30 pro Minute, alle übrigen Routen 600 pro Minute. Zusätzlich verzögern Fehlversuche (Setup und Login zusammen): drei Fehlversuche frei, danach 5 s, 10 s, 20 s … bis höchstens 5 Minuten Sperre (429 mit `Retry-After`); ein Erfolg setzt zurück, Fehlversuche verfallen nach 15 Minuten. Mit mehreren Dashboard-Replikaten gilt jede Grenze je Prozess.
+Ohne IP, global je Prozess (im Speicher): `setup/begin` und `login/begin` 10 pro Minute, `setup/finish` 5 pro Minute, Konfigurationsschreiben 30 pro Minute, `GET session` 600 pro Minute (eigener Eimer), alle übrigen Routen 600 pro Minute, unbekannte oder abgelaufene Challenge-IDs 120 pro Minute (kein Fehlversuch). `login/finish` hat keinen eigenen Eimer; die Last begrenzt `login/begin`, weil jede Anmeldung eine Einmal-Challenge braucht. Fehlversuche verzögern nur die Ersteinrichtung (Setup): drei frei, danach 5 s, 10 s, 20 s … bis höchstens 60 s (429 mit `Retry-After`); ein Erfolg setzt zurück, Fehlversuche verfallen nach 15 Minuten. Der Login wird nie durch Fehlversuche gesperrt (eine falsche Signatur wird nie richtig; eine globale Sperre wäre nur ein Aussperr-Hebel für anonyme Aufrufer). Mit mehreren Dashboard-Replikaten gilt jede Grenze je Prozess.
 
 ### Notfall: `radar dashboard-reset --yes`
 
@@ -278,7 +278,7 @@ Fehler: `400 validation` (unbekannte `layer`), `429 rate_limited`. Pause: Auswer
 
 Vorbedingung: `DEVICE_LINK_ENABLED=true`. Ist der Schalter aus, antworten `GET devices` mit `200 {"linkEnabled":false,"max":3,"devices":[]}` und alle anderen Geräterouten mit `404 not_found` (`POST …/pair`: `409 link_disabled`). Gerätekennung `{id}` ist die zufällige Kopplungs-ID (UUID in Kleinschreibung), **nicht** die Installations-ID; kein Parameter nimmt Installations-ID, Token oder Zelle an; unbekannte IDs ergeben `404 not_found`.
 
-Die Kopplung ist **dauerhaft** (Nutzerentscheidung 6.11.2026, ersetzt den früheren 14-Tage-Ablauf): sie endet nur durch Widerruf (App-Schalter, Dashboard, `DEVICE_LINK_ENABLED=false`, Löschen der Installation) oder, wenn der Betreiber es einstellt, durch `DASH_DEVICE_TTL_DAYS` (Standard `0` = kein Ablauf, Grenzen 0 bis 365). `DASH_DEVICE_STALE_DAYS` (Standard 14, 1 bis 365) steuert nur die Anzeige „zuletzt gesehen“ (`stale`); es wird nichts automatisch gelöscht.
+Die Kopplung ist **dauerhaft** (Nutzerentscheidung 6.11.2026, ersetzt den früheren 14-Tage-Ablauf): sie endet nur durch Widerruf (App-Schalter, Dashboard, `DEVICE_LINK_ENABLED=false` (ausdrücklich gesetzt; eine fehlende oder leere Variable löscht nichts), Löschen der Installation) oder, wenn der Betreiber es einstellt, durch `DASH_DEVICE_TTL_DAYS` (Standard `0` = kein Ablauf, Grenzen 0 bis 365). `DASH_DEVICE_STALE_DAYS` (Standard 14, 1 bis 365) steuert nur die Anzeige „zuletzt gesehen“ (`stale`); es wird nichts automatisch gelöscht.
 
 ### Typ `Device` (Listenkopf)
 
@@ -356,7 +356,7 @@ Ergebnis per `GET /dash/api/devices/{id}/commands/{commandId}` (Polling 1 bis 2 
   result: <je kind>|null, error: "<code>"|null }
 ```
 
-`GET /dash/api/devices/{id}/commands?limit=` (1 bis 20, Standard 10) liefert `{"commands":[…gleiche Form…]}`, neueste zuerst. Unbearbeitete Aufträge werden nach 120 Sekunden `expired`. Aufbewahrung 48 Stunden, höchstens 50 je Gerät, Löschen mit der Kopplung.
+`GET /dash/api/devices/{id}/commands?limit=` (1 bis 20, Standard 10) liefert `{"commands":[…gleiche Form…]}`, neueste zuerst. Unbearbeitete Aufträge werden nach 120 Sekunden `expired`; ein `running`-Auftrag ohne Ergebnis (Leader abgestürzt) wird nach 180 Sekunden `failed` mit `error: "timeout"`, danach ist die Aktion wieder möglich. Aufbewahrung 48 Stunden, höchstens 50 je Gerät, Löschen mit der Kopplung.
 
 Ergebnisformen (`result`, nur bei `status: "done"`):
 
