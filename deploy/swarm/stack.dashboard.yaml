@@ -6,10 +6,16 @@ version: '3.8'
 # ^ marker for settings.sh: `ready` since the command `radar dashboard` exists in the image (WP5, commit 6ae080d); `pending` would make
 #   settings.sh show the hint "Dienstbefehl folgt".
 #
-# ACCESS (decision 2026-11-03): NO `ports:` here, neither ingress nor host. The service is only reachable inside the overlay network
-# `internal` as dashboard:${DASH_PORT:-9090}. Your existing internal reverse proxy terminates TLS and forwards to it; it must be
-# attached to that network (or reach it otherwise), pass the Host header UNCHANGED and use HTTPS (DASH_ORIGIN is checked against
-# Host/Origin; WebSockets are not needed). Check: `docker stack config` shows no `ports` below `dashboard` (CI asserts it).
+# ACCESS (decision 2026-11-06, replaces 2026-11-03 "no ports"): like radar the service publishes ONE ingress port
+# (${DASH_PUBLISH_PORT:-39090}) on the swarm nodes; the operator's EXTERNAL reverse proxy forwards to it (TLS there). The container
+# port is ${DASH_PORT:-9090}, the same variable feeds the listener, the healthcheck and the target below, so they cannot drift.
+# Hardening the operator must apply (see docs-site dashboard.md / installation.md):
+#   - Firewall: allow DASH_PUBLISH_PORT on the nodes ONLY from the proxy address(es); never open it to the internet.
+#   - Proxy: HTTPS, pass the Host header UNCHANGED (DASH_ORIGIN is checked against Host/Origin); WebSockets are not needed.
+#   - Register the passkey IMMEDIATELY after the first start: the setup window (DASH_SETUP_WINDOW_MINUTES) is "first come, first
+#     served" until a credential exists, so do it before the port is reachable by anyone else.
+# Never use `mode: host` here (check-config-tables.sh and CI assert exactly one ingress port with target = DASH_PORT).
+# Check: `docker compose -f stack.yaml -f stack.dashboard.yaml config` shows exactly one port below `dashboard`.
 #
 # One replica only (in-memory rate limits and the setup window are per process); during an update or restart the dashboard is
 # unavailable for a short time. restart_policy `any` as for radar. No Docker socket, no extra capabilities, read-only root file
@@ -22,6 +28,11 @@ services:
     image: ghcr.io/magicalwig34653/weather-backend-radar:${RADAR_IMAGE_TAG:-edge}
     command: [dashboard]
     networks: [internal]
+    ports:
+      - target: ${DASH_PORT:-9090}
+        published: ${DASH_PUBLISH_PORT:-39090}
+        protocol: tcp
+        mode: ingress
     read_only: true
     volumes:
       - type: tmpfs
