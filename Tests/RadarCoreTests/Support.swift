@@ -121,13 +121,3 @@ final class Locked<Value>: @unchecked Sendable {
 
 /// All suites that share the one test database run inside this parent so that they never overlap.
 @Suite("Database", .serialized) enum DatabaseSuites {}
-
-/// True for a JSON `true`/`false` decoded by JSONSerialization (NSNumber), false for numbers.
-/// Core Foundation type IDs only exist on Apple platforms; swift-corelibs-foundation tags booleans with objCType "c".
-func isJSONBool(_ n: NSNumber) -> Bool {
-    #if canImport(Darwin)
-    return CFGetTypeID(n) == CFBooleanGetTypeID()
-    #else
-    return String(cString: n.objCType) == "c"
-    #endif
-}

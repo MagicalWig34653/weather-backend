@@ -117,9 +117,8 @@ final class DashboardDevices: Sendable {
         if !req.body.isEmpty {
             guard let object = (try? JSONSerialization.jsonObject(with: Data(req.body))) as? [String: Any] else { return Self.error(400, "validation") }
             if let raw = object["minutes"], !(raw is NSNull) {
-                guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue == number.doubleValue.rounded(),
-                      (1...Self.maxWindowMinutes).contains(number.intValue) else { return Self.error(400, "validation") }
-                minutes = number.intValue
+                guard let value = jsonWholeNumber(raw), (1...Self.maxWindowMinutes).contains(value) else { return Self.error(400, "validation") }
+                minutes = value
             }
         }
         let end = now.addingTimeInterval(Double(minutes) * 60)
