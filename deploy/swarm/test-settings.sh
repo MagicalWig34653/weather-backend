@@ -63,7 +63,7 @@ EOF
 S() { ( cd "$DIR" && timeout 30 ./settings.sh --env "$ENVF" "$@" ); }
 sha() { cksum < "$ENVF"; }
 nbackups() { ls "$ENVF".bak.* 2>/dev/null | wc -l | tr -d ' '; }
-# shellcheck disable=SC2329  # wird per declare -f in bash -c Aufrufen genutzt
+# shellcheck disable=SC2317,SC2329  # (SC2317 aeltere, SC2329 neuere shellcheck-Version) wird per declare -f in bash -c Aufrufen genutzt
 call_n() { awk -v n="$1" '/^#[0-9]+:/ { p = ($0 ~ "^#" n ":") } p' "$WORK/log"; } # ganzer n-ter whiptail-Aufruf (Argumente mit Zeilenumbruch)
 menu() { # Antwortzeilen "RC|Ausgabe" als Argumente; Ausgabe im Menümodus in $WORK/menu.out
   : > "$WORK/script"; for l in "$@"; do printf '%s\n' "$l" >> "$WORK/script"; done
@@ -261,6 +261,7 @@ check "dashboard: Voraussetzungen und Reset-Befehl angezeigt" bash -c "grep -q '
 check "dashboard: DASH_ENABLED, ORIGIN (kleingeschrieben) und RP_ID gespeichert" bash -c "grep -qx 'DASH_ENABLED=true' '$ENVF' && grep -qx 'DASH_ORIGIN=https://dash.example.internal' '$ENVF' && grep -qx 'DASH_RP_ID=dash.example.internal' '$ENVF'"
 check "dashboard: Diff zeigt Warnung 'noch nicht verfuegbar'" bash -c "grep -q 'Dashboard noch nicht verfügbar' '$WORK/log'"
 check "dashboard: nach dem Speichern Hinweis auf Setup-Fenster und Aufruf-Adresse" bash -c "grep -q 'Setup-Fenster: 15 Minuten' '$WORK/log' && grep -q 'Aufruf unter https://dash.example.internal' '$WORK/log'"
+check "dashboard: Hinweis nennt Proxy-Ziel-Port 39090, Firewall und sofortigen Passkey" bash -c "grep -q 'Port 39090 (Container-Port 9090)' '$WORK/log' && grep -q 'Firewall: Port nur' '$WORK/log' && grep -q 'SOFORT' '$WORK/log'"
 fresh; before="$(sha)"
 menu '0|Dashboard' '0|DASH_ENABLED' '0|true' '0|' '0|' '1|' '0|' '1|' '1|'
 check "dashboard: Abbruch bei DASH_ORIGIN laesst DASH_ENABLED aus" bash -c "[ '$(sha)' = '$before' ] && ! grep -q DASH_ENABLED '$ENVF'"

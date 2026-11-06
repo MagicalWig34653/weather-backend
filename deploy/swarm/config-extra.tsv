@@ -10,5 +10,6 @@ RADAR_MEMORY_LIMIT	Deploy	text:memlimit	0			16		envOnly	0	Speicher-Limit je Repl
 PUBLIC_BASE_URL	Deploy	url				200		envOnly	0	Öffentliche Basis-URL (ohne Pfad); für die Prüfung nach dem Rollout.
 DB_PASSWORD_SECRET	Datenbank	text:secretname	showernow_db_password			64		envOnly	0	Name des Swarm-Secrets mit dem DB-Passwort (nur der Name, nicht das Passwort).
 APNS_KEY_SECRET	Push	text:secretname	showernow_apns_key			64		envOnly	0	Name des Swarm-Secrets mit dem APNs-Schlüssel (.p8; nur der Name).
+DASH_PUBLISH_PORT	Dashboard	int	39090		1	65535		envOnly	0	Veröffentlichter Ingress-Port des Dashboards für den externen Reverse Proxy (nur vom Proxy erreichbar machen, Firewall).
 DASH_CPU_LIMIT	Dashboard	number	0	CPUs	0	64		envOnly	0	CPU-Limit des Dienstes dashboard, 0 = unbegrenzt.
 DASH_MEMORY_LIMIT	Dashboard	text:memlimit	0			16		envOnly	0	Speicher-Limit des Dienstes dashboard, z. B. 256M, 0 = unbegrenzt.

@@ -792,9 +792,10 @@ reset_key() {
 dashboard_enable_flow() {
   local origin host
   ui_msg "Dashboard aktivieren: Voraussetzungen" "$(cat <<'EOF'
-- Das Dashboard läuft als eigener Dienst "dashboard" nur im Overlay-Netz, ohne veröffentlichten Port.
+- Das Dashboard läuft als eigener Dienst "dashboard" und veröffentlicht einen Ingress-Port (DASH_PUBLISH_PORT, Standard 39090); Ihr EXTERNER Reverse Proxy zeigt darauf. Firewall: Port nur für die Proxy-Adresse(n) öffnen, nie für das Internet.
 - DASH_ORIGIN ist Pflicht: die https-Adresse, unter der Sie das Dashboard aufrufen (ohne Pfad). WebAuthn (Passkey) braucht HTTPS.
-- Ihr interner Reverse Proxy terminiert TLS, leitet an dashboard:9090 weiter und muss den Host-Header unverändert durchreichen.
+- Der Reverse Proxy terminiert TLS, leitet an <Swarm-Knoten>:DASH_PUBLISH_PORT weiter und muss den Host-Header unverändert durchreichen.
+- Sofort nach dem Ausrollen den ersten Passkey registrieren: das Setup-Fenster gilt für den ersten, der das Dashboard erreicht.
 - DASH_RP_ID ist optional (Standard: Host der Origin).
 WARNUNG: Der erste Passkey wird beim ersten Start OHNE vorhandenes Credential registriert. Richten Sie ihn nur im internen Netz ein, direkt nach dem Start. Notfall-Reset: radar dashboard-reset --yes
 EOF
@@ -956,8 +957,8 @@ Vorher wird eine Sicherung angelegt."; then
     dh="
 
 Dashboard nach dem Ausrollen:
-- Aufruf unter $(eff_value DASH_ORIGIN) (über Ihren internen Reverse Proxy, Port $(eff_value DASH_PORT) im Overlay-Netz).
-- Setup-Fenster: $(eff_value DASH_SETUP_WINDOW_MINUTES) Minuten ab Dienststart; in dieser Zeit den ersten Passkey registrieren (nur im internen Netz).
+- Aufruf unter $(eff_value DASH_ORIGIN); Proxy-Ziel: Swarm-Knoten, Port $(eff_value DASH_PUBLISH_PORT) (Container-Port $(eff_value DASH_PORT)). Firewall: Port nur für den Proxy öffnen.
+- Setup-Fenster: $(eff_value DASH_SETUP_WINDOW_MINUTES) Minuten ab Dienststart, gilt für den Ersten, der das Dashboard erreicht: Passkey SOFORT registrieren.
 - Ist das Fenster abgelaufen: Dienst neu starten (docker service update --force $(eff_value RADAR_STACK)_dashboard) oder Notfall-Reset: radar dashboard-reset --yes."
   fi
   ui_msg "$(crumb Gespeichert)" "${BACKUP_PATH:+Sicherung: $BACKUP_PATH

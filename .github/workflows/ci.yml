@@ -71,6 +71,9 @@ jobs:
         run: |
           DB_HOST=db.example.internal docker compose -f deploy/swarm/stack.yaml config --quiet
           docker compose -f compose.yaml config --quiet
-          # Dashboard overlay: valid together with the stack, and no published port anywhere in the dashboard service.
+          # Dashboard overlay: valid together with the stack; exactly one published ingress port (target = dashboard port), hardened service.
           DB_HOST=db.example.internal DASH_ORIGIN=https://dash.example.internal docker compose -f deploy/swarm/stack.yaml -f deploy/swarm/stack.dashboard.yaml config --format json \
-            | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]["dashboard"]; assert not s.get("ports"), s.get("ports"); assert s.get("read_only") is True; assert s["environment"]["PUSH_ENABLED"] == "false"; assert "APNS_KEY_FILE" not in s["environment"]; assert all("docker.sock" not in str(v) for v in s.get("volumes", []))'
+            | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]["dashboard"]; p=s.get("ports", []); assert len(p) == 1, p; assert p[0]["mode"] == "ingress" and p[0]["target"] == 9090 and p[0]["published"] == "39090", p; assert s.get("read_only") is True; assert s["environment"]["PUSH_ENABLED"] == "false"; assert s["environment"]["DASH_PORT"] == "9090"; assert "APNS_KEY_FILE" not in s["environment"]; assert all("docker.sock" not in str(v) for v in s.get("volumes", [])); assert [x["source"] for x in s["secrets"]] == ["db_password"]'
+          # Non-default ports: target follows DASH_PORT, published follows DASH_PUBLISH_PORT.
+          DB_HOST=db.example.internal DASH_ORIGIN=https://dash.example.internal DASH_PORT=9191 DASH_PUBLISH_PORT=41000 docker compose -f deploy/swarm/stack.yaml -f deploy/swarm/stack.dashboard.yaml config --format json \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin)["services"]["dashboard"]["ports"]; assert len(p) == 1 and p[0]["target"] == 9191 and p[0]["published"] == "41000" and p[0]["mode"] == "ingress", p'

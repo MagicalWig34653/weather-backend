@@ -62,7 +62,13 @@ for v in $radar_keys; do
   [[ $'\n'"$dash_keys"$'\n' == *$'\n'"$v"$'\n'* ]] || err "stack.dashboard.yaml: $v aus stack.yaml fehlt (Umgebung des Dashboards muss die von radar spiegeln)"
 done
 grep -qE '^# dashboard-command: ready$' "$ov" || err "stack.dashboard.yaml: Marke '# dashboard-command: ready' fehlt"
-! grep -qE '^ +ports:' <<< "$ovc" || err "stack.dashboard.yaml: ports: ist verboten (kein Host-/Ingress-Port)"
+# Published port (decision 2026-11-06): exactly one, ingress, target = DASH_PORT (same variable as the listener), never host mode.
+[ "$(grep -cE '^ +ports:' <<< "$ovc")" = 1 ] || err "stack.dashboard.yaml: genau ein ports:-Block erwartet"
+[ "$(grep -cE '^ +- target:' <<< "$ovc")" = 1 ] || err "stack.dashboard.yaml: genau ein veroeffentlichter Port erwartet"
+grep -qE '^ +- target: \$\{DASH_PORT:-9090\}$' <<< "$ovc" || err "stack.dashboard.yaml: target muss \${DASH_PORT:-9090} sein (Listener-Port)"
+grep -qE '^ +published: \$\{DASH_PUBLISH_PORT:-39090\}$' <<< "$ovc" || err "stack.dashboard.yaml: published muss \${DASH_PUBLISH_PORT:-39090} sein"
+grep -qE '^ +mode: ingress$' <<< "$ovc" || err "stack.dashboard.yaml: mode: ingress fehlt"
+! grep -qE '^ +mode: host$' <<< "$ovc" || err "stack.dashboard.yaml: mode: host verboten"
 ! grep -qi 'docker.sock' <<< "$ovc" || err "stack.dashboard.yaml: Docker-Socket verboten"
 grep -qE '^    read_only: true$' "$ov" || err "stack.dashboard.yaml: read_only: true fehlt"
 grep -qE "^      PUSH_ENABLED: 'false'$" "$ov" || err "stack.dashboard.yaml: PUSH_ENABLED muss fest 'false' sein"
