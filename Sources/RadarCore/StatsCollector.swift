@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 /// Receiver of statistic events. Implementations must be cheap and thread-safe; the default does nothing.
 /// Callers pass only fixed enumeration values (see `StatsCollector.labelRules`); unknown labels become `other`.
@@ -65,6 +66,14 @@ public enum StatsRoute {
         }
     }
 
+    /// Bytes of a finished response: the in-memory body size, or the `Content-Length` header for streamed bodies (Vapor reports
+    /// `-1` for them; counting `max(0, count)` alone would silently drop their volume). Never negative, junk header -> 0.
+    public static func responseBytes(bodyCount: Int, contentLength: String?) -> Int {
+        if bodyCount > 0 { return bodyCount }
+        guard bodyCount < 0, let contentLength, let n = Int(contentLength.trimmingCharacters(in: .whitespaces)), n > 0 else { return 0 }
+        return n
+    }
+
     static func statusClass(_ status: Int) -> String {
         switch status {
         case 304: return "304"
@@ -113,6 +122,8 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
         "requests", "errors_5xx", "ingest_run", "ingest_lag", "ingest_dur", "latency", "cache_hit", "cache_miss", "cache_evict",
         "push_sent", "push_failed", "la_event", "apns_error", "token_invalidated", "push_trigger", "push_skipped",
         "push_created", "push_attempt", "la_reservation", "push_api_reject",
+        // Volume per hour (same grid as `requests`); the flush-error counter goes to both tables so it survives a broken one.
+        "bytes_out", "stats_flush_error",
     ]
     static func isHourly(_ metric: String) -> Bool { hourlyMetrics.contains(metric) }
 
@@ -137,6 +148,7 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             "ingest_dur": .layerBucket(StatsBuckets.ingestDuration),
             "cache_evict": .fixed(["radar", "layer"]),
             "stats_dropped": .fixed([""]),
+            "stats_flush_error": .fixed(["day", "hour"]),
         ]) { push, _ in push }
     }
 
@@ -164,6 +176,9 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             addHourly = { try await repo.addStatsHourly(hour: $0, $1) }
         }
     }
+    private var flushErrorTotals: [String: Int] = [:]
+    private var lastErrorLog: Date?
+    private static let log = Logger(label: "radar.stats")
     private var repo: Writer?
     private let clock: @Sendable () -> Date
     private let maxKeys: Int
@@ -257,11 +272,16 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
     /// Snapshot for tests and diagnostics (not yet flushed values).
     public func pending() -> [StatDelta] {
         lock.withLock {
-            (current.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) }
-                + carry.values.flatMap { $0.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) } })
+            // Same key in the current counters and in a carried batch: one summed entry.
+            var sum = current
+            for batch in carry.values { sum.merge(batch, uniquingKeysWith: +) }
+            return sum.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) }
                 .sorted { ($0.metric, $0.label) < ($1.metric, $1.label) }
         }
     }
+
+    /// Failed flushes per kind (`day` or `hour`) since start of this process (fixed keys, never an error text).
+    public var flushErrors: [String: Int] { lock.withLock { flushErrorTotals } }
 
     public var keyCount: Int { lock.withLock { storedKeys() } }
 
@@ -295,14 +315,31 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
         guard let writer else { return true }
         func deltas(_ counters: [Key: Int]) -> [StatDelta] { counters.map { StatDelta(metric: $0.key.metric, label: $0.key.label, value: $0.value) } }
         var failedDaily: Batches = [:], failedHourly: Batches = [:]
+        var errorClass: [String: String] = [:]
         for (day, counters) in daily {
-            do { try await writer.addStats(DashboardValidation.date(day: day), deltas(counters)) } catch { failedDaily[day] = counters }
+            do { try await writer.addStats(DashboardValidation.date(day: day), deltas(counters)) } catch {
+                failedDaily[day] = counters; errorClass["day"] = String(describing: type(of: error))
+            }
         }
         for (hour, counters) in hourly {
-            do { try await writer.addHourly(DashboardValidation.date(hour: hour), deltas(counters)) } catch { failedHourly[hour] = counters }
+            do { try await writer.addHourly(DashboardValidation.date(hour: hour), deltas(counters)) } catch {
+                failedHourly[hour] = counters; errorClass["hour"] = String(describing: type(of: error))
+            }
         }
         if failedDaily.isEmpty && failedHourly.isEmpty { return true }
         lock.withLock {
+            // One fixed-label count per failed kind and flush (no error text, no SQL); it is written with the next successful flush.
+            for kind in errorClass.keys {
+                flushErrorTotals[kind, default: 0] += 1
+                add(Key(metric: "stats_flush_error", label: kind), 1)
+            }
+            // At most one log line per minute: error class only (the driver's message may contain SQL or values).
+            let now = clock()
+            if lastErrorLog.map({ now.timeIntervalSince($0) >= 60 || now < $0 }) ?? true {
+                lastErrorLog = now
+                let kinds = errorClass.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+                Self.log.warning("statistics flush failed (\(kinds)); counters are kept and retried")
+            }
             // Put back, bounded: surplus combinations are dropped and counted.
             var dropped = 0
             for (day, counters) in failedDaily {

@@ -68,10 +68,10 @@ struct StatsHourlyCollectorTests {
     }
 
     @Test func hourlyMetricSelection() {
-        for m in ["requests", "errors_5xx", "ingest_run", "ingest_lag", "ingest_dur", "latency", "cache_hit", "cache_miss", "cache_evict", "push_sent", "push_failed"] {
+        for m in ["requests", "errors_5xx", "ingest_run", "ingest_lag", "ingest_dur", "latency", "cache_hit", "cache_miss", "cache_evict", "push_sent", "push_failed", "bytes_out", "stats_flush_error"] {
             #expect(StatsCollector.isHourly(m), "\(m)")
         }
-        for m in ["bytes_out", "page_view", "stats_dropped", "rate_limited"] { #expect(!StatsCollector.isHourly(m), "\(m)") }
+        for m in ["page_view", "stats_dropped", "rate_limited"] { #expect(!StatsCollector.isHourly(m), "\(m)") }
         #expect(StatsCollector.labelRules.keys.allSatisfy { $0.count <= 32 })
     }
 
@@ -173,7 +173,7 @@ struct StatsHourlyStorageTests {
         #expect(await c.flush())
         let hourly = try await repo.statsHourly(from: h0, to: h0)
         #expect(hv(hourly, "requests", "status:2xx", hour: h0) == 5 && hv(hourly, "ingest_lag", "radar:lt10m", hour: h0) == 1)
-        #expect(hv(hourly, "bytes_out", "status") == nil, "daily-only metric")
+        #expect(hv(hourly, "bytes_out", "status") == 99, "bytes_out is kept per hour like requests (data volume of the traffic page)")
         let daily = try await repo.stats(from: h0, to: h0)
         #expect(daily.first { $0.metric == "requests" }?.value == 5 && daily.first { $0.metric == "bytes_out" }?.value == 99)
     }
@@ -207,7 +207,7 @@ struct StatsHourlyStorageTests {
         c.record("requests", label: "status:2xx", by: 7)
         #expect(await c.flush() == false)
         #expect(deltas(c)["requests|status:2xx"] == 7, "pending() shows the daily side; the hourly carry is held separately")
-        #expect(c.keyCount == 2)
+        #expect(c.keyCount == 4, "day carry, hour carry and the two fixed flush error counters (day, hour)")
         failDaily.withLock { $0 = false }; failHourly.withLock { $0 = false }
         #expect(await c.flush())
         #expect(c.pending().isEmpty)

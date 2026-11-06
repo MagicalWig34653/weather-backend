@@ -142,3 +142,18 @@ for (const scheme of ['light', 'dark'] as const) {
 		});
 	}
 }
+
+test('Traffic mit nur einer Stunde Daten: Einzelpunkt, Datenmenge noch nicht erfasst', async ({
+	page
+}) => {
+	await page.goto('/dash/traffic?mock=auth&mockstate=sparse');
+	await expect(page.getByText('noch nicht erfasst')).toBeVisible();
+	// Der Einzelwert der Reihe wird als Punkt gezeichnet (keine leere Flaeche).
+	await expect(page.locator('svg circle').first()).toBeVisible();
+});
+
+test('Traffic ohne Stundenzähler: Tagesansicht mit Hinweis statt Nullreihe', async ({ page }) => {
+	await page.goto('/dash/traffic?mock=auth&mockstate=dayonly');
+	await expect(page.getByText(/Stundenzähler noch nicht erfasst/)).toBeVisible();
+	await expect(page.getByText('8.558').first()).toBeVisible();
+});

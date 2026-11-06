@@ -178,7 +178,7 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
             value: number, threshold: number, unit: "ratio"|"seconds"|"count"|"percent", since: ISO|null }
 ```
 
-`code` aus: `layer_stale` (`subject` = Ebenenkennung), `error_rate_5xx`, `outbox_age`, `apns_rejection`, `token_invalidation`, `replicas_missing`, `leader_missing`, `cache_hit_low`, `cap_fill` (`subject` = `installations`, `subscriptions`, `region_cells`, `activity_subscriptions`), `la_start_ratio_low`. `threshold` ist der überschrittene Wert (gelb oder rot, je nach `level`). Schwellen-Schlüssel im Register (Gruppe „Dashboard-Schwellen“, `apply: live`): `DASH_WARN_<REGEL>_YELLOW` und `DASH_WARN_<REGEL>_RED` mit `<REGEL>` = `LAYER_AGE_FACTOR` (Faktor des Takts, 2/4), `ERROR_RATE_5XX` (Anteil, 0,005/0,02), `OUTBOX_AGE_SECONDS` (120/600), `APNS_REJECTION` (0,05/0,25), `TOKEN_INVALIDATION` (0,05/0,20), `CACHE_HIT` (untere Grenze, 0,80/0,50), `CAP_FILL` (0,80/0,95), `LA_START_RATIO` (untere Grenze, 0,70/0,30); Startwerte wie im Plan, Kalibrierung nach zwei Wochen. `DASH_MIN_GROUP` wie oben. Fehlende Datenbasis (z. B. weniger als 10 Fälle bei `la_start_ratio_low`) erzeugt keinen Befund.
+`code` aus: `layer_stale` (`subject` = Ebenenkennung), `error_rate_5xx`, `outbox_age`, `apns_rejection`, `token_invalidation`, `replicas_missing`, `leader_missing`, `cache_hit_low`, `cap_fill` (`subject` = `installations`, `subscriptions`, `region_cells`, `activity_subscriptions`), `la_start_ratio_low`, `stats_hourly_empty` (heutige Tageszähler haben mindestens 20 Anfragen, die Stundentabelle in den letzten drei Stunden keine; `value` = Anfragen heute, `unit` `count`, Reihen fallen dann auf Tage zurück) und `stats_write_error` (`value` = fehlgeschlagene Statistik-Schreibvorgänge der letzten 24 h, `threshold` 0, `unit` `count`; die Zähler tragen feste Bezeichnungen `day`/`hour` und keinen Fehlertext). Beide Statistik-Befunde sind additiv und haben keine Schwellen-Schlüssel. `threshold` ist der überschrittene Wert (gelb oder rot, je nach `level`). Schwellen-Schlüssel im Register (Gruppe „Dashboard-Schwellen“, `apply: live`): `DASH_WARN_<REGEL>_YELLOW` und `DASH_WARN_<REGEL>_RED` mit `<REGEL>` = `LAYER_AGE_FACTOR` (Faktor des Takts, 2/4), `ERROR_RATE_5XX` (Anteil, 0,005/0,02), `OUTBOX_AGE_SECONDS` (120/600), `APNS_REJECTION` (0,05/0,25), `TOKEN_INVALIDATION` (0,05/0,20), `CACHE_HIT` (untere Grenze, 0,80/0,50), `CAP_FILL` (0,80/0,95), `LA_START_RATIO` (untere Grenze, 0,70/0,30); Startwerte wie im Plan, Kalibrierung nach zwei Wochen. `DASH_MIN_GROUP` wie oben. Fehlende Datenbasis (z. B. weniger als 10 Fälle bei `la_start_ratio_low`) erzeugt keinen Befund.
 
 ### `GET /dash/api/insights/ops`
 
@@ -189,7 +189,7 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
               runs: [ { slot: ISO, result: "ok"|"error"|"missed" } ],      // letzte 24 h, aufsteigend, höchstens 288
               lag: { p50Seconds: int|null, p95Seconds: int|null, series: Series|null } } ],
   errors: { status5xx: { series: Series, ratio1h: number|null, byRoute: [ { route, count } ] },
-            ingestErrors: Series, statsDropped: int },
+            ingestErrors: Series, statsDropped: int, statsFlushErrors: int },
   cache: { hitRatio: number|null, hitRatioRadar: number|null, hitRatioLayer: number|null,
            negativeShare: number|null, joinedShare: number|null, dbReads: int, series: Series,
            fill: { bytes: int, maxBytes: int, entries: int, evictions: int, scope: "maxOfReplicas"|"thisReplica" }|null },
@@ -216,7 +216,7 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
   hourly: { cells: [ { date: "YYYY-MM-DD", hour: 0..23, count: int } ] } | null }
 ```
 
-`hourly` (Heatmap) nur aus vorhandenen Stundenzeilen (höchstens 72 Stunden); `null`, wenn `stats_hourly` leer ist. Wochentag leitet das Frontend aus `date` ab.
+`hourly` (Heatmap) nur aus vorhandenen Stundenzeilen (höchstens 72 Stunden); `null`, wenn `stats_hourly` leer ist. Wochentag leitet das Frontend aus `date` ab. Anfragen, Statusklassen, Routen und `bytes` stammen bei Stundenbereichen (24 h, 72 h) aus derselben Quelle: den Stundenzählern (`bytes_out` wird seit dieser Änderung ebenfalls je Stunde geführt; ältere Stunden haben keine Bytes, `bytes` ist dort 0). Hat die Stundentabelle keine `requests`-Zeilen im Bereich, werden alle Werte aus den Tageszählern gebildet und `series.resolution` ist `day` (Befund `stats_hourly_empty`), nie eine Nullreihe.
 
 ### `GET /dash/api/insights/push`
 

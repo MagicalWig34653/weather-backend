@@ -68,6 +68,8 @@
 		{@const lab = bucketLabels(req.t, o.requests.series.resolution)}
 		{@const limited = sum(o.rateLimited.map((r) => r.count))}
 		{@const bytes = sum(o.requests.byRoute.map((r) => r.bytes))}
+		{@const hourlyRange = ctx.range === '24h' || ctx.range === '72h'}
+		{@const dayFallback = hourlyRange && o.requests.series.resolution === 'day'}
 
 		{#if o.requests.total === 0}
 			<Panel>
@@ -86,7 +88,11 @@
 					value={formatNumber(o.requests.total)}
 					series={sparkValues(o.requests.series)}
 				/>
-				<Kpi label="Datenmenge" value={formatBytes(bytes)} hint="ausgehend, alle Routen" />
+				<Kpi
+					label="Datenmenge"
+					value={bytes > 0 ? formatBytes(bytes) : '–'}
+					hint={bytes > 0 ? 'ausgehend, alle Routen' : 'noch nicht erfasst'}
+				/>
 				<Kpi
 					label="Nicht geändert (304)"
 					value={o.requests.notModifiedShare === null
@@ -102,7 +108,12 @@
 				/>
 			</section>
 
-			<Panel title="Anfragen" description="Je Zeitabschnitt (UTC), {rangeTitle}.">
+			<Panel
+				title="Anfragen"
+				description={dayFallback
+					? 'Je Tag (UTC): Stundenzähler noch nicht erfasst, Anzeige in Tageswerten.'
+					: `Je Zeitabschnitt (UTC), ${rangeTitle}.`}
+			>
 				<XYChart
 					label="Anfragen {rangeTitle}"
 					kind="area"

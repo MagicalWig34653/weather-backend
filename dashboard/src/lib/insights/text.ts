@@ -86,6 +86,16 @@ export function findingText(f: Finding): { title: string; detail: string } {
 				title: 'Live Activities starten selten',
 				detail: `Nur ${v} der möglichen Starts gelingen (Untergrenze ${th}).`
 			};
+		case 'stats_hourly_empty':
+			return {
+				title: 'Stundenzähler noch nicht erfasst',
+				detail: `Heute gibt es ${v} Anfragen in den Tageszählern, aber keine in den Stundenzählern. Diagramme zeigen deshalb Tageswerte; prüfe die Statistik-Schreibvorgänge im Betrieb.`
+			};
+		case 'stats_write_error':
+			return {
+				title: 'Statistik-Schreibfehler',
+				detail: `${v} fehlgeschlagene Schreibvorgänge der Zähler in den letzten 24 Stunden (Tag oder Stunde). Die Zähler werden weiter versucht; Details im Dienstprotokoll (Zeile „statistics flush failed“).`
+			};
 		default:
 			return { title: f.code, detail: over };
 	}
@@ -98,10 +108,12 @@ export function findingHref(f: Finding): string {
 		f.code === 'error_rate_5xx' ||
 		f.code === 'cache_hit_low' ||
 		f.code === 'replicas_missing' ||
-		f.code === 'leader_missing'
+		f.code === 'leader_missing' ||
+		f.code === 'stats_write_error'
 	)
 		return '/betrieb';
 	if (f.code === 'cap_fill') return '/abos';
+	if (f.code === 'stats_hourly_empty') return '/traffic';
 	return '/push';
 }
 

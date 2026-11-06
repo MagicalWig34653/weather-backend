@@ -34,7 +34,8 @@
       "resolution": "day",
       "points": []
     },
-    "statsDropped": 0
+    "statsDropped": 0,
+    "statsFlushErrors": 0
   },
   "cache": {
     "hitRatio": null,

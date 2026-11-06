@@ -171,14 +171,14 @@ func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (
 struct StatsMiddleware: AsyncMiddleware {
     let stats: StatsCollector
 
-    /// Handling time until the response object exists (the body is already in memory for every route here); it feeds the
+    /// Handling time until the response object exists (bodies are buffered for the API routes; for streamed bodies `Content-Length` is the byte count); it feeds the
     /// `latency` buckets of the route group.
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         let start = DispatchTime.now().uptimeNanoseconds
         func seconds() -> Double { Double(DispatchTime.now().uptimeNanoseconds &- start) / 1e9 }
         do {
             let response = try await next.respond(to: request)
-            stats.recordRequest(path: request.url.path, status: Int(response.status.code), bytes: max(0, response.body.count), seconds: seconds())
+            stats.recordRequest(path: request.url.path, status: Int(response.status.code), bytes: StatsRoute.responseBytes(bodyCount: response.body.count, contentLength: response.headers.first(name: .contentLength)), seconds: seconds())
             return response
         } catch {
             let status = (error as? any AbortError)?.status.code ?? 500

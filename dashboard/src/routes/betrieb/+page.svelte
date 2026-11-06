@@ -106,6 +106,19 @@
 		{@const hist = histogram(o)}
 		{@const rows = stripRows(o)}
 
+		{#if (o.errors.statsFlushErrors ?? 0) > 0}
+			<Panel
+				title="Statistik-Schreibfehler"
+				description="Zähler konnten zuletzt nicht in die Datenbank geschrieben werden."
+				info="Es zählt nur, wie oft das Schreiben der Tages- oder Stundenzähler fehlschlug (keine Fehlertexte). Die Zähler bleiben im Speicher und werden erneut versucht. Die Ursache steht im Dienstprotokoll."
+			>
+				<p class="text-sm" role="status">
+					{formatNumber(o.errors.statsFlushErrors ?? 0)} fehlgeschlagene Schreibvorgänge in den letzten
+					24 Stunden. Traffic-Diagramme können Lücken zeigen.
+				</p>
+			</Panel>
+		{/if}
+
 		<Panel
 			title="Aufnahme-Läufe je Ebene"
 			description="Ein Streifen je Ebene, jede Zelle ein erwarteter Lauf der letzten 24 Stunden (älteste links)."

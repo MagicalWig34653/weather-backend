@@ -23,14 +23,22 @@ public final class InsightsEngine: Sendable {
 
         /// Metrics that have hourly counters (plan 2.7); all others are day series even for hourly ranges.
         static func hourlyEligible(_ metric: String) -> Bool {
-            ["requests", "errors_5xx", "ingest_run", "ingest_lag", "latency"].contains(metric)
+            ["requests", "bytes_out", "errors_5xx", "ingest_run", "ingest_lag", "latency"].contains(metric)
                 || ["push_", "la_", "apns_", "token_", "install_"].contains { metric.hasPrefix($0) }
         }
 
         var hourGrid: Bool { range.hourly && hourly != nil }
 
+        /// Hourly `requests` rows inside the hour grid of the range.
+        var hasHourlyRequests: Bool {
+            guard let hourly else { return false }
+            let from = TimeUtil.floor(now, to: 3600).addingTimeInterval(-Double(range.hours - 1) * 3600)
+            return hourly.contains { $0.metric == "requests" && $0.t >= from }
+        }
+
         func window(_ metric: String) -> (current: InsightsWindow, previous: InsightsWindow) {
-            if hourGrid, Self.hourlyEligible(metric), let hourly {
+            // Traffic needs hourly `requests` rows: a table with other metrics only (or none for this range) must not hide the day counters.
+            if hourGrid, Self.hourlyEligible(metric), let hourly, metric != "requests" || hasHourlyRequests {
                 let end = TimeUtil.floor(now, to: 3600)
                 let starts = (0..<range.hours).map { end.addingTimeInterval(-Double(range.hours - 1 - $0) * 3600) }
                 let current = InsightsWindow(resolution: "hour", starts: starts, samples: hourly)
@@ -59,7 +67,7 @@ public final class InsightsEngine: Sendable {
     }
 
     private func header(_ l: Loaded) -> [String: IJ] {
-        ["generatedAt": .date(l.now), "range": .string(l.range.rawValue), "resolution": .string(l.hourGrid ? "hour" : "day")]
+        ["generatedAt": .date(l.now), "range": .string(l.range.rawValue), "resolution": .string(l.window("requests").current.resolution)]
     }
 
     private static func gauge(_ used: Int, _ max: Int) -> IJ {
@@ -99,7 +107,25 @@ public final class InsightsEngine: Sendable {
             i.counters = try? await source.pushCounters(range: .h24, now: l.now)
         }
         i.replicaInfo = try? await source.replicaInfo(now: l.now)
+        await statisticsInputs(l, &i)
         return (i, layerFailed)
+    }
+
+    /// Health of the statistics themselves: day counters without hourly requests, and failed flushes.
+    private func statisticsInputs(_ l: Loaded, _ i: inout InsightsFindingInputs) async {
+        let today = TimeUtil.floor(l.now, to: 86400)
+        let dayRequests = l.daily.filter { $0.metric == "requests" && $0.t == today }.reduce(0) { $0 + $1.value }
+        let recentFrom = TimeUtil.floor(l.now, to: 3600).addingTimeInterval(-2 * 3600)
+        var recent = l.hourly
+        if !l.range.hourly { recent = (try? await source.hourlyStats(from: recentFrom, to: l.now)).flatMap { $0 }.map { rows in
+            rows.map { InsightsSample(t: $0.hour, metric: $0.metric, label: $0.label, value: $0.value) } } }
+        // `recent == nil`: table unreadable or empty, which is just as missing as having no `requests` rows in it.
+        let hourlyRequests = (recent ?? []).contains { $0.metric == "requests" && $0.t >= recentFrom }
+        if dayRequests >= InsightsFindings.minRequests5xx && !hourlyRequests { i.hourlyMissingDayRequests = dayRequests }
+        let dayErrors = l.daily.filter { $0.metric == "stats_flush_error" && $0.t == today }.reduce(0) { $0 + $1.value }
+        let dayAgo = TimeUtil.floor(l.now, to: 3600).addingTimeInterval(-23 * 3600)
+        let hourErrors = (l.hourly ?? []).filter { $0.metric == "stats_flush_error" && $0.t >= dayAgo }.reduce(0) { $0 + $1.value }
+        i.statsFlushErrors24h = max(dayErrors, hourErrors)
     }
 
     // MARK: overview
@@ -224,6 +250,8 @@ public final class InsightsEngine: Sendable {
             }
         }
         let iw = l.window("ingest_run")
+        var statsInputs = InsightsFindingInputs(now: now, context: l.context)
+        await statisticsInputs(l, &statsInputs)
         out["errors"] = .object([
             "status5xx": .object(["series": cur.series(presence: "requests") { s in
                 Double(s.filter { $0.metric == "errors_5xx" }.reduce(0) { $0 + $1.value }) }.ij,
@@ -231,6 +259,8 @@ public final class InsightsEngine: Sendable {
             "ingestErrors": iw.current.series(presence: "ingest_run") { s in
                 Double(s.filter { $0.metric == "ingest_run" && $0.label.hasSuffix(":error") }.reduce(0) { $0 + $1.value }) }.ij,
             "statsDropped": .int(l.window("stats_dropped").current.sum("stats_dropped")),
+            // Failed statistics writes (flush of the day or hour table), last 24 h; additive, see the findings `stats_write_error`.
+            "statsFlushErrors": .int(statsInputs.statsFlushErrors24h),
         ])
 
         // cache

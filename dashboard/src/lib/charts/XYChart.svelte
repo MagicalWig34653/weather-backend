@@ -273,9 +273,12 @@
 								stroke-width="2"
 							/>
 						{/if}
-						{#if n === 1 && s.values[0] !== null}
-							<circle cx={xs[0]} cy={yScale.y(L.hi[0])} r="3.5" class={cc.fill} />
-						{/if}
+						<!-- Einzelwerte zwischen Luecken (null) haben keine Linie: als Punkt zeichnen. -->
+						{#each s.values as v, i (i)}
+							{#if v !== null && s.values[i - 1] == null && s.values[i + 1] == null}
+								<circle cx={xs[i]} cy={yScale.y(L.hi[i])} r="3.5" class={cc.fill} />
+							{/if}
+						{/each}
 					{/if}
 				{/each}
 			</svg>

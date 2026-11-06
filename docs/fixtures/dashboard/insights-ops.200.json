@@ -271,7 +271,8 @@
         }
       ]
     },
-    "statsDropped": 0
+    "statsDropped": 0,
+    "statsFlushErrors": 0
   },
   "cache": {
     "hitRatio": 0.912,

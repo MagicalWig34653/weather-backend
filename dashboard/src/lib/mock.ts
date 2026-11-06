@@ -371,7 +371,12 @@ export function createMockFetch() {
 			}
 			const { mockInsights } = await import('./insights/mock');
 			const mockState =
-				state === 'empty' || state === 'slice1' || state === 'pairopen' || state === 'pairending'
+				state === 'empty' ||
+				state === 'slice1' ||
+				state === 'sparse' ||
+				state === 'dayonly' ||
+				state === 'pairopen' ||
+				state === 'pairending'
 					? state
 					: 'normal';
 			const out = mockInsights(path, method, url.searchParams, body, mockState) as

@@ -34,6 +34,10 @@ struct InsightsFindingInputs {
     var gauges: InsightsPushGauges?
     var counters: InsightsPushCounters?
     var replicaInfo: InsightsReplicaInfo?
+    /// Requests of today's day counters when the hourly table has no `requests` rows of the last hours (nil = fine or too few requests).
+    var hourlyMissingDayRequests: Int?
+    /// Failed statistics flushes (day or hour table) in the last 24 h.
+    var statsFlushErrors24h = 0
 }
 
 /// One layer with derived age and level.
@@ -111,6 +115,14 @@ enum InsightsFindings {
         // la_start_ratio_low
         if i.context.pushEnabled, let n = i.counters?.laStartTriggers24h, let ok = i.counters?.laStartDelivered24h, n >= minLaStartCases {
             lower(&out, "la_start_ratio_low", nil, Double(ok) / Double(n), t.laStartRatio, "ratio")
+        }
+        // stats_hourly_empty: day counters have traffic, the hourly table does not (hour series would be an empty line).
+        if let n = i.hourlyMissingDayRequests {
+            out.append(InsightsFinding(code: "stats_hourly_empty", level: "warning", subject: nil, value: Double(n), threshold: Double(minRequests5xx), unit: "count", since: nil))
+        }
+        // stats_write_error: the flush into stats_daily or stats_hourly failed (counted without any error text).
+        if i.statsFlushErrors24h > 0 {
+            out.append(InsightsFinding(code: "stats_write_error", level: "warning", subject: nil, value: Double(i.statsFlushErrors24h), threshold: 0, unit: "count", since: nil))
         }
         return out.sorted { $0.severity > $1.severity }
     }

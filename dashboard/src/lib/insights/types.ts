@@ -87,6 +87,8 @@ export interface OpsInsights {
 		};
 		ingestErrors: Series;
 		statsDropped: number;
+		/** Fehlgeschlagene Statistik-Schreibvorgaenge (Tag oder Stunde) der letzten 24 Stunden. */
+		statsFlushErrors?: number;
 	};
 	cache: {
 		hitRatio: number | null;

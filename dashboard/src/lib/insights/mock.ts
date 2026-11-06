@@ -25,7 +25,9 @@ import type {
 	TrafficInsights
 } from './types';
 
-export type MockState = 'normal' | 'empty' | 'slice1' | 'pairopen' | 'pairending';
+/** `sparse`: Stundenwerte nur fuer eine Stunde (Datenmenge noch nicht erfasst); `dayonly`: Stundenzaehler fehlen, Tagesreihe. */
+export type MockState =
+	'normal' | 'empty' | 'slice1' | 'sparse' | 'dayonly' | 'pairopen' | 'pairending';
 
 const HOUR = 3600_000;
 function rnd(i: number, salt = 0): number {
@@ -264,6 +266,8 @@ export function mockInsights(
 	const req = empty
 		? { resolution, points: t.map((x) => ({ t: x, v: 0 })) }
 		: ser(t, resolution, hours, 7700, 1);
+	const sparse = state === 'sparse';
+	const dayOnly = state === 'dayonly' && (range === '24h' || range === '72h');
 
 	if (path === '/insights/overview') {
 		const o: OverviewInsights = {
@@ -360,7 +364,8 @@ export function mockInsights(
 								v: rnd(i, 8) < 0.12 ? 1 + Math.round(rnd(i, 3) * 2) : 0
 							}))
 						},
-				statsDropped: 0
+				statsDropped: 0,
+				statsFlushErrors: 0
 			},
 			cache: {
 				hitRatio: empty ? null : 0.948,
@@ -467,7 +472,20 @@ export function mockInsights(
 			['landing', 0.02, 9000],
 			['other', 0.01, 800]
 		];
-		const tot = total(req);
+		let series = req;
+		if (sparse)
+			series = {
+				resolution,
+				points: req.points.map((p, i, a) => ({ t: p.t, v: i === a.length - 1 ? 1538 : null }))
+			};
+		if (dayOnly) {
+			const g = grid('7d');
+			series = {
+				resolution: 'day',
+				points: g.t.slice(-2).map((x, i) => ({ t: x, v: i ? 1538 : 7020 }))
+			};
+		}
+		const tot = sparse || dayOnly ? total(series) : total(req);
 		const cls = (f: number, i: number) => Math.round(tot * f * (1 + (i ? rnd(i, 2) * 0.1 : 0)));
 		const hourly = Array.from({ length: 72 }, (_, i) => {
 			const d = new Date(Math.floor(Date.now() / HOUR) * HOUR - (71 - i) * HOUR);
@@ -480,18 +498,18 @@ export function mockInsights(
 		const o: TrafficInsights = {
 			generatedAt,
 			range,
-			resolution,
+			resolution: dayOnly ? 'day' : resolution,
 			partial: [],
 			requests: {
 				total: tot,
-				series: req,
+				series,
 				notModifiedShare: empty ? null : 0.31,
 				byRoute: empty
 					? []
 					: routes.map(([route, f, b]) => ({
 							route,
 							count: Math.round(tot * f),
-							bytes: Math.round(tot * f * b)
+							bytes: sparse ? 0 : Math.round(tot * f * b)
 						})),
 				byStatusClass: empty
 					? []
