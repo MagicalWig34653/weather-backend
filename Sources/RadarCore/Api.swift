@@ -64,6 +64,20 @@ public actor SlotCache {
 
     public func contains(_ key: String) -> Bool { items[key] != nil }
 
+    /// Operator "clear cache": `all`, `radar` (keys without the `layer:` prefix) or one layer id. Running loads finish normally;
+    /// the negative cache goes with the entries.
+    public func clear(scope: String) {
+        func hit(_ key: String) -> Bool {
+            switch scope {
+            case "all": return true
+            case "radar": return !key.hasPrefix("layer:")
+            default: return key.hasPrefix("layer:\(scope)/")
+            }
+        }
+        for key in items.keys where hit(key) { size -= items[key]?.blob.data.count ?? 0; items[key] = nil }
+        for key in missing.keys where hit(key) { missing[key] = nil }
+    }
+
     /// On a miss exactly one task reads the DB per key; concurrent requests await the same task.
     public func load(_ key: String, _ loader: @escaping @Sendable () async throws -> SlotBlob?) async throws -> SlotBlob? {
         let scope = key.hasPrefix("layer:") ? "layer" : "radar"

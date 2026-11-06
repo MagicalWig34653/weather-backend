@@ -23,6 +23,7 @@ public final class DashboardApi: Sendable {
     public let auth: DashboardAuth
     let repo: any Repo
     let devices: DashboardDevices
+    let pushActions: DashboardPushActions
     let store: ConfigStore
     let env: [String: String]
     let site: StaticSite
@@ -37,6 +38,7 @@ public final class DashboardApi: Sendable {
                 extra: (@Sendable (DashboardHTTPRequest, DashboardSessionInfo) async throws -> ApiResponse?)? = nil) {
         self.auth = auth; self.repo = repo; self.store = store; self.env = env; self.site = StaticSite(root: staticRoot)
         self.restartPolicy = restartPolicy; self.clock = clock; self.extra = extra
+        pushActions = DashboardPushActions(repo: repo)
         devices = DashboardDevices(repo: repo, config: { store.snapshot() }, clock: clock)
     }
 
@@ -123,6 +125,7 @@ public final class DashboardApi: Sendable {
             return try await writeConfig(key: key, put: m == "PUT", body: req.body, now: now)
         }
         if let response = try await devices.handle(req, sub, now: now, audit: repo) { return response }
+        if let response = try await pushActions.handle(req, sub, now: now) { return response }
         if let extra, let response = try await extra(req, session) { return response }
         return Self.error(404, "not_found")
     }

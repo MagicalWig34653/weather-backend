@@ -70,7 +70,8 @@ final class DashboardDevices: Sendable {
         let events = try await repo.deviceEvents(deviceID: device.id, limit: 5)
         let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
         let cfg = config()
-        let verdict = PushDiagnosis.run(.init(pushEnabled: cfg.push.enabled, allowedEnvironments: cfg.push.environments, install: info, subs: subs,
+        let pushPaused = (try? await repo.pushPausedSince()) != nil
+        let verdict = PushDiagnosis.run(.init(pushEnabled: cfg.push.enabled, pushPaused: pushPaused, allowedEnvironments: cfg.push.environments, install: info, subs: subs,
                                                activities: activities, recentEvents: events, radar: DeviceRadarView(status: .noSlot), now: now)).verdict
         let summary = PushDiagnosis.summaryCode(verdict, install: info)
         let stale = info.lastSeenAt.map { now.timeIntervalSince($0) > Double(settings.staleDays) * 86400 } ?? true
@@ -122,7 +123,8 @@ final class DashboardDevices: Sendable {
         let events = try await repo.deviceEvents(deviceID: id, limit: 20)
         let radarSubs = subs.filter(\.enabled)
         let view = radarSubs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: cfg, subs: radarSubs, now: now)
-        let result = PushDiagnosis.run(.init(pushEnabled: cfg.push.enabled, allowedEnvironments: cfg.push.environments, install: info, subs: subs,
+        let pushPaused = (try? await repo.pushPausedSince()) != nil
+        let result = PushDiagnosis.run(.init(pushEnabled: cfg.push.enabled, pushPaused: pushPaused, allowedEnvironments: cfg.push.environments, install: info, subs: subs,
                                              activities: activities, recentEvents: events, radar: view, now: now))
         func check(_ c: DiagnosisCheck) -> [String: Any] {
             ["order": c.order, "code": c.code, "level": c.level.rawValue, "reason": c.reason, "params": c.params.mapValues(\.json)]

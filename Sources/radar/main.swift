@@ -288,8 +288,11 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     app.http.server.configuration.serverName = nil
 
     let pushApi = !dashboardOnly
+    var cacheClearTask: Task<Void, Never>?
     if pushApi {
         let api = Api(repo: repo, configProvider: provider, sender: sender, alive: { heartbeat.isAlive }, stats: stats)
+        // Operator "clear cache" (dashboard): every replica empties its in-process slot cache when the generation moves.
+        cacheClearTask = Task { await CacheClearWatcher(repo: repo, cache: api.cache).run() }
         app.middleware.use(StatsMiddleware(stats: stats))
         app.get("**") { req async -> Response in
             let path = req.url.path
@@ -338,7 +341,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         else { logger.warning("restart coordinator not started (database)") }
     }
     let setupHint = dashAuth.map { auth in Task { await runSetupHintLoop(auth: auth) } }
-    tasks = [loop, backfill, pushTask, restartTask, setupHint].compactMap { $0 } + layerLoops
+    tasks = [loop, backfill, pushTask, restartTask, setupHint, cacheClearTask].compactMap { $0 } + layerLoops
 
     func stopAll() async {
         tasks.forEach { $0.cancel() }
