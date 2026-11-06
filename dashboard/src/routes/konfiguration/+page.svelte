@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '#lib/design/PageHeader.svelte';
 	import { onMount } from 'svelte';
 	import { api } from '#lib/client.js';
 	import { ApiError, type ConfigEntry, type RestartState } from '#lib/api.js';
@@ -85,13 +86,10 @@
 	const stateLabel = { running: 'läuft', waiting: 'wartet', restarting: 'startet neu' } as const;
 </script>
 
-<div class="space-y-1">
-	<h1 class="text-2xl font-semibold tracking-tight">Konfiguration</h1>
-	<p class="text-muted-foreground text-sm">
-		Rangfolge: Umgebungsvariable vor Dashboard-Wert vor Standard. Geheimnisse sind nur per
-		Umgebungsvariable setzbar und werden nie angezeigt.
-	</p>
-</div>
+<PageHeader
+	title="Konfiguration"
+	description="Rangfolge: Umgebungsvariable vor Dashboard-Wert vor Standard. Geheimnisse sind nur per Umgebungsvariable setzbar und werden nie angezeigt."
+/>
 
 {#if config.error}
 	<Alert.Root variant="destructive"

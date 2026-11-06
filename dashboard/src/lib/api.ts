@@ -301,6 +301,14 @@ export class ApiClient {
 		return (await res.json()) as T;
 	}
 
+	/** Generischer Zugriff fuer die Insights-Schicht (src/lib/insights/api.ts); Pfad relativ zu /dash/api. */
+	get<T>(path: string) {
+		return this.request<T>('GET', path);
+	}
+	post<T>(path: string, body: unknown = {}) {
+		return this.request<T>('POST', path, body);
+	}
+
 	// Sitzung
 	async session(): Promise<SessionState> {
 		const s = await this.request<SessionState>('GET', '/session');

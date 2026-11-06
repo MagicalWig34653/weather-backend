@@ -259,6 +259,23 @@ export function createMockFetch() {
 		) {
 			return json({}, 403);
 		}
+		const insightsState = new URLSearchParams(
+			typeof location !== 'undefined' ? location.search : ''
+		).get('mockstate');
+		if (path.startsWith('/insights') || path.startsWith('/devices')) {
+			if (insightsState === 'slow') await new Promise((r) => setTimeout(r, 4000));
+			if (insightsState === 'error')
+				return json({ message: 'Der Server hat nicht geantwortet.' }, 500);
+			if (path === '/devices/link' && method === 'POST') {
+				return /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(String(body.code))
+					? json({ ok: true })
+					: json({ message: 'Code unbekannt oder abgelaufen.' }, 404);
+			}
+			const { mockInsights } = await import('./insights/mock');
+			const state = insightsState === 'empty' ? 'empty' : 'normal';
+			const out = mockInsights(path, method, url.searchParams, body, state);
+			if (out !== undefined) return json(out);
+		}
 		if (path === '/logout') {
 			mode = 'login';
 			return new Response(null, { status: 204 });

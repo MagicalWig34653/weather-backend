@@ -1,6 +1,6 @@
 # Dashboard (Frontend)
 
-Betreiber-Oberfläche des Radar-Backends: SvelteKit (Svelte 5, TypeScript, `adapter-static`, SPA-Fallback), Tailwind 4, shadcn-svelte. Plan: `docs/dashboard-plan.md` (Abschnitt 6). Der Build ist rein statisch, wird im Backend-Image unter `/app/dashboard` abgelegt und vom Backend unter `/dash` ausgeliefert. Es gibt keine Laufzeit-Netzzugriffe, keine CDNs und keine externen Schriften (System-Schriftstapel).
+Betreiber-Oberfläche des Radar-Backends: SvelteKit (Svelte 5, TypeScript, `adapter-static`, SPA-Fallback), Tailwind 4, shadcn-svelte. Plan: `docs/dashboard-plan.md` (Abschnitt 6). Der Build ist rein statisch, wird im Backend-Image unter `/app/dashboard` abgelegt und vom Backend unter `/dash` ausgeliefert. Es gibt keine Laufzeit-Netzzugriffe und keine CDNs; Inter Variable (OFL, Latin-Teilsatz) liegt lokal unter `src/lib/design/fonts/`.
 
 ## Befehle (Node >= 22, getestet mit 26)
 
@@ -9,18 +9,29 @@ npm ci                # exakt nach package-lock.json
 npm run dev:mock      # Entwicklung mit Mock-Backend (erfundene Daten, VITE_MOCK=1)
 npm run check         # svelte-check
 npm run lint          # Prettier + ESLint
-npm test              # Vitest (API-Client, Base64URL)
+npm test              # Vitest (API-Client, Base64URL, Skalen, Reihen, Navigation)
+npm run test:e2e      # Playwright gegen den Mock-Server: axe (WCAG 2.2 AA), hell/dunkel, Desktop/Telefon
+node scripts/screenshots.mjs <Ordner> [Seiten] [normal|empty|error|slow]  # Screenshots (Mock-Server auf :5199 nötig)
 npm run build         # statischer Build nach build/ inkl. CSP-Nachbearbeitung
 ```
 
 Im Mock-Modus wählt `?mock=setup`, `?mock=login` oder (Standard) `?mock=auth` den Anfangszustand. Der Mock ist nicht Teil des Produktionsbuilds.
+
+## Designsystem (WP10)
+
+Sprache wie timetrack-pwa: Zinc-Neutrale in OKLCH, ein blauer Akzent, semantische Status-Töne (ok/warn/err, immer mit Icon und Text), Inter Variable mit `tabular-nums`. Tokens (hell/dunkel) stehen in `src/routes/layout.css`.
+
+- `src/lib/design/`: Shell (Seitenleiste ab 768 px, untere Tab-Leiste auf dem Telefon, Kopfzeile mit Zeitbereich/Aktualisieren/Auto-Refresh/Sitzung), Panel, Kpi, StatusBadge/StatusDot, DataTable, Segmented, Loadable (Lade-/Fehler-/Veraltet-Zustand je Widget), Empty/Error/Stale/Skeleton, Toaster, ConfirmDialog. Vorschau: `/dash/_design` (nur Dev/Mock).
+- `src/lib/charts/`: eigene SVG-Bausteine ohne Chartbibliothek: XYChart (Linie, Fläche, Balken, gestapelt), RankBars, HeatStrip/Heatmap, Donut, Sparkline. Tooltip per Zeiger und Pfeiltasten, Umschalter „Tabelle“.
+- `src/lib/insights/`: Datenzugriffsschicht. `api.ts` kennt als einzige Stelle die Insights-Routen, `types.ts` die Formen, `mock.ts` die erfundenen Daten (`?mockstate=empty|error|slow`). Seiten rufen nur `insights.*`.
+- Zeitbereich (`?range=24h|7d|30d`) und Auto-Refresh (30 s, Polling) sind globaler Zustand (`design/context.svelte.ts`).
 
 ## Struktur
 
 - `src/lib/api.ts`: API-Vertrag als TypeScript-Typen und typisierter Client (`/dash/api`, CSRF-Token nur im Speicher). Maßgeblich bleibt `docs-site/content/dashboard-api.md` (WP5).
 - `src/lib/passkey.ts`: WebAuthn im Browser (`navigator.credentials`, Base64URL-Wandlung).
 - `src/lib/mock.ts`: Mock-Backend. `src/lib/components/ui/`: shadcn-svelte-Komponenten (unverändert bis auf `data-[state=…]`, siehe unten).
-- `src/routes/`: Übersicht, Traffic, Konfiguration, Änderungsprotokoll; Anmeldung/Einrichtung erscheinen anstelle der Seiten, solange keine Sitzung besteht.
+- `src/routes/`: Übersicht, Betrieb, Traffic, Push, Abos, Geräte, Konfiguration, Protokoll; Anmeldung/Einrichtung erscheinen anstelle der Seiten, solange keine Sitzung besteht.
 - `scripts/postbuild.mjs`: Nachbearbeitung für die CSP (siehe unten).
 
 ## CSP-Befund (geprüft am 3.11.2026 in Chromium, Prüfstand mit Header)
