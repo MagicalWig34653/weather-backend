@@ -1073,6 +1073,26 @@ extension DatabaseSuites {
 struct PushActivityConcurrencyTests {
     private typealias F = ActivityFixture
 
+    @Test(arguments: RepoKind.allCases) func instantBitAndAttemptsPersistAndKeepTheAutomaton(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let install = UUID().uuidString.lowercased(), sub = UUID().uuidString.lowercased()
+        _ = try await repo.upsertInstallation(id: install, secretHash: Hashing.sha256Hex(Array(F.secret.utf8)), token: F.device, env: .sandbox, locale: "de", now: run0)
+        #expect(try await repo.addSubscription(installationID: install, id: sub, F.input(), maxPerInstallation: 10, now: run0) == .created)
+        func stored() async throws -> PushSubscription { try #require(try await repo.activityTargets(subscriptionIDs: [sub]).first?.subscription) }
+        #expect(try await stored().instantStart)
+        #expect(try await repo.commitEvaluation(runID: "20261103T1000Z", updates: [.init(id: sub, state: .notified, lastSentAt: run0, wetSeen: true, instantStart: true, startAttempts: 2)], outbox: [], now: run0))
+        var row = try await stored()
+        #expect(row.state == .notified && row.wetSeen && row.instantStart && row.startAttempts == 2)
+        try await repo.setStartRetry(subscriptionID: sub, armed: false, attempts: 0)
+        row = try await stored()
+        #expect(row.state == .notified && row.wetSeen && !row.instantStart && row.startAttempts == 0)
+        try await repo.setLiveActivityStartToken(installationID: install, token: F.start)
+        row = try await stored()
+        #expect(row.instantStart && row.state == .notified && row.wetSeen)
+        #expect(try await repo.updateSubscription(installationID: install, id: sub, F.input(live: false)))
+        #expect(try await !stored().instantStart)
+    }
+
     @Test(arguments: RepoKind.allCases) func wetHysteresisBitSurvivesCommitAndLeavesStateIntact(kind: RepoKind) async throws {
         let repo = try await kind.make()
         let install = UUID().uuidString.lowercased(), sub = UUID().uuidString.lowercased()
@@ -1226,25 +1246,5 @@ struct PushImmediateStartTests {
         _ = try await h.repo.setActivityToken(subscriptionID: F.subscription, token: F.activity, now: run0)
         try await h.tick(0, Self.raining(until: 4))
         #expect(await h.starts() == 0)
-    }
-
-    @Test(arguments: RepoKind.allCases) func instantBitAndAttemptsPersistAndKeepTheAutomaton(kind: RepoKind) async throws {
-        let repo = try await kind.make()
-        let install = UUID().uuidString.lowercased(), sub = UUID().uuidString.lowercased()
-        _ = try await repo.upsertInstallation(id: install, secretHash: Hashing.sha256Hex(Array(F.secret.utf8)), token: F.device, env: .sandbox, locale: "de", now: run0)
-        #expect(try await repo.addSubscription(installationID: install, id: sub, F.input(), maxPerInstallation: 10, now: run0) == .created)
-        func stored() async throws -> PushSubscription { try #require(try await repo.activityTargets(subscriptionIDs: [sub]).first?.subscription) }
-        #expect(try await stored().instantStart)
-        #expect(try await repo.commitEvaluation(runID: "20261103T1000Z", updates: [.init(id: sub, state: .notified, lastSentAt: run0, wetSeen: true, instantStart: true, startAttempts: 2)], outbox: [], now: run0))
-        var row = try await stored()
-        #expect(row.state == .notified && row.wetSeen && row.instantStart && row.startAttempts == 2)
-        try await repo.setStartRetry(subscriptionID: sub, armed: false, attempts: 0)
-        row = try await stored()
-        #expect(row.state == .notified && row.wetSeen && !row.instantStart && row.startAttempts == 0)
-        try await repo.setLiveActivityStartToken(installationID: install, token: F.start)
-        row = try await stored()
-        #expect(row.instantStart && row.state == .notified && row.wetSeen)
-        #expect(try await repo.updateSubscription(installationID: install, id: sub, F.input(live: false)))
-        #expect(try await !stored().instantStart)
     }
 }
