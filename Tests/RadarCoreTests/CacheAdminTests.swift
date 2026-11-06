@@ -533,7 +533,8 @@ struct CacheAdminRepoTests {
         let created = try await repo.createRefreshJobs(layers: ["radar", "clouds"], now: now)
         #expect(created.created.count == 2)
         #expect(try await repo.createRefreshJobs(layers: ["radar"], now: now).pending == ["radar"])
-        #expect(try await repo.queuedRefreshLayers(now: now) == ["radar", "clouds"])
+        // Both jobs share one created_at second; the id tiebreak (random UUID) makes the order arbitrary on MariaDB.
+        #expect(Set(try await repo.queuedRefreshLayers(now: now)) == ["radar", "clouds"])
         let job = try #require(try await repo.claimRefreshJob(layer: "radar", now: now))
         #expect(try await repo.claimRefreshJob(layer: "radar", now: now) == nil)
         try await repo.finishRefreshJob(id: job.id, status: .ok, result: "{\"stored\":1}", error: nil, now: now)
