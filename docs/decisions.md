@@ -313,3 +313,7 @@ Anlass und Entwurf: App-Repo `docs/research/live-activity-gebiete.md`. Nutzerent
 ## 7.11.2026: Ort im Regen-Push per Notification Service Extension (Variante A)
 
 Nutzerentscheidung "A": Der Alert-Payload (Ort und Umkreis) trägt zusätzlich `mutable-content: 1`; die App-Extension hängt " · Name" aus einem lokalen App-Group-Speicher (Abo-ID zu Name) an den Text. Der Name verlässt das Gerät nie, keine Datenschutzänderung. Test- und Live-Activity-Pushes unverändert.
+
+## 7.11.2026: Warnungen W1, Ereigniscodes und Speicherung
+
+Die Zuordnung Ereigniscode zu Typ steht belegt in [research/warnungen-ereigniscodes.md](research/warnungen-ereigniscodes.md) (DWD `warning_codes.pdf` Stand 01.02.2024 plus echte Feed-Meldungen). Fail-closed: nicht gelistete Codes werden gezählt, nicht gespeichert. Vorabinformationen Unwetter teilen sich sechs Codes mit Warnungen und werden über den deutschen Eventnamen ausgeschlossen. Speicherung: nur Warngebiets-IDs, Texte, Zeiten; deutsche und englische Meldung getrennt (`alert_key` verbindet sie), ersetzte Meldungen `superseded`, aufgehobene `cancelled`. Migration `016_warnings.sql` ist additiv; vor dem Aktivieren von `WARN_INGEST_ENABLED` muss das Image sie enthalten.
