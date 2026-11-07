@@ -1,27 +1,35 @@
 import Foundation
 
-/// APNs payload of a warning push. DWD text unchanged (only shortened), no place name, no coordinates.
+/// APNs payload of a warning push. Own short notice only (type and level via `title-loc-key`/`loc-key`, German fallback text):
+/// no DWD headline, no DWD description, no source line. The unchanged official warning is only available via
+/// `GET /v1/warnings/active` (app warning view). Keys and argument order match `WARN_PUSH_*` in the app's Localizable.strings.
 public enum WarnPayload {
-    public static let maxBodyBytes = 900
     public static let maxPayloadBytes = 1900
-    static let maxTitleBytes = 120
-    static let sourceLine = "\nQuelle: DWD"
+    static let bodyKey = "WARN_PUSH_BODY"
+    static let bodyFallback = "Tippen für Details."
 
-    /// nil when the size limit cannot be met.
-    public static func make(alert: WarnAlert, subID: String, timeSensitive: Bool) -> String? {
-        let title = truncate(alert.headline, maxBytes: maxTitleBytes)
-        var budget = maxBodyBytes - sourceLine.utf8.count
-        while budget >= 0 {
-            let body = truncate(alert.text, maxBytes: budget) + sourceLine
-            var aps: [String: Any] = ["alert": ["title": title, "body": body], "sound": "default", "thread-id": subID, "mutable-content": 1]
-            if timeSensitive || alert.severity >= 4 { aps["interruption-level"] = "time-sensitive" }
-            let object: [String: Any] = ["aps": aps, "type": "warning", "kind": alert.kind.rawValue, "severity": alert.severity,
-                                         "sent": TimeUtil.toISO(alert.sent), "warning_id": alert.identifier]
-            guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), let json = String(data: data, encoding: .utf8) else { return nil }
-            if json.utf8.count <= maxPayloadBytes { return json }
-            budget -= max(1, json.utf8.count - maxPayloadBytes)
+    /// Localization key and German fallback title format (`%d` = level) per kind.
+    static func titleKey(_ kind: WarnKind) -> (key: String, fallback: String) {
+        switch kind {
+        case .severeWeather: return ("WARN_PUSH_TITLE_SEVERE", "Unwetterhinweis, Stufe")
+        case .frost: return ("WARN_PUSH_TITLE_FROST", "Frosthinweis, Stufe")
+        case .ice: return ("WARN_PUSH_TITLE_ICE", "Glättehinweis, Stufe")
         }
-        return nil
+    }
+
+    /// nil when the size limit cannot be met (cannot happen with the fixed alert).
+    public static func make(alert: WarnAlert, subID: String, timeSensitive: Bool) -> String? {
+        let t = titleKey(alert.kind)
+        let level = String(alert.severity)
+        let alertDict: [String: Any] = ["title": "\(t.fallback) \(level)", "body": bodyFallback,
+                                        "title-loc-key": t.key, "title-loc-args": [level], "loc-key": bodyKey]
+        var aps: [String: Any] = ["alert": alertDict, "sound": "default", "thread-id": subID, "mutable-content": 1]
+        if timeSensitive || alert.severity >= 4 { aps["interruption-level"] = "time-sensitive" }
+        let object: [String: Any] = ["aps": aps, "type": "warning", "kind": alert.kind.rawValue, "severity": alert.severity,
+                                     "sent": TimeUtil.toISO(alert.sent), "warning_id": alert.identifier]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), let json = String(data: data, encoding: .utf8),
+              json.utf8.count <= maxPayloadBytes else { return nil }
+        return json
     }
 
     public static func dedupeKey(subID: String, alertKey: String) -> String { Hashing.sha256Hex(Array((subID + "|" + alertKey).utf8)) }

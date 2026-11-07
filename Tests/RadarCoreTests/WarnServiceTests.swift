@@ -66,8 +66,8 @@ struct WarnServiceTests {
         let (repo, service, _, _, _, _) = try await setup()
         let de = try await store(repo, "K1.DEU"), en = try await store(repo, "K1.ENG", lang: "en")
         _ = try await service.trigger([de, en])
-        let bodies = try await payloads(repo).compactMap { (($0["aps"] as? [String: Any])?["alert"] as? [String: Any])?["body"] as? String }
-        #expect(Set(bodies) == ["Deutscher Text\nQuelle: DWD", "English text\nQuelle: DWD"])
+        let bodies = try await payloads(repo).compactMap { $0["warning_id"] as? String }
+        #expect(Set(bodies) == ["K1.DEU", "K1.ENG"])
         let ids = try await payloads(repo).compactMap { $0["warning_id"] as? String }
         #expect(Set(ids) == ["K1.DEU", "K1.ENG"])
     }
@@ -77,15 +77,15 @@ struct WarnServiceTests {
         _ = try await store(repo, "K1.DEU")
         let en = try await store(repo, "K1.ENG", lang: "en")
         _ = try await service.trigger([en])
-        let bodies = try await payloads(repo).compactMap { (($0["aps"] as? [String: Any])?["alert"] as? [String: Any])?["body"] as? String }
-        #expect(Set(bodies) == ["Deutscher Text\nQuelle: DWD", "English text\nQuelle: DWD"])
+        let bodies = try await payloads(repo).compactMap { $0["warning_id"] as? String }
+        #expect(Set(bodies) == ["K1.DEU", "K1.ENG"])
     }
 
     @Test func fallbackToTheOtherLanguageWhenOnlyOneExists() async throws {
         let (repo, service, _, _, _, _) = try await setup()
         _ = try await service.trigger([try await store(repo, "K1.DEU")])
-        let bodies = try await payloads(repo).compactMap { (($0["aps"] as? [String: Any])?["alert"] as? [String: Any])?["body"] as? String }
-        #expect(bodies.count == 2 && bodies.allSatisfy { $0 == "Deutscher Text\nQuelle: DWD" })
+        let bodies = try await payloads(repo).compactMap { $0["warning_id"] as? String }
+        #expect(bodies.count == 2 && bodies.allSatisfy { $0 == "K1.DEU" })
     }
 
     @Test func secondTriggerWithTheSameMessageSendsNothing() async throws {
