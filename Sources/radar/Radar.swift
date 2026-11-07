@@ -167,6 +167,48 @@ func runPushLoop(config: Config, stats: any StatsSink, repo: any Repo, sender: (
     await service.release()
 }
 
+/// DWD CAP transport for the warning ingest (AsyncHTTPClient): conditional GET (`If-None-Match`), no cookies, fixed user agent,
+/// hard size limit while reading (`maxBytes`, more is an error).
+func warnHTTPGet(client: HTTPClient, userAgent: String) -> WarnHTTPGet {
+    { url, ifNoneMatch, maxBytes in
+        var request = HTTPClientRequest(url: url)
+        request.headers.add(name: "User-Agent", value: userAgent)
+        if let ifNoneMatch { request.headers.add(name: "If-None-Match", value: ifNoneMatch) }
+        let response = try await client.execute(request, timeout: .seconds(20))
+        let status = Int(response.status.code)
+        guard status == 200 else { return WarnHTTPResponse(status: status, etag: response.headers.first(name: "ETag"), body: Data()) }
+        if let declared = response.headers.first(name: "Content-Length").flatMap(Int.init), declared > maxBytes { throw WarnFeedError("response too large") }
+        var buffer = try await response.body.collect(upTo: maxBytes)
+        return WarnHTTPResponse(status: status, etag: response.headers.first(name: "ETag"), body: Data(buffer.readBytes(length: buffer.readableBytes) ?? []))
+    }
+}
+
+/// Leader-only warning loop (leader lease `warn`, tick every 60 s): DWD ingest, then the push trigger for new or changed
+/// warnings. Idle unless `WARN_INGEST_ENABLED=true`; the trigger itself does nothing unless `WARN_PUSH_ENABLED` and push are on.
+func runWarnLoop(config: Config, stats: any StatsSink, repo: any Repo, client: HTTPClient, owner: String, logger: Logger) async {
+    guard config.warn.ingestEnabled else { return }
+    let source = DWDWarnFeedSource(get: warnHTTPGet(client: client, userAgent: config.userAgent))
+    let ingestor = WarnIngestor(repo: repo, source: source, owner: owner, stats: stats)
+    let service = WarnService(config: config, repo: repo, stats: stats)
+    while !Task.isCancelled {
+        do {
+            let result = try await ingestor.tick()
+            if !result.newOrChanged.isEmpty {
+                let queued = try await service.trigger(result.newOrChanged)
+                if queued > 0 { logger.info("warnings: queued \(queued) push notification(s)") }
+            }
+            if result.failed { logger.warning("warnings: feed tick failed") }
+        } catch is CancellationError {
+            break
+        } catch {
+            stats.record("warn_push", label: "trigger_error")
+            logger.warning("warnings tick failed (\(type(of: error)))")
+        }
+        try? await Task.sleep(nanoseconds: 60_000_000_000)
+    }
+    await ingestor.release()
+}
+
 /// Statistics for every finished request (route group and status class only; the path is classified, never stored).
 struct StatsMiddleware: AsyncMiddleware {
     let stats: StatsCollector
@@ -369,6 +411,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     let statsTask = Task { await stats.run() }
     let configTask = Task { await configStore.run() }
     var pushTask: Task<Void, Never>?
+    var warnTask: Task<Void, Never>?
     var loop: Task<Void, Never>?
     var backfill: Task<Void, Never>?
     var layerLoops: [Task<Void, Never>] = []
@@ -380,6 +423,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         loop = Task { await runIngestLoop(config: config, provider: provider, stats: stats, repo: repo, heartbeat: heartbeat, activity: activity, logger: logger) }
         backfill = Task { await runBackfillLoop(config: config, provider: provider, repo: repo, activity: activity, logger: logger) }
         pushTask = Task { await runPushLoop(config: config, stats: stats, repo: repo, sender: sender, owner: selfID, logger: logger) }
+        warnTask = Task { await runWarnLoop(config: config, stats: stats, repo: repo, client: apnsClient, owner: selfID, logger: logger) }
         layerLoops = config.layers.compactMap { id in
             LayerCatalog.specs[id].map { spec in Task { await runLayerLoop(spec: spec, config: config, provider: provider, stats: stats, repo: repo, logger: logger) } }
         }
@@ -408,7 +452,7 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
         else { logger.warning("restart coordinator not started (database)") }
     }
     let setupHint = dashAuth.map { auth in Task { await runSetupHintLoop(auth: auth, warning: proxyGuard.flatMap { $0.isEnabled ? nil : DashboardProxyGuard.disabledWarning }, logger: logger) } }
-    tasks = [loop, backfill, pushTask, restartTask, setupHint, cacheClearTask, refreshTask, cacheFillTask].compactMap { $0 } + layerLoops
+    tasks = [loop, backfill, pushTask, warnTask, restartTask, setupHint, cacheClearTask, refreshTask, cacheFillTask].compactMap { $0 } + layerLoops
 
     func stopAll() async {
         tasks.forEach { $0.cancel() }

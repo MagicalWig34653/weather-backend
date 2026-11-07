@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>2.49.0.0.276.0.DWD.PVW.1794051060000.2eb36251-d1b5-4a6e-a21a-6afa6ab7e31d.DEU</identifier>
+  <sender>opendata@dwd.de</sender>
+  <sent>2026-11-07T12:31:00+01:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <source>PVW</source>
+  <scope>Public</scope>
+  <code>id:2.49.0.0.276.0.DWD.PVW.1794051060000.2eb36251-d1b5-4a6e-a21a-6afa6ab7e31d</code>
+  <info>
+    <language>de-DE</language>
+    <category>Met</category>
+    <event>FROST</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Minor</severity>
+    <certainty>Likely</certainty>
+    <eventCode>
+      <valueName>PROFILE_VERSION</valueName>
+      <value>2.1.14</value>
+    </eventCode>
+    <eventCode>
+      <valueName>LICENSE</valueName>
+      <value>© GeoBasis-DE / BKG 2021 (Daten modifiziert)</value>
+    </eventCode>
+    <eventCode>
+      <valueName>II</valueName>
+      <value>22</value>
+    </eventCode>
+    <eventCode>
+      <valueName>GROUP</valueName>
+      <value>FROST</value>
+    </eventCode>
+    <eventCode>
+      <valueName>AREA_COLOR</valueName>
+      <value>255 235 59</value>
+    </eventCode>
+    <effective>2026-11-07T12:31:00+01:00</effective>
+    <onset>2026-11-07T22:00:00+01:00</onset>
+    <expires>2026-11-08T09:00:00+01:00</expires>
+    <senderName>Deutscher Wetterdienst</senderName>
+    <headline>Amtliche WARNUNG vor FROST</headline>
+    <description>Es tritt leichter Frost zwischen -1 °C und -5 °C auf.</description>
+    <instruction>Hinweis auf: mögliche Frostschäden. 
+Handlungsempfehlungen: 
+ggf. Frostschutzmaßnahmen ergreifen</instruction>
+    <web>https://dwd.de/warnungen</web>
+    <contact>Deutscher Wetterdienst</contact>
+    <parameter>
+      <valueName>minimum temperature</valueName>
+      <value>-1 - -5 [°C]</value>
+    </parameter>
+    <area>
+      <areaDesc>Kreis Vorpommern-Rügen - Binnenland</areaDesc>
+      
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>913073001</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Kreis Vorpommern-Rügen - Küste</areaDesc>
+      
+      
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>913073002</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Kreis Uckermark</areaDesc>
+      
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>112073000</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+  </info>
+</alert>

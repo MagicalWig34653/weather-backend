@@ -103,8 +103,10 @@ struct WarnFeedSourceTests {
 
     @Test func urlsAreFixedAndOnlyDeEn() throws {
         #expect(try DWDWarnFeedSource.url(feed: .diff, lang: "de")
+                == "https://opendata.dwd.de/weather/alerts/cap/DISTRICT_DWD_DIFF/Z_CAP_C_EDZW_LATEST_PVW_DIFFERENCE_PREMIUMDWD_DISTRICT_DE.zip")
+        #expect(try DWDWarnFeedSource.url(feed: .stat, lang: "en").hasSuffix("DISTRICT_DWD_STAT/Z_CAP_C_EDZW_LATEST_PVW_STATUS_PREMIUMDWD_DISTRICT_EN.zip"))
+        #expect(try DWDWarnFeedSource.url(level: .communeUnion, feed: .diff, lang: "de")
                 == "https://opendata.dwd.de/weather/alerts/cap/COMMUNEUNION_DWD_DIFF/Z_CAP_C_EDZW_LATEST_PVW_DIFFERENCE_PREMIUMDWD_COMMUNEUNION_DE.zip")
-        #expect(try DWDWarnFeedSource.url(feed: .stat, lang: "en").hasSuffix("STATUS_PREMIUMDWD_COMMUNEUNION_EN.zip"))
         #expect(throws: WarnFeedError.self) { try DWDWarnFeedSource.url(feed: .stat, lang: "fr") }
     }
 

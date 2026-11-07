@@ -206,7 +206,11 @@ public final class PushApi: Sendable {
                 parts = ["installations", owner, "subscriptions", sub, "activity"]
             } catch { return Self.error(503, "unavailable") }
         }
-        guard parts.count >= 2, parts[0] == "installations", parts.count <= 5, (parts.count != 5 || parts[2] == "subscriptions" && parts[4] == "activity"), parts.count != 3 || ["subscriptions", "test", "link-code", "link"].contains(parts[2]) else { return nil }
+        guard parts.count >= 2, parts[0] == "installations", parts.count <= 5, (parts.count != 5 || parts[2] == "subscriptions" && parts[4] == "activity"), parts.count != 3 || ["subscriptions", "test", "link-code", "link", "warn-subscriptions"].contains(parts[2]) else { return nil }
+        let isWarnRoute = parts.count >= 3 && parts[2] == "warn-subscriptions"
+        // Warning subscriptions exist only with both switches; otherwise the routes answer 404 like unknown paths.
+        if isWarnRoute, !(config.warn.pushEnabled && config.warn.ingestEnabled) { return nil }
+        if isWarnRoute, parts.count > 4 { return nil }
         let isLinkRoute = parts.count == 3 && (parts[2] == "link-code" || parts[2] == "link")
         // Device link routes answer 404 like disabled push when the switch is off.
         if isLinkRoute, !config.deviceLink.enabled { return nil }
@@ -225,6 +229,21 @@ public final class PushApi: Sendable {
                     try await self.repo.deleteInstallation(id: installID)
                     return Self.json(204)
                 }
+                default: return Self.error(405, "method_not_allowed")
+                }
+            }
+            if isWarnRoute {
+                if parts.count == 3 {
+                    switch method {
+                    case "GET": return try await authenticated(installID, secret, now) { _ in try await WarnApi.list(repo: self.repo, installID: installID) }
+                    case "POST": return try await authenticated(installID, secret, now) { _ in try await WarnApi.create(repo: self.repo, installID: installID, body: body, now: now) }
+                    default: return Self.error(405, "method_not_allowed")
+                    }
+                }
+                guard let warnSub = Self.canonicalUUID(parts[3]) else { return Self.error(400, "invalid_id") }
+                switch method {
+                case "PUT": return try await authenticated(installID, secret, now) { _ in try await WarnApi.replace(repo: self.repo, installID: installID, subID: warnSub, body: body) }
+                case "DELETE": return try await authenticated(installID, secret, now) { _ in try await WarnApi.delete(repo: self.repo, installID: installID, subID: warnSub) }
                 default: return Self.error(405, "method_not_allowed")
                 }
             }

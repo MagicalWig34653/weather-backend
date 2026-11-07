@@ -3,6 +3,14 @@ import ZIPFoundation
 
 public enum WarnFeed: Sendable { case diff, stat }
 
+/// Feed granularity. `district` (default, decision 7 Nov 2026: licence reasons, `DISTRICT_*`): 9-digit district warning cells
+/// (type 1 `1<AGS5>000`, type 10 prefix 9 for split coastal/island districts). `communeUnion` (municipalities) stays available
+/// as a later extension; the parser accepts every 9-digit cell id of either feed.
+public enum WarnFeedLevel: Sendable {
+    case district, communeUnion
+    var directory: String { self == .district ? "DISTRICT" : "COMMUNEUNION" }
+}
+
 public enum WarnFeedResponse: Sendable, Equatable {
     case notModified
     case xmlFiles([Data], etag: String?)
@@ -25,7 +33,7 @@ public struct WarnHTTPResponse: Sendable {
 }
 public typealias WarnHTTPGet = @Sendable (_ url: String, _ ifNoneMatch: String?, _ maxBytes: Int) async throws -> WarnHTTPResponse
 
-/// DWD opendata CAP feed (municipality union, DWD premium product): `..._LATEST_...zip` of the DIFF (changes of the last minutes)
+/// DWD opendata CAP feed (districts by default, municipality union optional; DWD premium product): `..._LATEST_...zip` of the DIFF (changes of the last minutes)
 /// and STAT (full status) directories, German and English only. Reading is gentle: conditional requests, hard size limits.
 public struct DWDWarnFeedSource: WarnFeedSource {
     public static let maxZipBytes = 2 * 1024 * 1024
@@ -35,16 +43,19 @@ public struct DWDWarnFeedSource: WarnFeedSource {
 
     let get: WarnHTTPGet
     let base: String
-    public init(base: String = DWDWarnFeedSource.baseURL, get: @escaping WarnHTTPGet) { self.base = base; self.get = get }
+    let level: WarnFeedLevel
+    public init(base: String = DWDWarnFeedSource.baseURL, level: WarnFeedLevel = .district, get: @escaping WarnHTTPGet) {
+        self.base = base; self.level = level; self.get = get
+    }
 
-    public static func url(base: String = baseURL, feed: WarnFeed, lang: String) throws -> String {
+    public static func url(base: String = baseURL, level: WarnFeedLevel = .district, feed: WarnFeed, lang: String) throws -> String {
         guard lang == "de" || lang == "en" else { throw WarnFeedError("unsupported language") }
         let (dir, kind) = feed == .diff ? ("DIFF", "DIFFERENCE") : ("STAT", "STATUS")
-        return "\(base)/COMMUNEUNION_DWD_\(dir)/Z_CAP_C_EDZW_LATEST_PVW_\(kind)_PREMIUMDWD_COMMUNEUNION_\(lang.uppercased()).zip"
+        return "\(base)/\(level.directory)_DWD_\(dir)/Z_CAP_C_EDZW_LATEST_PVW_\(kind)_PREMIUMDWD_\(level.directory)_\(lang.uppercased()).zip"
     }
 
     public func fetch(feed: WarnFeed, lang: String, ifNoneMatch: String?) async throws -> WarnFeedResponse {
-        let response = try await get(try Self.url(base: base, feed: feed, lang: lang), ifNoneMatch, Self.maxZipBytes)
+        let response = try await get(try Self.url(base: base, level: level, feed: feed, lang: lang), ifNoneMatch, Self.maxZipBytes)
         if response.status == 304 { return .notModified }
         guard response.status == 200 else { throw WarnFeedError("unexpected status \(response.status)") }
         return .xmlFiles(try Self.xmlFiles(inZip: response.body), etag: response.etag)

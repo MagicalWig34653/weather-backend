@@ -79,6 +79,17 @@ public struct PushSettings: Sendable {
     public init() {}
 }
 
+/// Official weather warnings (DWD CAP). Both switches are off by default and read from the environment only.
+/// `ingestEnabled` (`WARN_INGEST_ENABLED`): leader loads the feed, `/v1/warnings/active` answers, capability `warnings`.
+/// `pushEnabled` (`WARN_PUSH_ENABLED`): warning subscriptions and warning pushes; capability `warnings_push` needs push and ingest as well.
+public struct WarnSettings: Sendable, Equatable {
+    public var ingestEnabled = false
+    public var pushEnabled = false
+    public init() {}
+    /// Capability `warnings_push`: all three switches.
+    public func pushCapability(pushEnabled serverPush: Bool) -> Bool { serverPush && ingestEnabled && pushEnabled }
+}
+
 public struct ConfigError: Error, CustomStringConvertible {
     public let description: String
 }
@@ -125,6 +136,7 @@ public struct Config: Sendable {
     public var layerPauseSeconds = 2.0
     public var push = PushSettings()
     public var deviceLink = DeviceLinkSettings()
+    public var warn = WarnSettings()
     /// Commit the image was built from (`BUILD_REVISION`, hex, at most 40 characters); shown by `/v1/status` only.
     public var buildRevision: String?
 
@@ -235,6 +247,8 @@ public struct Config: Sendable {
         c.push.regionLimits.maxRegionsPerInstallation = try ranged("PUSH_MAX_REGIONS_PER_INSTALLATION", c.push.regionLimits.maxRegionsPerInstallation, 1...10)
         c.push.regionLimits.maxCellsPerInstallation = try ranged("PUSH_MAX_CELLS_PER_INSTALLATION", c.push.regionLimits.maxCellsPerInstallation, 500...50000)
         if c.push.enabled { c.push.keyPEM = try secret(env, "APNS_KEY", "") }
+        c.warn.ingestEnabled = (env["WARN_INGEST_ENABLED"] ?? "").lowercased() == "true"
+        c.warn.pushEnabled = (env["WARN_PUSH_ENABLED"] ?? "").lowercased() == "true"
         let linkSwitch = (env["DEVICE_LINK_ENABLED"] ?? "").lowercased()
         c.deviceLink.enabled = linkSwitch == "true"
         c.deviceLink.explicitlyDisabled = linkSwitch == "false"

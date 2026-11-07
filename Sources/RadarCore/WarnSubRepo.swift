@@ -49,9 +49,9 @@ public enum WarnLimits {
 }
 
 public enum WarnCellCatalog {
-    /// The id check is only active once `warn_cell_known` holds at least this many ids (the DWD list has about 11 800 municipalities).
+    /// The id check is only active once `warn_cell_known` holds at least this many ids (the DWD district list has 402 cells; municipalities would be about 11 800).
     /// An empty or partly filled table accepts every well-formed id, so a missing seed never blocks subscriptions.
-    public static let minimumSeed = 10_000
+    public static let minimumSeed = 300
 }
 
 /// One warning send decided by the service: the sent-state to store and the outbox entry.

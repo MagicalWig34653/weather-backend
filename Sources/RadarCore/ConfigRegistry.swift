@@ -254,6 +254,9 @@ public enum ConfigRegistry {
         s("DASH_WARN_LA_START_RATIO_YELLOW", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.7", "Anteil zugestellter Live-Activity-Starts, untere Grenze gelb.", .live),
         s("DASH_WARN_LA_START_RATIO_RED", "Dashboard-Schwellen", .number(min: 0, max: 1), "0.3", "Anteil zugestellter Live-Activity-Starts, untere Grenze rot.", .live),
         s("DASH_MIN_GROUP", "Dashboard-Schwellen", .int(min: 3, max: 50), "5", "k-Unterdrückung: Gruppen darunter erscheinen als „<k“.", .live),
+        // Official warnings (read from the environment only; shown read-only)
+        s("WARN_INGEST_ENABLED", "Warnungen", .bool, "false", "DWD-Warnungen abrufen und über /v1/warnings/active ausliefern (Fähigkeit warnings).", .envOnly),
+        s("WARN_PUSH_ENABLED", "Warnungen", .bool, "false", "Warn-Abos und Warn-Pushes zulassen (braucht PUSH_ENABLED und WARN_INGEST_ENABLED; Fähigkeit warnings_push). Erst nach Freigabe einschalten.", .envOnly),
         // Device link (read from the environment only; shown read-only)
         s("DEVICE_LINK_ENABLED", "Geräte-Kopplung", .bool, "false", "Geräte-Kopplung einschalten (braucht Push und Dashboard): Geräte koppeln sich nur in einem vom Betreiber im Dashboard geöffneten Kopplungsfenster.", .envOnly),
         s("DEVICE_LINK_BUNDLE_ID", "Geräte-Kopplung", .text(maxLength: 155, rule: .bundleIdentifier), "", "Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.", .envOnly),

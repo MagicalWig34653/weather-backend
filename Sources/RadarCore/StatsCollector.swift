@@ -148,10 +148,16 @@ public final class StatsCollector: StatsSink, @unchecked Sendable {
             "ingest_lag": .layerBucket(StatsBuckets.ingestLag),
             "ingest_dur": .layerBucket(StatsBuckets.ingestDuration),
             "cache_evict": .fixed(["radar", "layer"]),
+            "warn_ingest": .fixed(Set(warnIngestLabels)),
+            "warn_push": .fixed(Set(warnPushLabels)),
             "stats_dropped": .fixed([""]),
             "stats_flush_error": .fixed(["day", "hour"]),
         ]) { push, _ in push }
     }
+
+    /// Fixed labels of the warning counters (no area, subscription or alert identifiers ever reach a label).
+    public static let warnIngestLabels = ["stored", "cancelled", "ignored", "rejected", "fetch_error", "store_error"]
+    public static let warnPushLabels = ["sent", "payload_too_large", "trigger_error"] + WarnSuppression.allCases.map { "suppressed_" + $0.rawValue }
 
     private struct Key: Hashable { let metric: String; let label: String }
 

@@ -198,6 +198,14 @@ public final class Api: Sendable {
                                                   ("X-Content-Type-Options", "nosniff")], body: body)
     }
 
+    /// Capability list of `/v1/status`: `warnings` with the ingest switch alone, `warnings_push` with push, ingest and warning push.
+    func capabilities() -> [String] {
+        var list = config.push.enabled ? ["regions", "live_activity", "live_activity_regions"] + (config.deviceLink.enabled ? ["device_link"] : []) : []
+        if config.warn.ingestEnabled { list.append("warnings") }
+        if config.warn.pushCapability(pushEnabled: config.push.enabled) { list.append("warnings_push") }
+        return list
+    }
+
     private func buildStatus() async throws -> [UInt8] {
         func iso(_ d: Date) -> String { TimeUtil.toISO(d) }
         var layers: [[String: Any]] = []
@@ -215,7 +223,7 @@ public final class Api: Sendable {
             layers.append(entry)
         }
         var doc: [String: Any] = ["schema": 1, "revision": config.buildRevision ?? NSNull(), "push": config.push.enabled,
-                                  "capabilities": config.push.enabled ? ["regions", "live_activity", "live_activity_regions"] + (config.deviceLink.enabled ? ["device_link"] : []) : [], "now": iso(clock()), "layers": layers]
+                                  "capabilities": capabilities(), "now": iso(clock()), "layers": layers]
         // Pairing window (decision 6.11.2026): read fresh from the shared state with every rebuild (memo of 5 s at most).
         if config.push.enabled, config.deviceLink.enabled, let end = try? await repo.pairingWindowEnd(now: clock()) {
             doc["device_link_window"] = ["ends_at": iso(end)]
@@ -223,7 +231,7 @@ public final class Api: Sendable {
         return Array(try JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys]))
     }
 
-    public func handle(path rawPath: String, ifNoneMatch: String?) async throws -> ApiResponse {
+    public func handle(path rawPath: String, ifNoneMatch: String?, acceptLanguage: String? = nil) async throws -> ApiResponse {
         let path = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? rawPath
         if path == "/healthz" {
             return alive()
@@ -231,6 +239,10 @@ public final class Api: Sendable {
                 : ApiResponse(status: 503, headers: [], body: Array("stale\n".utf8))
         }
         if path == "/v1/status" { return try await status() }
+        if path == "/v1/warnings/active" {
+            guard config.warn.ingestEnabled else { return WarnApi.error(404, "not_found") }
+            return try await WarnApi.active(repo: repo, now: clock(), acceptLanguage: acceptLanguage)
+        }
         if let page = LandingPage.route(path: path, info: config.site) {
             return respond(headers: page.headers, body: page.body, ifNoneMatch: ifNoneMatch, etag: page.etag)
         }

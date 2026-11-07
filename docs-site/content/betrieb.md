@@ -75,6 +75,10 @@ docker config rm radar_deployment-lock
 
 Die Migrationen sind additiv und über den Advisory-Lock `showernow_migrate` gegen parallele Läufe geschützt.
 
+## Amtliche Warnungen aktivieren
+
+Beide Schalter sind standardmäßig aus (nur Umgebung, im Dashboard schreibgeschützt). Reihenfolge: (1) Image mit den Migrationen 016 und 017 ausrollen (Migrationsjob, Replikate migrieren nicht selbst); (2) optional die Kreisliste einmalig laden: `tools/seed_warncells.sh < ids.txt | mariadb <db>` (402 Kreis-Warnzellen; ohne Seed akzeptiert der Server jede wohlgeformte ID); (3) `WARN_INGEST_ENABLED=true`: der Leader `warn` lädt alle 60 s den DWD-Feed `DISTRICT_DWD_DIFF` bzw. alle 15 min `_STAT` (ETag, nur DE/EN), `/v1/warnings/active` antwortet, Fähigkeit `warnings`; (4) zuletzt `WARN_PUSH_ENABLED=true` (braucht `PUSH_ENABLED=true`): Warn-Abos und Warn-Pushes, Fähigkeit `warnings_push`. Push erst nach Antwort des DWD auf die Rückfrage und Freigabe des Datenschutztexts. Zurück: Schalter entfernen, die Daten bleiben bis zur Bereinigung (24 h Nachlauf) liegen.
+
 ## Stellschrauben
 
 - **Replikate:** `RADAR_REPLICAS` (Standard 2). Zwei genügen für unterbrechungsfreie Rolling Updates; die Last ist klein. Änderung in der `.env`, dann `deploy/swarm/update.sh --force` oder `docker service scale radar_radar=<n>` (Letzteres überschreibt die `.env` nicht).

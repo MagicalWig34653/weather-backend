@@ -10,7 +10,7 @@ func registerPublicRoutes(_ app: Application, api: Api) {
             return vaporResponse(await api.handlePush(method: "GET", path: path, secret: req.headers.first(name: "X-Installation-Secret"), body: []))
         }
         do {
-            return vaporResponse(try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch)))
+            return vaporResponse(try await api.handle(path: path, ifNoneMatch: req.headers.first(name: .ifNoneMatch), acceptLanguage: req.headers.first(name: .acceptLanguage)))
         } catch {
             return Response(status: .serviceUnavailable, headers: ["Cache-Control": "no-store"])
         }
