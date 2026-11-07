@@ -12,6 +12,7 @@ public actor MemoryRepo: Repo {
         var backfilled = false
     }
     var push = MemoryPushStore()
+    var warn = MemoryWarnStore()
     var dashboard = MemoryDashboardStore()
     var deviceStore = MemoryDeviceStore()
     var commandStore = MemoryCommandStore()
