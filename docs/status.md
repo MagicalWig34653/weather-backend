@@ -2,6 +2,10 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 7. November 2026: Warnungen, Vertrag W0 (nur Dokumentation)
+
+Vertrag für amtliche DWD-Warnungen (Unwetter, Frost, Glätte) in `docs-site/content/api.md` ("Amtliche Warnungen") mit Fixtures `docs/fixtures/warnings/` (echte Frost-Meldung vom 7.11. gekürzt, `active.200.json`, Abo-Request). Kein Code, keine Migration, nichts deployt; Capabilities `warnings`/`warnings_push` und Flags `WARN_INGEST_ENABLED`/`WARN_PUSH_ENABLED` sind noch nicht implementiert. Plan und Pakete W1/W2: App-Repo `docs/superpowers/plans/2026-11-07-warnungen-plan.md`. Push bleibt aus, bis der DWD auf die Rückfrage (CAP@dwd.de, Nutzeraufgabe) geantwortet hat und der Datenschutztext freigegeben ist. Nicht geprüft: Build/Tests (nur Docs geändert).
+
 ## Stand 7. November 2026: Live Activities für Gebiete (Backend, Vertrag, Dashboard)
 
 Beschluss und genaue Semantik (Platzkonflikt Ort/Gebiet): [decisions.md](decisions.md#live-activities-für-umkreis-abos-7-november-2026). Branch `regionla-work` (Worktree `weather-regionla`), Aufgabe Todolino 5DDEFC8A.

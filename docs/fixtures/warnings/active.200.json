@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "source": "dwd",
+  "fetched_at": "2026-11-07T11:34:05Z",
+  "warnings": [
+    {
+      "id": "2.49.0.0.276.0.DWD.PVW.1794051060000.2509064c-9ae8-40a2-8059-834d43d182b6.DEU",
+      "kind": "frost",
+      "severity": 1,
+      "event": "FROST",
+      "sent": "2026-11-07T11:31:00Z",
+      "onset": "2026-11-07T21:00:00Z",
+      "expires": "2026-11-08T08:00:00Z",
+      "headline": "Amtliche WARNUNG vor FROST",
+      "text": "Es tritt leichter Frost zwischen -1 °C und -5 °C auf.",
+      "instruction": "Hinweis auf: mögliche Frostschäden.\nHandlungsempfehlungen:\nggf. Frostschutzmaßnahmen ergreifen",
+      "lang": "de",
+      "warncell_ids": ["814522510", "814522500"]
+    }
+  ]
+}

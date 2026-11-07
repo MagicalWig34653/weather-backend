@@ -236,6 +236,41 @@ Capability: `GET /v1/status` listet bei aktivem Schalter zusätzlich `device_lin
 
 **Kopplungsfenster in `GET /v1/status`.** Zusätzliches Top-Level-Feld `device_link_window`: fehlt oder `null`, wenn kein Fenster offen ist (oder die Funktion aus ist); sonst `{"ends_at":"<ISO8601 UTC>"}` (Beispiel: `docs/fixtures/app/status.device_link_window.json`). Die Statusantwort wird höchstens 5 Sekunden zwischengespeichert, ein Fenster erscheint oder verschwindet also mit bis zu 5 Sekunden Verzug; die App fragt `link-code` ohnehin erst auf Nutzeraktion und bekommt sonst `403 pairing_closed`. Die App zeigt die Kopplung nur an, solange `capabilities` `device_link` enthält und ein Fenster offen ist (oder bereits ein Code offen bzw. ein Gerät gekoppelt ist, damit sie Widerruf anbieten kann).
 
+## Amtliche Warnungen `/v1/warnings/…` und Warn-Abos (7. November 2026, Vertrag W0, noch nicht implementiert)
+
+Quelle: DWD-Opendata-CAP (`COMMUNEUNION_DWD_DIFF`/`_STAT`, Gemeindebasis, Profil 2.1.14); Text, Stufe und Zeiten unverändert vom DWD, kein Ersatz für amtliche Warnkanäle (WarnWetter-App, NINA). Alle Fixtures unter `docs/fixtures/warnings/`. Flags (Standard aus): `WARN_INGEST_ENABLED`, `WARN_PUSH_ENABLED`.
+
+**Fähigkeiten in `GET /v1/status`:** `"warnings"` genau dann, wenn `WARN_INGEST_ENABLED=true` (unabhängig von `PUSH_ENABLED`; bei ausgeschaltetem Push bleibt der Rest der Liste leer). `"warnings_push"` genau dann, wenn `PUSH_ENABLED=true`, `WARN_INGEST_ENABLED=true` und `WARN_PUSH_ENABLED=true`. Die App bietet Anzeige nur mit `warnings`, Push-Einstellungen nur mit `warnings_push` an; ältere Backends kennen beides nicht.
+
+**Typen (`kind`):** `severe_weather` (Gewitter, Sturm/Orkan, Stark-/Dauerregen, Schneefall/Schneeverwehung, Tauwetter), `frost` (Frost, Strenger Frost), `ice` (Glätte, Glatteis). Hitze, UV und Nebel werden nicht gespeichert (Nutzerentscheidung 7.11.2026). **Stufe (`severity`) 1 bis 4:** CAP `Minor`=1, `Moderate`=2, `Severe`=3, `Extreme`=4 (am 7.11.2026 für `FROST`/`Minor`=Stufe 1 an einer echten Meldung bestätigt; 2 bis 4 anhand Profil, nicht an echten Meldungen geprüft). Zeiten ISO 8601 UTC (`...Z`). Die Zuordnung Ereigniscode (`eventCode II`) zu `kind` liegt in der Server-Tabelle `WarnEventMap` (W1); unbekannte Ereignisse werden gezählt, nicht gespeichert.
+
+### `GET /v1/warnings/active`
+
+Ohne Authentifizierung, ohne Ortsangabe, bundesweit alle aktiven (nicht abgelaufenen, nicht aufgehobenen) Warnungen der drei Typen. Nur mit `WARN_INGEST_ENABLED=true`, sonst `404 {"error":"not_found"}`. Antwort `200`, `Cache-Control: public, max-age=30`, Sprache per `Accept-Language` (`en` liefert Englisch, sonst Deutsch; fehlt der englische Text, steht der deutsche mit `"lang":"de"`).
+
+JSON: `schema` (1), `source` (`"dwd"`), `fetched_at` (letzter erfolgreicher Feed-Abgleich, UTC), `warnings[]` mit `id` (CAP-`identifier`), `kind`, `severity` (1 bis 4), `event` (CAP-`event`, unverändert), `sent`, `onset`, `expires`, `headline`, `text` (CAP `description`), `instruction` (kann leer sein), `lang` (`de`|`en`), `warncell_ids` (Liste von je 9 Ziffern). Beispiel: `docs/fixtures/warnings/active.200.json`. Das Gerät filtert lokal nach seinen Warngebieten; es verlässt dadurch keine Gebietskennung das Gerät. Ohne Daten (z. B. noch kein Abgleich): `503 {"error":"warnings_unavailable"}`.
+
+### Warn-Abos (nur mit `PUSH_ENABLED` und `WARN_PUSH_ENABLED`, sonst `404`)
+
+Authentifizierung wie die Push-Routen (`X-Installation-Secret`, einheitlich `401`). Pfade:
+
+| Methode und Pfad | Antwort |
+|---|---|
+| `GET /v1/push/installations/<uuid>/warn-subscriptions` | `200` Liste (`id`, `warncell_ids`, `types`, `min_severity`, `enabled`, `time_sensitive`) |
+| `POST /v1/push/installations/<uuid>/warn-subscriptions` | `201` `{"id":"<uuid>"}` |
+| `PUT /v1/push/installations/<uuid>/warn-subscriptions/<sub>` | `204`, ersetzt alle Felder; `404` falls fremd/unbekannt |
+| `DELETE /v1/push/installations/<uuid>/warn-subscriptions/<sub>` | `204` / `404` |
+
+Body (Beispiel `warn-subscription.request.json`): `warncell_ids` (1 bis 64 Strings, je genau 9 Ziffern, ohne Duplikate), `types` (nicht leere Teilmenge von `severe_weather`, `frost`, `ice`), `min_severity` (Objekt `kind -> 1..4`; fehlt ein aktivierter Typ, gelten die Standardwerte `severe_weather` 3, `frost` 1, `ice` 2), optional `enabled` (Standard `true`), optional `time_sensitive` (Boolean, Standard `false`; nur Bedeutung für die App-Einstellung "Zeitkritisch", der Server setzt `interruption-level: time-sensitive` bei Stufe 4 immer, sonst nur bei `true`). Falsche Typen oder Formate: `400 invalid_warn_subscription`. Grenzen: höchstens 10 Warn-Abos und 128 Warngebiete je Installation, sonst `409 warn_limit`; Warngebiet-ID nicht in der DWD-Gemeindeliste: `409 warncell_unknown`. Body höchstens 4 KB (`413 too_large`), Ratenlimits wie die Push-Routen (`429`). Warn-Abos zählen nicht zum 10er-Limit der Regen-Abos und erscheinen nicht in `GET .../subscriptions`. Gespeichert werden nur Warngebiets-IDs, keine Koordinaten, keine Namen.
+
+### Push-Payload (APNs)
+
+`aps.alert.title` = DWD-`headline`, `aps.alert.body` = DWD-`description` (auf höchstens 900 UTF-8-Bytes gekürzt, an Zeichengrenze, mit "…"; Gesamtpayload unter 1 900 Bytes) plus Zeilenumbruch und `Quelle: DWD`, `aps.sound` `default`, `aps.thread-id` = Abo-ID, `aps.mutable-content` `1`, `aps.interruption-level` `time-sensitive` nur bei Stufe 4 oder `time_sensitive: true`, sonst fehlt das Feld. Top-Level: `type` `"warning"`, `kind`, `severity`, `sent` (ISO UTC), `warning_id`. Kein Ortsname, keine Koordinate. `collapse_id` `<sub>:<kind>` (höchstens 64 Bytes). Auslieferung über die bestehende Outbox (`apns-expiration` = min(`expires`, jetzt + 6 h)).
+
+### Auslöseregeln (Verhalten, Tests in W2)
+
+Push nur für Meldungen mit `sent` höchstens 20 Minuten alt und `expires` in der Zukunft. Neue Meldung (`msgType` Alert): Push, wenn Typ aktiv und Stufe größer oder gleich Mindeststufe und Schnittmenge der Warngebiete nicht leer. Update: Push nur bei höherer Stufe, anderem Typ oder um mehr als eine Stunde früherem Beginn gegenüber der Kette; sonst nur in der App-Liste. Cancel/Ablauf: nie Push (Entwarnung nur in der App). Wiederholsperre 60 Minuten je (Abo, Typ), eine höhere Stufe durchbricht sie. Dedupe `sha256(sub_id|identifier)` (64 Hex-Zeichen).
+
 ## Lauf- und Slot-ID
 
 Format `YYYYMMDDTHHMMZ` in UTC, z. B. `20261030T1105Z`. `<run>` ist die Nominalzeit des Laufs, `<slot>` die Zeit des Slots; der Slot mit der Zeit des Laufs ist die Analyse (`kind: analysis`), spätere Slots sind Vorhersagen (`forecast`) bis +120 min im 5-Minuten-Raster.

@@ -1,0 +1,1 @@
+{"warncell_ids":["814522510"],"types":["severe_weather","frost","ice"],"min_severity":{"severe_weather":3,"frost":1,"ice":2},"enabled":true,"time_sensitive":false}
