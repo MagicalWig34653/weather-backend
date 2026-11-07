@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>2.49.0.0.276.0.DWD.PVW.1794051060000.2509064c-9ae8-40a2-8059-834d43d182b6.DEU</identifier>
+  <sender>opendata@dwd.de</sender>
+  <sent>2026-11-07T12:31:00+01:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <source>PVW</source>
+  <scope>Public</scope>
+  <code>id:2.49.0.0.276.0.DWD.PVW.1794051060000.2509064c-9ae8-40a2-8059-834d43d182b6</code>
+  <info>
+    <language>de-DE</language>
+    <category>Met</category>
+    <event>FROST</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Minor</severity>
+    <certainty>Likely</certainty>
+    <eventCode><valueName>PROFILE_VERSION</valueName><value>2.1.14</value></eventCode>
+    <eventCode><valueName>LICENSE</valueName><value>© GeoBasis-DE / BKG 2021 (Daten modifiziert)</value></eventCode>
+    <eventCode><valueName>II</valueName><value>22</value></eventCode>
+    <eventCode><valueName>GROUP</valueName><value>FROST</value></eventCode>
+    <eventCode><valueName>AREA_COLOR</valueName><value>255 235 59</value></eventCode>
+    <effective>2026-11-07T12:31:00+01:00</effective>
+    <onset>2026-11-07T22:00:00+01:00</onset>
+    <expires>2026-11-08T09:00:00+01:00</expires>
+    <senderName>Deutscher Wetterdienst</senderName>
+    <headline>Amtliche WARNUNG vor FROST</headline>
+    <description>Es tritt leichter Frost zwischen -1 °C und -5 °C auf.</description>
+    <instruction>Hinweis auf: mögliche Frostschäden. 
+Handlungsempfehlungen: 
+ggf. Frostschutzmaßnahmen ergreifen</instruction>
+    <web>https://dwd.de/warnungen</web>
+    <contact>Deutscher Wetterdienst</contact>
+    <parameter><valueName>minimum temperature</valueName><value>-1 - -5 [°C]</value></parameter>
+    <area>
+      <areaDesc>polygonal event area</areaDesc>
+      <polygon>54.364817,13.122856 54.351442,13.155675 54.3531,13.169506 54.364817,13.122856</polygon>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Stadt Roßwein</areaDesc>
+      <geocode><valueName>WARNCELLID</valueName><value>814522510</value></geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Gemeinde Rossau</areaDesc>
+      <geocode><valueName>WARNCELLID</valueName><value>814522500</value></geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+  </info>
+</alert>

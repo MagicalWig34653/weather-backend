@@ -16,6 +16,8 @@ let package = Package(
         // X.509 chain validation for the StoreKit AppTransaction JWS (device link, D14); already part of the resolved graph.
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-asn1.git", from: "1.0.0"),
+        // ZIP reading for the DWD CAP warning feed (warnings W1.2); needs zlib at run time.
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
     ],
     targets: [
         // libwebp (lossless encoder) from the system: libwebp-dev at build time, libwebp7 at run time.
@@ -33,6 +35,7 @@ let package = Package(
                 .product(name: "MySQLKit", package: "mysql-kit"),
                 .product(name: "WebAuthn", package: "swift-webauthn"),
                 .product(name: "X509", package: "swift-certificates"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
         ),
         .executableTarget(
@@ -49,6 +52,7 @@ let package = Package(
                 "RadarCore", "radar", .product(name: "PNG", package: "swift-png"),
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "X509", package: "swift-certificates"), .product(name: "SwiftASN1", package: "swift-asn1"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             exclude: ["Fixtures"]
         ),
