@@ -271,7 +271,8 @@ struct PushActivityRepositoryTests {
         let repo = try await F.prepared(live: false)
         #expect(try await repo.setActivityToken(subscriptionID: F.subscription, token: F.activity, now: run0) == .notEligible)
         #expect(try await !repo.reserveActivity(subscriptionID: F.subscription, now: run0))
-        #expect(try await repo.updateSubscription(installationID: F.installation, id: F.subscription, F.input(kind: .circle)))
+        // Circles are eligible as soon as they opt in (decision 7 Nov 2026); without the opt-in they are not.
+        #expect(try await repo.updateSubscription(installationID: F.installation, id: F.subscription, F.input(live: false, kind: .circle)))
         #expect(try await repo.setActivityToken(subscriptionID: F.subscription, token: F.activity, now: run0) == .notEligible)
         #expect(try await !repo.reserveActivity(subscriptionID: F.subscription, now: run0))
         #expect(try await repo.updateSubscription(installationID: F.installation, id: F.subscription, F.input(enabled: false)))
@@ -360,9 +361,11 @@ struct PushActivityApiTests {
         for invalid in invalidFlags {
             #expect(try await put(["live_activity": invalid]).status == 400)
         }
+        // Circle + live_activity is valid since the capability `live_activity_regions` (7 Nov 2026); it still needs the start token.
         let region: [String: Any] = ["kind": "circle", "radius_cells": 3, "live_activity": true]
-        #expect(try await put(region).status == 400)
-        #expect(await api.handle(method: "POST", path: F.base + "/subscriptions", secret: F.secret, body: try F.body(region))?.status == 400)
+        #expect(try await put(region).status == 204)
+        #expect(await api.handle(method: "POST", path: F.base + "/subscriptions", secret: F.secret, body: try F.body(region))?.status == 201)
+        #expect(try await put(["kind": "circle", "radius_cells": 3, "live_activity": "yes"]).status == 400)
         #expect(try await put(["kind": "circle", "radius_cells": 3]).status == 204) // old region requests work
     }
 
@@ -448,7 +451,7 @@ struct PushActivityApiTests {
             var config = F.config(); config.push.enabled = enabled
             let response = try await Api(repo: MemoryRepo(), config: config).handle(path: "/v1/status", ifNoneMatch: nil)
             let capabilities = try #require(try F.object(response.body)["capabilities"] as? [String])
-            #expect(capabilities == (enabled ? ["regions", "live_activity"] : []))
+            #expect(capabilities == (enabled ? ["regions", "live_activity", "live_activity_regions"] : []))
         }
     }
 }

@@ -52,7 +52,10 @@
         "reason": "started_now",
         "class": 6,
         "mmPerHour": 3
-      }
+      },
+      "unknownCells": null,
+      "unknownSharePercent": null,
+      "activityPreview": null
     }
   ],
   "evaluation": {

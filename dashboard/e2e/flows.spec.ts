@@ -390,6 +390,15 @@ test.describe('Geräte-Abos', () => {
 		await expect(page.getByText('Live Activity läuft').first()).toBeVisible();
 	});
 
+	test('zeigt bei Gebieten mit Live Activity Anteil und Anzeige der Activity', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth');
+		await expect(page.getByText('Anzeige der Live Activity jetzt').first()).toBeVisible();
+		await expect(
+			page.getByText('Umkreis 10 km: 7 % der Fläche nass (Spitze 34 % in 60 min)').first()
+		).toBeVisible();
+		await expect(page.getByText('30 Zellen unbekannt (4,9 %)').first()).toBeVisible();
+	});
+
 	test('zeigt Ort, Karte und gemessene Klasse je Abo', async ({ page }) => {
 		await page.goto('/dash/geraete?mock=auth');
 		await expect(page.getByRole('img', { name: /Karte der Abo-Orte/ }).first()).toBeVisible();

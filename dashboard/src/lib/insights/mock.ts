@@ -504,6 +504,53 @@ function deviceSubscriptions(state: MockState) {
 							cells: 113,
 							neededCells: 12,
 							sharePercent: 0
+						},
+						{
+							index: 2,
+							kind: 'circle',
+							enabled: true,
+							liveActivity: true,
+							timeSensitive: false,
+							thresholdClass: 3,
+							leadMinutes: 20,
+							radiusCells: 14,
+							minSharePercent: 10,
+							state: 'dry',
+							hysteresis: false,
+							lastSentAt: null,
+							lockUntil: null,
+							cell: stale ? 'unknown' : 'dry',
+							leadCell: stale ? 'unknown' : 'wet',
+							activity: 'none',
+							createdAt: iso(26 * 3600_000),
+							changedAt: null,
+							instantStart: false,
+							startAttempts: 0,
+							lastEval: {
+								run: iso(16 * 60_000),
+								reason: 'forecast_pending',
+								class: 0,
+								mmPerHour: 0
+							},
+							place: { lat: 50.1, lon: 10.2, x: 478, y: 837, cellKm: 0.71 },
+							thresholdMmPerHour: 0.4,
+							measuredClass: 2,
+							measuredMmPerHour: 0.2,
+							pixel: 'rain',
+							leadMaxClass: 4,
+							leadOnsetMinutes: 10,
+							wetCells: 40,
+							cells: 613,
+							neededCells: 62,
+							sharePercent: 6.5,
+							unknownCells: 30,
+							unknownSharePercent: 4.9,
+							activityPreview: {
+								wetSharePercent: 7,
+								peakSharePercent: 34,
+								intensityClass: 4,
+								regionRadiusKm: 10
+							}
 						}
 					]
 	};

@@ -34,7 +34,10 @@
         "wetCells": null,
         "cells": null,
         "neededCells": null,
-        "sharePercent": null
+        "sharePercent": null,
+        "unknownCells": null,
+        "unknownSharePercent": null,
+        "activityPreview": null
       },
       {
         "index": 1,
@@ -61,7 +64,10 @@
         "wetCells": null,
         "cells": null,
         "neededCells": null,
-        "sharePercent": null
+        "sharePercent": null,
+        "unknownCells": null,
+        "unknownSharePercent": null,
+        "activityPreview": null
       },
       {
         "index": 2,
@@ -88,7 +94,10 @@
         "wetCells": 0,
         "cells": 4301,
         "neededCells": 44,
-        "sharePercent": 0.0
+        "sharePercent": 0.0,
+        "unknownCells": 0,
+        "unknownSharePercent": 0.0,
+        "activityPreview": null
       }
     ],
     "radar": {

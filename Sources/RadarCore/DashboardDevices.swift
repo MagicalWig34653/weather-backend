@@ -192,6 +192,7 @@ final class DashboardDevices: Sendable {
                  "class": t.cls < 0 ? NSNull() : t.cls as Any, "mmPerHour": t.cls < 0 ? NSNull() : PushMeasureJSON.mmPerHour(t.cls)]
             } as Any? ?? NSNull()
             row.merge(PushMeasureJSON.fields(s, measures: view.measures[s.id], radarOK: view.status != .noSlot, width: config().width)) { _, new in new }
+            row["activityPreview"] = PushMeasureJSON.preview(view.regionContent[s.id])
             return row
         }
         return DashboardApi.object(200, ["generatedAt": TimeUtil.toISO(now),

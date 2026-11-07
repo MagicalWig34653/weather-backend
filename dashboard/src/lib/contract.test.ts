@@ -26,6 +26,7 @@ import {
 	subscriptionStateView,
 	levelLabel,
 	measureText,
+	activityPreviewText,
 	outcomeName,
 	reasonName,
 	decisionName,
@@ -327,6 +328,39 @@ describe.skipIf(!present)('Darstellung deckt die Fixtures ab (keine Rohcodes)', 
 		expect(view('dry', false)).toBe('Trocken');
 		expect(view('wet', false)).toBe('Regen erkannt');
 		expect(view('wet', true)).toBe('Regen läuft, noch nicht gestartet');
+	});
+	it('Gebiets-Live-Activity: Vorschau, unbekannte Zellen und neue Gruende haben Klartext', () => {
+		const d = read('dashboard/device-subscriptions.200.json') as {
+			subscriptions: {
+				kind: string;
+				liveActivity: boolean;
+				activityPreview?: Parameters<typeof activityPreviewText>[0];
+			}[];
+		};
+		const region = d.subscriptions.find((s) => s.kind === 'circle' && s.liveActivity);
+		expect(region?.activityPreview).toBeTruthy();
+		expect(activityPreviewText(region?.activityPreview)).toBe(
+			'Umkreis 4 km: 0 % der Fläche nass (Spitze 12 % in 60 min), bis Klasse 3 (ab 0,4 mm/h)'
+		);
+		expect(activityPreviewText(null)).toBe('');
+		expect(reasonName['share_unknown']).toBeTypeOf('string');
+		expect(reasonName['would_displace_region']).toBeTypeOf('string');
+		expect(
+			measureText({
+				kind: 'circle',
+				measuredClass: 3,
+				wetCells: 6,
+				cells: 81,
+				neededCells: 9,
+				sharePercent: 7.4,
+				minSharePercent: 10,
+				unknownCells: 3,
+				unknownSharePercent: 3.7
+			})
+		).toContain('3 Zellen unbekannt (3,7 %)');
+		// Punkt-Abos tragen keine Vorschau.
+		for (const s of d.subscriptions.filter((x) => x.kind === 'point'))
+			expect(s.activityPreview ?? null).toBeNull();
 	});
 	it('Reeval zeigt "gesendet" und nummeriert nach index', () => {
 		expect(

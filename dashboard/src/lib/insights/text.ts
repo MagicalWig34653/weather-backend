@@ -4,7 +4,7 @@
  */
 import { formatDateTime, formatDuration, formatNumber, formatPercent } from '#lib/format.js';
 import type { Tone } from '#lib/design/tone.js';
-import type { Finding, Level } from './types.js';
+import type { ActivityPreview, Finding, Level } from './types.js';
 
 export const levelTone = (l: Level): Tone =>
 	l === 'ok' ? 'ok' : l === 'warning' ? 'warn' : l === 'critical' ? 'err' : 'neutral';
@@ -355,6 +355,9 @@ export const reasonName: Record<string, string> = {
 	class_below_threshold: 'Regen im Radar, aber unter der Schwelle',
 	pixel_unknown: 'Pixel unbekannt (maskiert oder Farbe außerhalb der Legende)',
 	share_below: 'zu wenig nasse Zellen im Umkreis',
+	share_unknown: 'zu wenig sicher nasse Zellen, unbekannte Zellen könnten den Anteil erreichen',
+	would_displace_region:
+		'würde die laufende Gebiets-Live-Activity beenden und den Platz übernehmen',
 	already_wet: 'Regen läuft schon (Mitteilung nur beim Beginn)',
 	radar_stale: 'Lauf zu alt',
 	radar_missing: 'kein vollständiger Radarlauf'
@@ -373,6 +376,16 @@ interface MeasureLike {
 	cells?: number | null;
 	neededCells?: number | null;
 	sharePercent?: number | null;
+	unknownCells?: number | null;
+	unknownSharePercent?: number | null;
+	activityPreview?: ActivityPreview | null;
+}
+
+/** Was die Live Activity eines Gebiets jetzt zeigen wuerde, als Klartext (leer ohne Vorschau). */
+export function activityPreviewText(p: ActivityPreview | null | undefined): string {
+	if (!p) return '';
+	const radius = p.regionRadiusKm ? `Umkreis ${p.regionRadiusKm} km: ` : '';
+	return `${radius}${p.wetSharePercent} % der Fläche nass (Spitze ${p.peakSharePercent} % in 60 min), bis ${classText(p.intensityClass)}`;
 }
 
 /** Messung eines Abos als Klartext: gemessene Klasse gegen Schwelle, bei Umkreisen Anteil. */
@@ -391,6 +404,10 @@ export function measureText(m: MeasureLike): string {
 		parts.push(
 			`Anteil ${String(share).replace('.', ',')} % (${m.wetCells} von ${m.cells} Zellen, nötig ${m.neededCells ?? '–'}) gegen ${m.minSharePercent ?? '–'} %`
 		);
+		if (m.unknownCells)
+			parts.push(
+				`${m.unknownCells} Zellen unbekannt (${String(m.unknownSharePercent ?? 0).replace('.', ',')} %)`
+			);
 	}
 	if (m.leadMaxClass !== null && m.leadMaxClass !== undefined)
 		parts.push(
@@ -467,7 +484,14 @@ export function commandResultText(kind: string, r: Record<string, unknown> | nul
 				const head = `Abo ${(s.index ?? i) + 1}: ${decisionName[s.decision] ?? s.decision}${s.sent === true ? ' (gesendet)' : ''}`;
 				const why = s.reason && s.reason !== s.decision ? (reasonName[s.reason] ?? s.reason) : '';
 				const detail = measureText(s);
-				return [head, why, s.measuredClass !== undefined ? detail : ''].filter(Boolean).join(' – ');
+				return [
+					head,
+					why,
+					s.measuredClass !== undefined ? detail : '',
+					activityPreviewText(s.activityPreview)
+				]
+					.filter(Boolean)
+					.join(' – ');
 			});
 			const radar = r.radar
 				? reevalRadarText(r.radar as Parameters<typeof reevalRadarText>[0])

@@ -9,6 +9,7 @@
 		cellLabel,
 		kindLabel,
 		measureText,
+		activityPreviewText,
 		radarStatusLabel,
 		evalReasonName,
 		subscriptionStateView,
@@ -177,6 +178,12 @@
 						<div class="col-span-2">
 							<dt class="text-muted-foreground">Live-Activity-Platz</dt>
 							<dd class="font-medium">{activityLabel(s.activity)}</dd>
+						</div>
+					{/if}
+					{#if s.activityPreview}
+						<div class="col-span-2">
+							<dt class="text-muted-foreground">Anzeige der Live Activity jetzt</dt>
+							<dd class="font-medium">{activityPreviewText(s.activityPreview)}</dd>
 						</div>
 					{/if}
 				</dl>

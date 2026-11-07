@@ -216,4 +216,11 @@ public struct PushActivityTarget: Sendable, Equatable {
     }
 }
 
+/// Result of the atomic slot reservation. `displaced`: a point took the slot from a running region activity (the row of the region
+/// is already deleted; the caller ends it via APNs with this token). `regionReservationPending`: a region start is in flight (no token yet).
+public enum ActivityReservation: Sendable, Equatable {
+    case reserved, busy, regionReservationPending
+    case displaced(subscriptionID: String, activityToken: String)
+}
+
 public enum PushActivityRegistrationResult: Sendable, Equatable { case updated, notFound, notEligible, activityLimit }

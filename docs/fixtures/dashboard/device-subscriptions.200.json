@@ -52,13 +52,16 @@
         "reason": "started_now",
         "class": 6,
         "mmPerHour": 3
-      }
+      },
+      "unknownCells": null,
+      "unknownSharePercent": null,
+      "activityPreview": null
     },
     {
       "index": 1,
       "kind": "circle",
       "enabled": true,
-      "liveActivity": false,
+      "liveActivity": true,
       "timeSensitive": true,
       "thresholdClass": 3,
       "leadMinutes": 30,
@@ -97,6 +100,14 @@
         "reason": "below_threshold",
         "class": 1,
         "mmPerHour": 0.1
+      },
+      "unknownCells": 0,
+      "unknownSharePercent": 0.0,
+      "activityPreview": {
+        "wetSharePercent": 0,
+        "peakSharePercent": 12,
+        "intensityClass": 3,
+        "regionRadiusKm": 4
       }
     }
   ],

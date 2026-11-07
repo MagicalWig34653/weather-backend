@@ -1029,7 +1029,7 @@ struct PushRegionApiTests {
             let config = pushConfig { $0.push.enabled = enabled }
             let res = try await Api(repo: MemoryRepo(), config: config).handle(path: "/v1/status", ifNoneMatch: nil)
             let doc = try #require(try JSONSerialization.jsonObject(with: Data(res.body)) as? [String: Any])
-            #expect(doc["capabilities"] as? [String] == (enabled ? ["regions", "live_activity"] : []))
+            #expect(doc["capabilities"] as? [String] == (enabled ? ["regions", "live_activity", "live_activity_regions"] : []))
         }
     }
 }

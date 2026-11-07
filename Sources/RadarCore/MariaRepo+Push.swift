@@ -284,7 +284,7 @@ extension MariaRepo {
 extension MariaRepo {
     /// State of a subscription after activation: a point subscription with Live Activity arms the immediate start.
     static func armedState(_ input: PushSubscriptionInput) -> Int {
-        input.liveActivity && input.enabled && input.kind == .point ? instantBit : 0
+        input.liveActivity && input.enabled ? instantBit : 0
     }
 
     public func setLiveActivityStartToken(installationID: String, token: String?) async throws {
@@ -366,7 +366,7 @@ extension MariaRepo {
     public func endableActivities(now: Date, reservationTimeout: TimeInterval, after: String?, limit: Int) async throws -> [PushActivityTarget] {
         // Starts from the (small) push_activity table; the primary keys of push_sub/push_install are joined, nothing else is scanned.
         try await connection { conn in
-            try await query(conn, Self.targetSelect + "WHERE a.subscription_id > ? AND (a.ends_at <= ? OR s.enabled=0 OR s.live_activity=0 OR s.kind<>0 "
+            try await query(conn, Self.targetSelect + "WHERE a.subscription_id > ? AND (a.ends_at <= ? OR s.enabled=0 OR s.live_activity=0 "
                             + "OR (a.activity_token IS NULL AND a.started_at <= ?)) ORDER BY a.subscription_id LIMIT \(max(1, limit))",
                             [str(after ?? ""), ts(now), ts(now.addingTimeInterval(-reservationTimeout))]).rows
         }.compactMap(Self.target)
@@ -384,8 +384,8 @@ extension MariaRepo {
         try await transaction(readCommitted: true) { conn in
             guard let owner = try await query(conn, "SELECT install_id FROM push_sub WHERE id=?", [str(subscriptionID)]).rows.first?.column("install_id")?.string else { return .notFound }
             guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(owner)])).rows.isEmpty else { return .notFound }
-            guard let sub = try await query(conn, "SELECT enabled, live_activity, kind FROM push_sub WHERE id=? AND install_id=? FOR UPDATE", [str(subscriptionID), str(owner)]).rows.first else { return .notFound }
-            guard sub.column("enabled")?.int == 1, sub.column("live_activity")?.int == 1, sub.column("kind")?.int == 0 else { return .notEligible }
+            guard let sub = try await query(conn, "SELECT enabled, live_activity FROM push_sub WHERE id=? AND install_id=? FOR UPDATE", [str(subscriptionID), str(owner)]).rows.first else { return .notFound }
+            guard sub.column("enabled")?.int == 1, sub.column("live_activity")?.int == 1 else { return .notEligible }
             let existing = try await query(conn, "SELECT a.subscription_id, DATE_FORMAT(a.ends_at, \(Self.dateOut)) AS ends FROM push_activity a JOIN push_sub s ON s.id=a.subscription_id WHERE s.install_id=? FOR UPDATE", [str(owner)]).rows
             if let row = existing.first {
                 guard row.column("subscription_id")?.string == subscriptionID else { return .activityLimit }
@@ -399,6 +399,26 @@ extension MariaRepo {
     }
     public func reserveActivity(subscriptionID: String, now: Date) async throws -> Bool {
         try await writeActivity(subscriptionID: subscriptionID, token: nil, now: now) == .updated
+    }
+    public func reserveActivity(subscriptionID: String, now: Date, displacingRegion: Bool) async throws -> ActivityReservation {
+        try await transaction(readCommitted: true) { conn in
+            guard let owner = try await query(conn, "SELECT install_id FROM push_sub WHERE id=?", [str(subscriptionID)]).rows.first?.column("install_id")?.string else { return .busy }
+            guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(owner)])).rows.isEmpty else { return .busy }
+            guard let sub = try await query(conn, "SELECT enabled, live_activity, kind FROM push_sub WHERE id=? AND install_id=? FOR UPDATE", [str(subscriptionID), str(owner)]).rows.first,
+                  sub.column("enabled")?.int == 1, sub.column("live_activity")?.int == 1 else { return .busy }
+            let requesterIsPoint = sub.column("kind")?.int == PushKind.point.rawValue
+            let existing = try await query(conn, "SELECT a.subscription_id, a.activity_token, s.kind FROM push_activity a JOIN push_sub s ON s.id=a.subscription_id WHERE s.install_id=? FOR UPDATE", [str(owner)]).rows
+            var displaced: ActivityReservation?
+            if let row = existing.first {
+                // Only a point displaces, and only a region.
+                guard displacingRegion, requesterIsPoint, row.column("kind")?.int == PushKind.circle.rawValue, let heldID = row.column("subscription_id")?.string, heldID != subscriptionID else { return .busy }
+                guard let heldToken = row.column("activity_token")?.string else { return .regionReservationPending }
+                _ = try await query(conn, "DELETE FROM push_activity WHERE subscription_id=?", [str(heldID)])
+                displaced = .displaced(subscriptionID: heldID, activityToken: heldToken)
+            }
+            _ = try await query(conn, "INSERT INTO push_activity (subscription_id, activity_token, started_at, ends_at) VALUES (?,?,?,?)", [str(subscriptionID), .null, ts(now), ts(now.addingTimeInterval(8 * 3600))])
+            return displaced ?? .reserved
+        }
     }
     public func setActivityToken(subscriptionID: String, token: String, now: Date) async throws -> PushActivityRegistrationResult {
         try await writeActivity(subscriptionID: subscriptionID, token: token, now: now)

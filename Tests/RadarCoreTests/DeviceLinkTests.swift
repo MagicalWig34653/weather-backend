@@ -229,10 +229,10 @@ struct DeviceLinkTests {
         let a = Api(repo: MemoryRepo(), config: c)
         let r = try await a.handle(path: "/v1/status", ifNoneMatch: nil)
         let caps = (try JSONSerialization.jsonObject(with: Data(r.body)) as? [String: Any])?["capabilities"] as? [String]
-        #expect(caps == ["regions", "live_activity", "device_link"])
+        #expect(caps == ["regions", "live_activity", "live_activity_regions", "device_link"])
         c.deviceLink.enabled = false
         let b = try await Api(repo: MemoryRepo(), config: c).handle(path: "/v1/status", ifNoneMatch: nil)
-        #expect((try JSONSerialization.jsonObject(with: Data(b.body)) as? [String: Any])?["capabilities"] as? [String] == ["regions", "live_activity"])
+        #expect((try JSONSerialization.jsonObject(with: Data(b.body)) as? [String: Any])?["capabilities"] as? [String] == ["regions", "live_activity", "live_activity_regions"])
     }
 }
 }

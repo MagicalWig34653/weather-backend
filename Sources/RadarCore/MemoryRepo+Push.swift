@@ -106,7 +106,7 @@ extension MemoryRepo {
             id: id, gridVersion: input.gridVersion, cellX: input.cellX, cellY: input.cellY, threshold: input.threshold,
             leadMinutes: input.leadMinutes, enabled: input.enabled, timeSensitive: input.timeSensitive,
             kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity), createdAt: now)
-        push.subs[id]?.value.instantStart = input.liveActivity && input.enabled && input.kind == .point
+        push.subs[id]?.value.instantStart = input.liveActivity && input.enabled
         push.subs[id]?.value.createdAt = now
         return .created
     }
@@ -123,7 +123,7 @@ extension MemoryRepo {
                                      threshold: input.threshold, leadMinutes: input.leadMinutes, enabled: input.enabled,
                                      state: .dry, lastSentAt: sub.value.lastSentAt, timeSensitive: input.timeSensitive,
                                      kind: input.kind, radiusCells: input.radiusCells, minSharePercent: input.minSharePercent, liveActivity: input.liveActivity)
-        sub.value.instantStart = input.liveActivity && input.enabled && input.kind == .point
+        sub.value.instantStart = input.liveActivity && input.enabled
         sub.value.createdAt = sub.createdAt
         sub.value.changedAt = Date()
         push.subs[id] = sub
@@ -263,7 +263,7 @@ extension MemoryRepo {
         note("endableActivities")
         let ids = push.activities.values.filter { activity in
             guard after == nil || activity.subscriptionID > after!, let sub = push.subs[activity.subscriptionID] else { return false }
-            return activity.endsAt <= now || !sub.value.enabled || !sub.value.liveActivity || sub.value.kind != .point
+            return activity.endsAt <= now || !sub.value.enabled || !sub.value.liveActivity
                 || (activity.activityToken == nil && activity.startedAt <= now.addingTimeInterval(-reservationTimeout))
         }.map(\.subscriptionID).sorted().prefix(max(1, limit))
         return targets(Array(ids)).sorted { $0.subscription.id < $1.subscription.id }
@@ -276,16 +276,31 @@ extension MemoryRepo {
     }
 
     public func reserveActivity(subscriptionID: String, now: Date) async throws -> Bool {
-        guard let sub = push.subs[subscriptionID], sub.value.enabled, sub.value.liveActivity, sub.value.kind == .point,
+        guard let sub = push.subs[subscriptionID], sub.value.enabled, sub.value.liveActivity,
               !push.activities.keys.contains(where: { push.subs[$0]?.installID == sub.installID }) else { return false }
         push.activities[subscriptionID] = PushActivity(subscriptionID: subscriptionID, activityToken: nil, startedAt: now,
                                                        endsAt: now.addingTimeInterval(8 * 3600))
         return true
     }
 
+    public func reserveActivity(subscriptionID: String, now: Date, displacingRegion: Bool) async throws -> ActivityReservation {
+        note("reserveActivityDisplacing")
+        guard let sub = push.subs[subscriptionID], sub.value.enabled, sub.value.liveActivity else { return .busy }
+        var displaced: ActivityReservation?
+        if let held = push.activities.values.first(where: { push.subs[$0.subscriptionID]?.installID == sub.installID }) {
+            // Only a point displaces, and only a region.
+            guard displacingRegion, sub.value.kind == .point, push.subs[held.subscriptionID]?.value.kind == .circle, held.subscriptionID != subscriptionID else { return .busy }
+            guard let token = held.activityToken else { return .regionReservationPending }
+            push.activities[held.subscriptionID] = nil
+            displaced = .displaced(subscriptionID: held.subscriptionID, activityToken: token)
+        }
+        push.activities[subscriptionID] = PushActivity(subscriptionID: subscriptionID, activityToken: nil, startedAt: now, endsAt: now.addingTimeInterval(8 * 3600))
+        return displaced ?? .reserved
+    }
+
     public func setActivityToken(subscriptionID: String, token: String, now: Date) async throws -> PushActivityRegistrationResult {
         guard let sub = push.subs[subscriptionID] else { return .notFound }
-        guard sub.value.enabled, sub.value.liveActivity, sub.value.kind == .point else { return .notEligible }
+        guard sub.value.enabled, sub.value.liveActivity else { return .notEligible }
         if var activity = push.activities[subscriptionID] {
             guard activity.endsAt > now else { return .notEligible }
             activity.activityToken = token

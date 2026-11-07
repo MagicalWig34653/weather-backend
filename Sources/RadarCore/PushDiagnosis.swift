@@ -8,10 +8,13 @@ public struct DeviceRadarView: Sendable, Equatable {
     public var classes: [String: [Int]]
     /// Per subscription id: what the radar shows in each of the 25 slots (diagnosis detail; circles with cell counts).
     public var measures: [String: [SlotMeasure]]
+    /// Per Live Activity region subscription id: the region fields of the content state (shares, class, radius), as the tick would send them.
+    public var regionContent: [String: RegionActivityContent]
     /// Nominal time of the evaluated run (slot 0 is the analysis at this time); `nil` when no run is published.
     public var runNominal: Date?
-    public init(status: Status, classes: [String: [Int]] = [:], measures: [String: [SlotMeasure]] = [:], runNominal: Date? = nil) {
-        self.status = status; self.classes = classes; self.measures = measures; self.runNominal = runNominal
+    public init(status: Status, classes: [String: [Int]] = [:], measures: [String: [SlotMeasure]] = [:], runNominal: Date? = nil,
+                regionContent: [String: RegionActivityContent] = [:]) {
+        self.status = status; self.classes = classes; self.measures = measures; self.runNominal = runNominal; self.regionContent = regionContent
     }
 
     /// Decodes the slots of the latest run once and classifies every given point/region subscription. On demand only (no cache).
@@ -25,20 +28,28 @@ public struct DeviceRadarView: Sendable, Equatable {
         if stale, !allowStale { return DeviceRadarView(status: .staleRun, runNominal: run.nominal) }
         var classes: [String: [Int]] = [:]
         var measures: [String: [SlotMeasure]] = [:]
+        var regionStats: [String: [RegionSlotStats]] = [:]
         for slot in slots.sorted(by: { $0.slotIndex < $1.slotIndex }) {
             guard let blob = try? await repo.getSlot(runID: run.runID, slotID: slot.slotID),
                   let image = try? ImagePipeline.decodeWebP(blob.data), image.width == config.width, image.height == config.height else {
                 return DeviceRadarView(status: .noSlot, runNominal: run.nominal)
             }
-            let map = subs.contains { $0.kind == .circle } ? PushIntensity.classMap(image) : []
+            let map = subs.contains { $0.kind == .circle } ? PushIntensity.classMap(image, markUnknown: subs.contains { $0.kind == .circle && $0.liveActivity }) : []
             for sub in subs {
                 let value: Int
                 if sub.kind == .circle, let radius = sub.radiusCells {
                     let share = sub.minSharePercent ?? PushRegion.defaultShare
-                    value = PushRegion.pseudoClass(classMap: map, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
-                                                   threshold: sub.threshold, sharePercent: share)
+                    if sub.liveActivity {
+                        let stats = PushRegion.slotStats(classMap: map, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
+                                                         threshold: sub.threshold, sharePercent: share)
+                        value = stats.pseudoClass
+                        regionStats[sub.id, default: []].append(stats)
+                    } else {
+                        value = PushRegion.pseudoClass(classMap: map, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
+                                                       threshold: sub.threshold, sharePercent: share)
+                    }
                     measures[sub.id, default: []].append(PushRegion.measure(classMap: map, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY,
-                                                                            radius: radius, threshold: sub.threshold, sharePercent: share))
+                                                                            radius: radius, threshold: sub.threshold, sharePercent: share, markUnknown: sub.liveActivity))
                 } else {
                     value = sub.liveActivity ? PushIntensity.classifyOrUnknown(image, x: sub.cellX, y: sub.cellY) : PushIntensity.classify(image, x: sub.cellX, y: sub.cellY)
                     // Diagnosis always separates "dry" from "unknown", whatever the subscription kind.
@@ -47,7 +58,12 @@ public struct DeviceRadarView: Sendable, Equatable {
                 classes[sub.id, default: []].append(value)
             }
         }
-        return DeviceRadarView(status: stale ? .staleRun : .ok, classes: classes, measures: measures, runNominal: run.nominal)
+        var content: [String: RegionActivityContent] = [:]
+        for sub in subs where sub.kind == .circle && sub.liveActivity {
+            guard let stats = regionStats[sub.id], let radius = sub.radiusCells else { continue }
+            content[sub.id] = RegionActivityContent(stats: stats, radiusKm: PushRegion.radiusKilometres(radiusCells: radius, cellX: sub.cellX, cellY: sub.cellY, width: config.width))
+        }
+        return DeviceRadarView(status: stale ? .staleRun : .ok, classes: classes, measures: measures, runNominal: run.nominal, regionContent: content)
     }
 }
 
@@ -116,7 +132,7 @@ public enum PushDiagnosis {
         // 4 start token (age is not recorded: ageDays stays null)
         add("start_token", input.install.hasStartToken ? .ok : .critical, input.install.hasStartToken ? "ok" : "missing", ["ageDays": .null])
         // 5 subscription
-        let live = input.subs.filter { $0.kind == .point && $0.liveActivity }
+        let live = input.subs.filter(\.liveActivity)
         if input.subs.isEmpty { add("subscription", .critical, "no_subscription") }
         else if !input.subs.contains(where: \.enabled) { add("subscription", .critical, "disabled") }
         else if !live.contains(where: \.enabled) { add("subscription", .warning, "live_activity_off") }
@@ -124,10 +140,14 @@ public enum PushDiagnosis {
         // 6 slot
         let running = input.activities.values.filter { $0.activityToken != nil && $0.endsAt > now }
         let reservations = input.activities.values.filter { $0.activityToken == nil }
+        // Which kind of subscription holds the single slot (a point can displace a region, never the other way round).
+        func holder(_ activity: PushActivity) -> DiagnosisValue {
+            input.subs.first { $0.id == activity.subscriptionID }.map { .string($0.kind == .circle ? "circle" : "point") } ?? .null
+        }
         if let r = reservations.first {
             let age = Int(now.timeIntervalSince(r.startedAt))
-            add("slot", age >= Int(PushService.reservationTimeout) ? .critical : .warning, "reservation_open", ["ageSeconds": .int(age)])
-        } else if !running.isEmpty { add("slot", .warning, "activity_running") }
+            add("slot", age >= Int(PushService.reservationTimeout) ? .critical : .warning, "reservation_open", ["ageSeconds": .int(age), "holderKind": holder(r)])
+        } else if let r = running.first { add("slot", .warning, "activity_running", ["holderKind": holder(r)]) }
         else { add("slot", .ok, "ok") }
         // 7 lock and hysteresis (first live subscription that shows one)
         let lockUntil = live.filter { !$0.instantStart }.compactMap { s in s.lastSentAt.map { $0.addingTimeInterval(PushEvaluator.repeatLock) } }.filter { $0 > now }.max()
@@ -143,8 +163,14 @@ public enum PushDiagnosis {
             if let subject, let classes = input.radar.classes[subject.id], classes.count == TimeUtil.forecastSlots {
                 let lead = max(1, min(subject.leadMinutes / 5, classes.count - 1))
                 let wet = classes[0] >= subject.threshold || classes[1...lead].contains { $0 >= subject.threshold }
-                add("trigger", .ok, wet ? "would_trigger" : "below_threshold",
-                    ["thresholdClass": .int(subject.threshold), "currentMaxClass": .int(max(0, classes.max() ?? 0))])
+                var params: [String: DiagnosisValue] = ["thresholdClass": .int(subject.threshold), "currentMaxClass": .int(max(0, classes.max() ?? 0))]
+                // Region: share of wet and of unknown cells in slot 0 (percent of the disc) against the trigger share.
+                if subject.kind == .circle, let now0 = input.radar.measures[subject.id]?.first, let cells = now0.cells, cells > 0 {
+                    params["wetSharePercent"] = .int(Int((Double(now0.wetCells ?? 0) * 100 / Double(cells)).rounded()))
+                    params["unknownSharePercent"] = now0.unknownCells.map { .int(Int((Double($0) * 100 / Double(cells)).rounded())) } ?? .null
+                    params["triggerSharePercent"] = .int(subject.minSharePercent ?? PushRegion.defaultShare)
+                }
+                add("trigger", .ok, wet ? "would_trigger" : "below_threshold", params)
             } else { add("trigger", .unknown, "no_slot") }
         }
         // 9 last result from the event log

@@ -347,7 +347,7 @@ Keine Zellen, keine Koordinaten, keine Tokens, keine Abo-IDs. `lockUntil`: Ende 
               level: Level, reason: string, params: { <name>: string|number|bool|null } } ] }
 ```
 
-Immer neun Prüfungen in fester Reihenfolge (`order`). `verdict` = erste Prüfung mit `critical`, sonst erste mit `warning`, sonst `null` (alles in Ordnung). `reason`: feste Kennung je Prüfung: `server`: `ok`, `push_disabled`, `push_unknown` (Level `warning`: kein Replikat meldet sich), `capability_missing`, `push_paused`; `environment`: `ok`, `env_not_allowed`; `device_token`: `ok`, `missing`, `old`, `invalidated_recently`; `start_token`: `ok`, `missing`, `old`; `subscription`: `ok`, `no_subscription`, `disabled`, `live_activity_off`; `slot`: `ok`, `reservation_open`, `activity_running`; `lock`: `ok`, `lock_active`, `hysteresis`; `trigger`: `would_trigger`, `below_threshold`, `no_slot`, `stale_run`; `last_result`: `none`, `delivered`, `rejected`, `unregistered`, `retry`, `dropped`. `params` (feste Schlüssel, z. B. `ageDays`, `lockUntil`, `apnsReason`, `thresholdClass`, `currentMaxClass`) enthalten keine Tokens oder Zellen.
+Immer neun Prüfungen in fester Reihenfolge (`order`). `verdict` = erste Prüfung mit `critical`, sonst erste mit `warning`, sonst `null` (alles in Ordnung). `reason`: feste Kennung je Prüfung: `server`: `ok`, `push_disabled`, `push_unknown` (Level `warning`: kein Replikat meldet sich), `capability_missing`, `push_paused`; `environment`: `ok`, `env_not_allowed`; `device_token`: `ok`, `missing`, `old`, `invalidated_recently`; `start_token`: `ok`, `missing`, `old`; `subscription`: `ok`, `no_subscription`, `disabled`, `live_activity_off`; `slot`: `ok`, `reservation_open`, `activity_running`; `lock`: `ok`, `lock_active`, `hysteresis`; `trigger`: `would_trigger`, `below_threshold`, `no_slot`, `stale_run`; `last_result`: `none`, `delivered`, `rejected`, `unregistered`, `retry`, `dropped`. `params` (feste Schlüssel, z. B. `ageDays`, `lockUntil`, `apnsReason`, `thresholdClass`, `currentMaxClass`) enthalten keine Tokens oder Zellen. Additiv 7.11.2026 (Gebiets-Live-Activity): `slot` mit `reservation_open`/`activity_running` trägt `holderKind` (`"point"`/`"circle"`/`null`: welche Abo-Art den einen Platz hält; ein Ort darf eine laufende Gebiets-Activity verdrängen, nie umgekehrt); `trigger` trägt bei einem Gebiet `wetSharePercent`, `unknownSharePercent` (`null` ohne Live Activity) und `triggerSharePercent` (Auslöseanteil des Abos). `subscription` zählt Gebiete mit `live_activity` wie Orte.
 
 ### `GET /dash/api/devices/{id}/events?limit=`
 
@@ -403,11 +403,14 @@ ReevalRow = { index, sent: bool|null,
               pixel: "rain"|"dry"|"unknown"|null,
               leadMaxClass: int|null,        // höchste Klasse in den Slots bis zum Vorlauf
               leadOnsetMinutes: int|null,    // erster Slot im Vorlauf, der die Schwelle erreicht
-              wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null }   // nur circle
+              wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null,   // nur circle
+              unknownCells: int|null, unknownSharePercent: number|null,     // additiv 7.11.2026: nur circle mit liveActivity (nicht auswertbare Zellen), sonst null
+              activityPreview: ActivityPreview|null }                        // additiv 7.11.2026: nur circle mit liveActivity
+ActivityPreview = { wetSharePercent: int, peakSharePercent: int, intensityClass: int, regionRadiusKm: int|null }   // so wie die Activity jetzt aussähe (Felder des content-state)
 Place = { lat: number, lon: number, x: int, y: int, cellKm: number }    // Mitte der Rasterzelle, auf 2 Nachkommastellen gerundet
 ```
 
-`reason` (feste Wörter): `would_trigger`, `lock`, `hysteresis`, `not_enabled`, `no_start_token`, `activity_slot_busy`, `reservation_pending` (wie `decision`); bei `below_threshold` genauer `cell_dry` (Pixel trocken), `class_below_threshold` (Regen im Radar, aber Klasse unter der Schwelle), `pixel_unknown` (Pixel maskiert oder Farbe außerhalb der Legende; kein Regen bestätigt), `share_below` (Umkreis: zu wenig nasse Zellen, `wetCells` gegen `neededCells`), `already_wet` (Regen läuft schon; Mitteilungs-Abos melden nur den Beginn); dazu `radar_stale` (Lauf älter als `maxRunAgeSeconds`; die Messwerte stammen trotzdem aus diesem Lauf, es wird nichts gesendet) und `radar_missing` (kein vollständiger Lauf). Ohne Radar (`no_slot`) antwortet der Auftrag mit `done` und diesen Gründen statt mit `failed: internal`.
+`reason` (feste Wörter; additiv 7.11.2026 `share_unknown` und `would_displace_region`): `would_trigger`, `lock`, `hysteresis`, `not_enabled`, `no_start_token`, `activity_slot_busy`, `reservation_pending` (wie `decision`); bei `below_threshold` genauer `cell_dry` (Pixel trocken), `class_below_threshold` (Regen im Radar, aber Klasse unter der Schwelle), `pixel_unknown` (Pixel maskiert oder Farbe außerhalb der Legende; kein Regen bestätigt), `share_below` (Umkreis: zu wenig nasse Zellen, `wetCells` gegen `neededCells`), `share_unknown` (Umkreis mit Live Activity: zu wenig sicher nasse Zellen, aber nass plus `unknownCells` erreichten `neededCells`: weder Start noch Ende), `would_displace_region` (nur `decision: "would_trigger"` eines Orts mit Live Activity: eine laufende Gebiets-Activity hält den Platz, der Ort würde sie beenden und übernehmen; Entscheidung 7.11.2026, Ort vor Gebiet), `already_wet` (Regen läuft schon; Mitteilungs-Abos melden nur den Beginn); dazu `radar_stale` (Lauf älter als `maxRunAgeSeconds`; die Messwerte stammen trotzdem aus diesem Lauf, es wird nichts gesendet) und `radar_missing` (kein vollständiger Lauf). Ohne Radar (`no_slot`) antwortet der Auftrag mit `done` und diesen Gründen statt mit `failed: internal`.
 
 
 | Aktion | Limit je Gerät | Fehler bei Überschreitung |
@@ -473,8 +476,13 @@ Nur für gekoppelte Geräte (sonst `404 not_found`, bei `DEVICE_LINK_ENABLED=fal
                      place: Place|null, thresholdMmPerHour: number,
                      measuredClass: int|null, measuredMmPerHour: number|null, pixel: "rain"|"dry"|"unknown"|null,
                      leadMaxClass: int|null, leadOnsetMinutes: int|null,
-                     wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null } ] }
+                     wetCells: int|null, cells: int|null, neededCells: int|null, sharePercent: number|null,
+                     // additiv 7.11.2026 (Gebiets-Live-Activity), nur circle mit liveActivity, sonst null:
+                     unknownCells: int|null, unknownSharePercent: number|null,
+                     activityPreview: ActivityPreview|null } ] }      // ActivityPreview siehe reeval
 ```
+
+Gebiets-Live-Activity (additiv, 7. November 2026): `liveActivity: true` ist auch bei `kind: "circle"` möglich; `activity` zeigt wie bei Orten, welches Abo den einen Platz der Installation belegt. `sharePercent` ist der Anteil sicher nasser Zellen, `unknownSharePercent` der Anteil nicht auswertbarer Zellen (Untergrenze/Obergrenze des tatsächlichen Anteils). `cell` ist bei einem Gebiet `unknown`, wenn nass plus unbekannt den Auslöseanteil erreichen würden, ohne dass er sicher erreicht ist. `lastEval.class` ist bei einem Gebiet die höchste Klasse im Gebiet in Slot 0 (`null` = unbekannt). `lastEval.reason` kennt keinen Platzkonflikt (er entsteht erst beim Senden; siehe `activity`).
 
 `lastEval.reason` (feste Wörter der echten Auswertung, Migration 015): `dry`, `below_threshold` (Regen unter der Schwelle), `unknown_pixel`, `forecast_pending` (Regenbeginn erkannt, wartet auf den zweiten Lauf), `rearm_wait`, `hysteresis` (Regen jetzt, erster nasser Lauf; der Start folgt im nächsten Lauf, wenn kein Sofortstart scharf ist), `started_now`, `started_forecast`, `no_start_token`, `lock_60min`, `activity_slot_busy`, `reservation_pending`, `activity_running`, `no_target`. `run` ist der Lauf, in dem sich der Grund zuletzt geändert hat. `state` ist nur der Automat für den *Regenbeginn* und bleibt `dry`, solange es regnet; ob es regnet, sagen `cell`/`measuredClass`, ob eine Live Activity läuft, sagt `activity`.
 

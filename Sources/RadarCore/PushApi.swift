@@ -166,7 +166,7 @@ public final class PushApi: Sendable {
         default:
             return nil
         }
-        guard kind == .point || body.live_activity != true else { return nil }
+        // Live Activities for circles (capability `live_activity_regions`, decision 7 Nov 2026): the same flag as for points.
         return PushSubscriptionInput(gridVersion: body.grid_version, cellX: cellX, cellY: cellY,
                                      threshold: body.threshold, leadMinutes: body.lead_minutes, enabled: body.enabled ?? true,
                                      timeSensitive: body.time_sensitive ?? false, kind: kind, radiusCells: radius, minSharePercent: share, liveActivity: body.live_activity ?? false)

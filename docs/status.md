@@ -2,6 +2,18 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 7. November 2026: Live Activities für Gebiete (Backend, Vertrag, Dashboard)
+
+Beschluss und genaue Semantik (Platzkonflikt Ort/Gebiet): [decisions.md](decisions.md#live-activities-für-umkreis-abos-7-november-2026). Branch `regionla-work` (Worktree `weather-regionla`), Aufgabe Todolino 5DDEFC8A.
+
+**Erledigt (Code):** Validierung (`live_activity` + `circle`), Fähigkeit `live_activity_regions`; `PushService`/`PushActivity` werten Gebiete mit Anteil aus (`PushRegion.slotStats`, unbekannte Zellen als Pseudoklasse −1, Hysterese, Sofortstart-Bit, 60-Minuten-Sperre, Ende nach 30 min, 8 h); atomare Platzvergabe `reserveActivity(…, displacingRegion:)` (Memory und MariaDB) mit sauberem End-Push; `content-state` additiv um `wetSharePercent`, `peakSharePercent`, `regionRadiusKm`; Diagnose, Abo-Liste und `reeval` für Gebiete (Anteil, unbekannte Zellen, `activityPreview`, neue Gründe). Dashboard-Typen, Mock, Texte, Contract-Tests, Fixtures und Playwright angepasst. Keine Migration.
+
+**Geprüft (ausgeführt):** `swift test` (Fake): grün; mit Wegwerf-MariaDB 12.3 (eigener Container, Port 23506, danach gestoppt): 511 Tests grün (inkl. neuer `PushRegionActivityTests`, 23 Tests: Anteil/unbekannte Zellen, Payload < 4096 B, Validierung, Ende-zu-Ende, Platzkonflikte, Repo-Vertrag Memory und MariaDB); Dashboard `npm test` (262), `npm run check`, `npm run lint`, `npm run build`, Playwright `-g "Geräte"` (7).
+
+**Nicht geprüft:** echter APNs-/Gerätepfad (Push-to-Start nur am Gerät belegbar), Rechenlast der Scheibenauswertung je Lauf (kein Benchmark in diesem Stand), Verhalten gegen echte Radarpixel (Alpha-Annahme 16 bis 127 = „keine Daten“ unverifiziert), Deployment/Produktiv-Rollout.
+
+**Nächste Schritte:** App-Agent baut auf Vertrag in `docs-site/content/api.md` auf (Fähigkeit prüfen, `ContentState` additiv, Gebiets-Name lokal, lokale Absicherung: Ort vor Gebiet). Datenschutztext-Vorschlag [datenschutz-gebiets-live-activity.md](datenschutz-gebiets-live-activity.md) wartet auf Freigabe (nicht live). Rollout additiv: Backend zuerst (Fähigkeit schaltet die App-Option frei), dann App-Build.
+
 ## Stand 7. November 2026: Abo-Diagnose, Ort und Karte
 
 Anlass: Neuauswertung meldete für alle Abos „unter der Schwelle“ trotz Regen. Beschlüsse und Befund: [decisions.md](decisions.md#abo-diagnose-messwerte-ort-und-karte-im-dashboard-7-november-2026).

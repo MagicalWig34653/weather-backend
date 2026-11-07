@@ -40,6 +40,8 @@ public final class PushService: Sendable {
     let activitySecondsPerTick: Double
     /// Work of the last committed run that has not been sent yet; replaced by the next run, drained within each tick's budget.
     let activityQueue = PushGuarded<[ActivityWork]>([])
+    /// Region subscriptions whose activity a point has taken the slot from since the queue was filled: their queued work is stale.
+    let displacedRegions = PushGuarded<Set<String>>([])
     public static let reservationTimeout: TimeInterval = 15 * 60
     /// Rain-now start attempts (first try included) before the 60-minute lock takes over for good.
     public static let maxStartAttempts = 3
@@ -119,7 +121,10 @@ public final class PushService: Sendable {
             firstPage = []
             while !page.isEmpty, complete {
                 var classes = [[Int]](repeating: [], count: page.count)
+                var regionStats = [Int: [RegionSlotStats]]()
                 let hasRegions = page.contains { $0.kind == .circle }
+                // Live Activity regions also need the "unknown" cells; the map then marks them (the alert path ignores the mark).
+                let hasLiveRegions = page.contains { $0.kind == .circle && $0.liveActivity }
                 for slot in ordered {
                     guard let blob = try await repo.getSlot(runID: run.runID, slotID: slot.slotID),
                           let image = try? ImagePipeline.decodeWebP(blob.data), image.width == config.width, image.height == config.height else {
@@ -127,12 +132,21 @@ public final class PushService: Sendable {
                         break
                     }
                     // One class map per slot (only when regions exist); a region becomes a pseudo class: threshold if wet, else 0.
-                    let classMap = hasRegions ? PushIntensity.classMap(image) : []
+                    let classMap = hasRegions ? PushIntensity.classMap(image, markUnknown: hasLiveRegions) : []
                     for (index, sub) in page.enumerated() {
                         if sub.kind == .circle, let radius = sub.radiusCells {
-                            classes[index].append(PushRegion.pseudoClass(
-                                classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
-                                threshold: sub.threshold, sharePercent: sub.minSharePercent ?? PushRegion.defaultShare))
+                            let share = sub.minSharePercent ?? PushRegion.defaultShare
+                            if sub.liveActivity {
+                                // Same trigger share as the alert (no separate setting); -1 = the unknown cells could still make it wet.
+                                let stats = PushRegion.slotStats(classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY,
+                                                                 radius: radius, threshold: sub.threshold, sharePercent: share)
+                                classes[index].append(stats.pseudoClass)
+                                regionStats[index, default: []].append(stats)
+                            } else {
+                                classes[index].append(PushRegion.pseudoClass(
+                                    classMap: classMap, width: image.width, height: image.height, cx: sub.cellX, cy: sub.cellY, radius: radius,
+                                    threshold: sub.threshold, sharePercent: share))
+                            }
                         } else {
                             // Live Activities need "unknown" (-1) apart from "dry"; the alert automaton treats both as dry.
                             classes[index].append(sub.liveActivity ? PushIntensity.classifyOrUnknown(image, x: sub.cellX, y: sub.cellY)
@@ -141,12 +155,12 @@ public final class PushService: Sendable {
                     }
                 }
                 guard complete else { break }
-                var live: [(sub: PushSubscription, classes: [Int], notify: Bool, state: PushState, sentAt: Date?)] = []
+                var live: [(sub: PushSubscription, classes: [Int], notify: Bool, state: PushState, sentAt: Date?, region: RegionActivityContent?)] = []
                 for (index, sub) in page.enumerated() {
                     let step = PushEvaluator.step(state: sub.state, threshold: sub.threshold, leadMinutes: sub.leadMinutes,
                                                   lastSentAt: sub.lastSentAt, classes: classes[index], now: now)
                     var sentAt = sub.lastSentAt
-                    let isLA = sub.liveActivity && sub.kind == .point
+                    let isLA = sub.liveActivity
                     if let minutes = step.notifyMinutes {
                         events.trigger(.rainStart)
                         if isLA { events.trigger(.laRainStart) }
@@ -168,7 +182,11 @@ public final class PushService: Sendable {
                     }
                     if isLA {
                         // Update (incl. the wet hysteresis) is decided below, once the activity target is known.
-                        live.append((sub, classes[index], step.notifyMinutes != nil, step.state, sentAt))
+                        var region: RegionActivityContent?
+                        if sub.kind == .circle, let radius = sub.radiusCells, let stats = regionStats[index] {
+                            region = RegionActivityContent(stats: stats, radiusKm: PushRegion.radiusKilometres(radiusCells: radius, cellX: sub.cellX, cellY: sub.cellY, width: config.width))
+                        }
+                        live.append((sub, classes[index], step.notifyMinutes != nil, step.state, sentAt, region))
                     } else if step.state != sub.state || sentAt != sub.lastSentAt {
                         updates.append(SubscriptionUpdate(id: sub.id, state: step.state, lastSentAt: sentAt))
                     }
@@ -207,11 +225,12 @@ public final class PushService: Sendable {
                             }
                             if target.activity != nil || ((entry.notify || wetStart) && hasToken) {
                                 activityWork.append(ActivityWork(target: target, classes: entry.classes, notify: entry.notify || wetStart,
-                                                                 reference: run.nominal, trigger: wetStart ? .laRainingNow : .laRainStart))
+                                                                 reference: run.nominal, trigger: wetStart ? .laRainingNow : .laRainStart, region: entry.region))
                             }
                         }
                         // Why this run did or did not start: persisted (only on change) so the dashboard can show the real decision.
-                        let cls0 = entry.classes.first ?? 0
+                        // Trace class of slot 0: point = pixel class; region = highest class in the disc (-1 while the unknown cells could decide).
+                        let cls0 = entry.region.map { entry.classes.first == PushIntensity.unknown ? PushIntensity.unknown : $0.currentMaxClass } ?? (entry.classes.first ?? 0)
                         let target = targets[sub.id]
                         let hasToken = target?.installation.liveActivityStartToken != nil
                         let reason: String
@@ -250,6 +269,10 @@ public final class PushService: Sendable {
         if try await repo.commitEvaluation(runID: run.runID, updates: updates, outbox: outbox, now: now) {
             result.evaluatedRun = run.runID
             result.queued = outbox.count
+            // Points before regions (decision 7 Nov 2026: a point beats a region at the single slot): a point start never has to displace a
+            // region activity that this same run has just started.
+            activityWork = activityWork.filter { $0.target.subscription.kind == .point } + activityWork.filter { $0.target.subscription.kind != .point }
+            displacedRegions.withLock { $0 = [] }
             let replaced = activityQueue.withLock { queue -> [ActivityWork] in defer { queue = activityWork }; return queue }
             // Starts that never got their turn within the per-tick budget are lost with the next run (the lock stays).
             for work in replaced where work.notify { events.skip(work.trigger, .budgetExhausted) }
@@ -330,6 +353,8 @@ struct ActivityWork: Sendable {
     var reference: Date
     /// What started this work (for skip reasons found when the start is attempted).
     var trigger: PushTrigger = .laRainStart
+    /// Region fields of the content state (circle subscriptions only).
+    var region: RegionActivityContent?
 }
 
 final class PushGuarded<Value>: @unchecked Sendable {

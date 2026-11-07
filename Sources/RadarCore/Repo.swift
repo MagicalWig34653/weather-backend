@@ -127,6 +127,10 @@ public protocol PushRepo: Sendable {
     @discardableResult func deleteReservation(subscriptionID: String) async throws -> Bool
     /// Atomic installation-wide reservation; pending and token-backed activities both occupy the single slot.
     func reserveActivity(subscriptionID: String, now: Date) async throws -> Bool
+    /// Like `reserveActivity`, but when `displacingRegion` is set and the slot is held by a region activity that already has a token,
+    /// that row is deleted in the same transaction and returned (a point beats a region, decision 7 Nov 2026). Never displaces a point,
+    /// another region's start in flight or an activity of the same subscription.
+    func reserveActivity(subscriptionID: String, now: Date, displacingRegion: Bool) async throws -> ActivityReservation
     /// Registers a local activity or replaces a pending/current token without extending the eight-hour deadline.
     func setActivityToken(subscriptionID: String, token: String, now: Date) async throws -> PushActivityRegistrationResult
     @discardableResult func deleteActivity(subscriptionID: String, matchingToken: String?) async throws -> Bool

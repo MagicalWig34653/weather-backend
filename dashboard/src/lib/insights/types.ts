@@ -350,6 +350,16 @@ export interface CellPlace {
 	y: number;
 	cellKm: number;
 }
+/** Was die Live Activity eines Gebiets jetzt zeigen wuerde (Felder des Activity-`content-state`, additiv 7.11.2026). */
+export interface ActivityPreview {
+	/** Anteil nasser Zellen in Slot 0, in Prozent der Gebietsflaeche (unbekannte Zellen zaehlen nicht als nass). */
+	wetSharePercent: number;
+	/** Hoechster Anteil in den naechsten etwa 60 Minuten. */
+	peakSharePercent: number;
+	/** Hoechste Klasse im Gebiet ueber den Prognoselauf. */
+	intensityClass: number;
+	regionRadiusKm: number | null;
+}
 /** Was das Radar fuer ein Abo zeigt (Slot 0 und Vorlauf); alle Felder fehlen oder sind null, solange kein Lauf vorliegt. */
 export interface SubscriptionMeasure {
 	place?: CellPlace | null;
@@ -363,6 +373,11 @@ export interface SubscriptionMeasure {
 	cells?: number | null;
 	neededCells?: number | null;
 	sharePercent?: number | null;
+	/** Nur Gebiete mit Live Activity: Zellen, die nicht auswertbar sind (Maske, Farbe ausserhalb der Legende). */
+	unknownCells?: number | null;
+	unknownSharePercent?: number | null;
+	/** Nur Gebiete mit Live Activity: so wuerde die Activity jetzt aussehen. */
+	activityPreview?: ActivityPreview | null;
 }
 export interface DeviceSubscription extends SubscriptionMeasure {
 	index: number;

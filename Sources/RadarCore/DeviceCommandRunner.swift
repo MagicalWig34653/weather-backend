@@ -100,7 +100,7 @@ extension PushService {
             return (Self.json(["outcome": "dropped", "apnsStatus": NSNull(), "reason": NSNull(), "skipped": reason]), nil)
         }
         let subs = try await repo.subscriptions(installationID: device.installID)
-        guard install.liveActivityStartToken != nil, let sub = subs.first(where: { $0.enabled && $0.liveActivity && $0.kind == .point }) else {
+        guard install.liveActivityStartToken != nil, let sub = subs.first(where: { $0.enabled && $0.liveActivity && $0.kind == .point }) ?? subs.first(where: { $0.enabled && $0.liveActivity }) else {
             return try await skipped("no_start_token")
         }
         guard let target = try await repo.activityTarget(subscriptionID: sub.id) else { return (nil, "internal") }
@@ -111,7 +111,7 @@ extension PushService {
         guard try await repo.reserveActivity(subscriptionID: sub.id, now: now) else { return try await skipped("activity_slot_busy") }
         let view = await DeviceRadarView.load(repo: repo, config: config, subs: [sub], now: now)
         let classes = view.classes[sub.id] ?? [Int](repeating: 0, count: TimeUtil.forecastSlots)
-        let content = PushActivityPayload.content(classes: classes, threshold: sub.threshold, reference: now)
+        let content = PushActivityPayload.content(classes: classes, threshold: sub.threshold, reference: now, region: view.regionContent[sub.id])
         var tick = PushTick(); tick.isLeader = true
         try await worker.sendActivity(target: target, event: .start, content: content, now: now, result: &tick)
         let d = DeviceOutcome.describe(recorder.last)
@@ -152,8 +152,11 @@ extension PushService {
         for (index, sub) in subs.enumerated() {
             let classes = view.classes[sub.id] ?? []
             let measures = view.measures[sub.id]
+            // The single activity slot belongs to the installation: another subscription may hold it (a point displaces a region).
+            let holder = targets.values.first { $0.activity != nil }
+            let displaces = sub.kind == .point && holder.map { $0.subscription.kind == .circle && $0.subscription.id != sub.id && $0.activity?.activityToken != nil } == true
             var decision = Self.decide(sub: sub, classes: classes, hasStartToken: install.liveActivityStartToken != nil,
-                                       activity: targets[sub.id]?.activity, now: now)
+                                       activity: displaces ? nil : holder?.activity, now: now)
             switch view.status {
             case .noSlot: decision = sub.enabled ? "radar_missing" : decision
             case .staleRun: decision = sub.enabled ? "radar_stale" : decision
@@ -162,17 +165,20 @@ extension PushService {
             var sent: Any = NSNull()
             if !dryRun {
                 sent = false
-                if view.status == .ok, decision == "would_trigger", sub.liveActivity, sub.kind == .point, let target = targets[sub.id], let run {
+                if view.status == .ok, decision == "would_trigger", sub.liveActivity, let target = targets[sub.id], let run {
                     var tick = PushTick(); tick.isLeader = true
-                    try await worker.evaluateActivity(target: target, classes: classes, notify: true, reference: run.nominal, now: now, result: &tick)
+                    try await worker.evaluateActivity(target: target, classes: classes, notify: true, reference: run.nominal, now: now, result: &tick,
+                                                      region: view.regionContent[sub.id])
                     sent = tick.sent > 0
                 }
             }
             var row: [String: Any] = ["index": index, "decision": decision, "sent": sent,
-                                      "reason": PushMeasureJSON.reason(sub, decision: decision, measures: measures, radar: view.status),
+                                      "reason": displaces && decision == "would_trigger" ? "would_displace_region"
+                                                : PushMeasureJSON.reason(sub, decision: decision, measures: measures, radar: view.status),
                                       "thresholdClass": sub.threshold, "leadMinutes": sub.leadMinutes, "kind": sub.kind == .circle ? "circle" : "point",
                                       "minSharePercent": sub.kind == .circle ? (sub.minSharePercent as Any? ?? NSNull()) : NSNull()]
             row.merge(PushMeasureJSON.fields(sub, measures: measures, radarOK: view.status != .noSlot, width: config.width)) { _, new in new }
+            row["activityPreview"] = PushMeasureJSON.preview(view.regionContent[sub.id])
             rows.append(row)
         }
         let status: String
@@ -189,7 +195,7 @@ extension PushService {
     static func decide(sub: PushSubscription, classes: [Int], hasStartToken: Bool, activity: PushActivity?, now: Date) -> String {
         guard sub.enabled else { return "not_enabled" }
         guard classes.count == TimeUtil.forecastSlots else { return "below_threshold" }
-        let live = sub.liveActivity && sub.kind == .point
+        let live = sub.liveActivity
         let wetNow = classes[0] >= sub.threshold
         let lead = max(1, min(sub.leadMinutes / 5, classes.count - 1))
         let beginning = !wetNow && classes[1...lead].contains { $0 >= sub.threshold }
