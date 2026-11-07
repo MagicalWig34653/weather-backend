@@ -777,6 +777,16 @@ struct PushTimeSensitiveTests {
         #expect(aps["interruption-level"] as? String == "time-sensitive" && aps["thread-id"] as? String == "s")
         #expect(urgent.replacingOccurrences(of: #","interruption-level":"time-sensitive""#, with: "") == plain)
     }
+
+    @Test func alertPayloadIsMutableForPlaceAndRegionButNotTest() throws {
+        for region in [false, true] {
+            let json = PushEvaluator.payload(minutes: 5, subscriptionID: "s", region: region)
+            let aps = try #require((try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])?["aps"] as? [String: Any])
+            #expect(aps["mutable-content"] as? Int == 1 && aps["thread-id"] as? String == "s")
+            #expect(!json.contains("name"))
+        }
+        #expect(!PushEvaluator.testPayload(locale: "de").contains("mutable-content"))
+    }
 }
 
 @Suite("Push APNs environment per installation")
