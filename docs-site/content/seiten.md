@@ -6,9 +6,9 @@ Der Radar-Dienst liefert zusätzlich drei kleine, öffentliche HTML-Seiten, die 
 
 | Pfad | Inhalt | Verwendung in App Store Connect |
 |---|---|---|
-| `/datenschutz` | Datenschutzerklärung der App und des Radar-Dienstes | Datenschutz-URL (`https://showernow.linolaske.de/datenschutz`) |
-| `/marketing` | Kurze Produktseite mit Funktionen, Status und Quellenangabe | Marketing-URL (`https://showernow.linolaske.de/marketing`) |
-| `/support` | Kontakt-E-Mail und Link auf GitHub-Issues | Support-URL (`https://showernow.linolaske.de/support`) |
+| `/datenschutz` | Datenschutzerklärung der App und des Radar-Dienstes | Datenschutz-URL (`https://showers.linolaske.de/datenschutz`) |
+| `/marketing` | Kurze Produktseite mit Funktionen, Status und Quellenangabe | Marketing-URL (`https://showers.linolaske.de/marketing`) |
+| `/support` | Kontakt-E-Mail und Link auf GitHub-Issues | Support-URL (`https://showers.linolaske.de/support`) |
 
 Die Seiten sind selbst enthalten (kein externes JavaScript, CSS oder Fonts; helles und dunkles Layout inline), werden mit `Content-Type: text/html; charset=utf-8`, `Cache-Control: public, max-age=3600`, ETag (`If-None-Match` ergibt `304`) und Sicherheits-Headern ausgeliefert (`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, restriktive `Content-Security-Policy`). `HEAD` funktioniert; es gibt keine Cookies und, wie bei allen Routen, keine Zugriffsprotokolle. `/v1/radar/*` und `/healthz` bleiben unverändert.
 
