@@ -363,7 +363,7 @@ public final class MariaRepo: Repo, @unchecked Sendable {
 extension MariaRepo {
     /// Test helper for disposable databases only.
     public func dropAllForTests() async throws {
-        for table in ["warn_sent", "warn_sub_cell", "warn_sub", "warn_alert_cell", "warn_alert", "warn_state", "dashboard_refresh", "dashboard_command", "dashboard_device_event", "dashboard_device", "push_link_code", "dashboard_credential", "dashboard_challenge", "dashboard_session", "stats_daily", "stats_hourly", "config_override", "config_generation", "config_replica", "config_audit", "layer_slot", "layer_run", "push_outbox", "push_activity", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
+        for table in ["warn_cell_known", "warn_sent", "warn_sub_cell", "warn_sub", "warn_alert_cell", "warn_alert", "warn_state", "dashboard_refresh", "dashboard_command", "dashboard_device_event", "dashboard_device", "push_link_code", "dashboard_credential", "dashboard_challenge", "dashboard_session", "stats_daily", "stats_hourly", "config_override", "config_generation", "config_replica", "config_audit", "layer_slot", "layer_run", "push_outbox", "push_activity", "push_sub", "push_install", "push_state", "radar_slot", "radar_run", "radar_lock", "schema_migration"] {
             try await rawExecute("DROP TABLE IF EXISTS \(table)")
         }
     }

@@ -37,7 +37,7 @@ public struct LeaderLease: Sendable, Equatable {
 
 /// State storage. Contract (see tests): claim/renew/fail/publish are atomic and owner-checked;
 /// readers only see published runs. All times are UTC with second resolution.
-public protocol Repo: PushRepo, LayerRepo, DashboardRepo, DeviceLinkRepo, DeviceCommandRepo, PushOperatorRepo, PairingWindowRepo, CacheAdminRepo, WarnRepo {
+public protocol Repo: PushRepo, LayerRepo, DashboardRepo, DeviceLinkRepo, DeviceCommandRepo, PushOperatorRepo, PairingWindowRepo, CacheAdminRepo, WarnRepo, WarnSubRepo {
     func migrate() async throws
     func ping() async throws
     /// `backfill` marks an analysis-only run (one slot) created by the backfill; a takeover then drops stale forecast slots.

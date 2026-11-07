@@ -1,7 +1,7 @@
 import Foundation
 
 /// Subscription kind: a single raster cell (default, as before) or a circle around a coarse centre cell.
-public enum PushKind: Int, Sendable { case point = 0, circle = 1 }
+public enum PushKind: Int, Sendable { case point = 0, circle = 1, warning = 2 }
 
 /// Limits for region subscriptions (decisions.md, 1 Nov 2026). The server counts cells itself, from centre and radius.
 public struct RegionLimits: Sendable, Equatable {

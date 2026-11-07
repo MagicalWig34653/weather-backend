@@ -10,6 +10,10 @@ struct MemoryWarnStore {
     }
     var rows: [String: Row] = [:]   // key: identifier (language is part of the CAP identifier suffix; lang stored in the alert)
     var fetchedAt: Date?
+    // Warning subscriptions (their push_sub row lives in `push.subs` with kind .warning), sent-state per sub and chain, known cell ids.
+    var subs: [String: WarnSubscriptionInput] = [:]
+    var sent: [String: [String: WarnSentRecord]] = [:]
+    var known: Set<String> = []
 
     func rowKey(_ alert: WarnAlert) -> String { alert.lang + "|" + alert.identifier }
 }

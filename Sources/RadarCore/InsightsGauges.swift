@@ -86,17 +86,17 @@ extension MariaRepo {
             g.byLocale = try await groups("SELECT locale AS k, COUNT(*) AS n FROM push_install GROUP BY locale")
             if let r = try await one("SELECT COUNT(*) AS total, SUM(s.enabled=1) AS en, SUM(s.time_sensitive=1) AS ts, SUM(s.live_activity=1) AS la, "
                                       + "SUM(s.live_activity=1 AND i.la_start_token IS NOT NULL) AS la_st, SUM(s.last_sent_at > ?) AS locks "
-                                      + "FROM push_sub s JOIN push_install i ON i.id = s.install_id",
+                                      + "FROM push_sub s JOIN push_install i ON i.id = s.install_id WHERE s.kind<>2",
                                       [ts(now.addingTimeInterval(-InsightsGaugeBuckets.lockWindow))]) {
                 g.subscriptionsTotal = r.column("total")?.int ?? 0; g.subscriptionsEnabled = r.column("en")?.int ?? 0
                 g.subscriptionsTimeSensitive = r.column("ts")?.int ?? 0; g.subscriptionsLiveActivity = r.column("la")?.int ?? 0
                 g.subscriptionsLiveActivityWithStartToken = r.column("la_st")?.int ?? 0; g.activeLocks = r.column("locks")?.int ?? 0
             }
-            g.threshold = try await groups("SELECT CAST(threshold AS CHAR) AS k, COUNT(*) AS n FROM push_sub GROUP BY threshold")
-            g.lead = try await groups("SELECT CAST(lead_min AS CHAR) AS k, COUNT(*) AS n FROM push_sub GROUP BY lead_min")
+            g.threshold = try await groups("SELECT CAST(threshold AS CHAR) AS k, COUNT(*) AS n FROM push_sub WHERE kind<>2 GROUP BY threshold")
+            g.lead = try await groups("SELECT CAST(lead_min AS CHAR) AS k, COUNT(*) AS n FROM push_sub WHERE kind<>2 GROUP BY lead_min")
             for (column, keep) in [("COUNT(s.id)", 0), ("COALESCE(SUM(s.kind=1),0)", 1)] {
                 let raw = try await groups("SELECT CAST(LEAST(c, 3) AS CHAR) AS k, COUNT(*) AS n FROM (SELECT i.id, \(column) AS c FROM push_install i "
-                                           + "LEFT JOIN push_sub s ON s.install_id = i.id GROUP BY i.id) t GROUP BY LEAST(c, 3)")
+                                           + "LEFT JOIN push_sub s ON s.install_id = i.id AND s.kind<>2 GROUP BY i.id) t GROUP BY LEAST(c, 3)")
                 if keep == 0 { g.subscriptionsPerInstallation = raw.reduce(into: [:]) { $0[$1.key == "3" ? "3+" : $1.key, default: 0] += $1.value } }
                 else { g.regionsPerInstallation = raw }
             }

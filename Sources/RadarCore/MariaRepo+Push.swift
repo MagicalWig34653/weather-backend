@@ -114,9 +114,9 @@ extension MariaRepo {
             guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty else {
                 return .unknownInstallation
             }
-            let count = try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE install_id=?", [str(installationID)])
+            let count = try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE install_id=? AND kind<>2", [str(installationID)])
             guard (count.rows.first?.column("n")?.int ?? 0) < maxPerInstallation else { return .limitReached }
-            if (try await query(conn, "SELECT COUNT(*) AS n FROM push_sub")).rows.first?.column("n")?.int ?? 0 >= regionLimits.maxSubscriptionsServerwide {
+            if (try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE kind<>2")).rows.first?.column("n")?.int ?? 0 >= regionLimits.maxSubscriptionsServerwide {
                 return .serverFull
             }
             if input.liveActivity,
@@ -149,7 +149,7 @@ extension MariaRepo {
     public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool {
         try await transaction { conn in
             guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty,
-                  !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=?", [str(id), str(installationID)])).rows.isEmpty
+                  !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=? AND kind<>2", [str(id), str(installationID)])).rows.isEmpty
             else { return false }
             if input.liveActivity,
                (try await query(conn, "SELECT live_activity FROM push_sub WHERE id=?", [str(id)])).rows.first?.column("live_activity")?.int != 1,
@@ -174,13 +174,13 @@ extension MariaRepo {
     public func deleteSubscription(installationID: String, id: String) async throws -> Bool {
         regionCellsMemo.withLock { $0 = nil }
         return try await connection { conn in
-            try await query(conn, "DELETE FROM push_sub WHERE id=? AND install_id=?", [str(id), str(installationID)]).affected >= 1
+            try await query(conn, "DELETE FROM push_sub WHERE id=? AND install_id=? AND kind<>2", [str(id), str(installationID)]).affected >= 1
         }
     }
 
     public func subscriptions(installationID: String) async throws -> [PushSubscription] {
         try await connection { conn in
-            try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE install_id=? ORDER BY created_at, id", [str(installationID)])
+            try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE install_id=? AND kind<>2 ORDER BY created_at, id", [str(installationID)])
                 .rows.map(Self.subscription)
         }
     }
@@ -196,7 +196,7 @@ extension MariaRepo {
 
     public func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription] {
         try await connection { conn in
-            try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE enabled=1 AND grid_version=? AND id>? ORDER BY id LIMIT \(max(1, limit))",
+            try await query(conn, "SELECT \(Self.subColumns) FROM push_sub WHERE enabled=1 AND kind<>2 AND grid_version=? AND id>? ORDER BY id LIMIT \(max(1, limit))",
                             [MySQLData(int: gridVersion), str(after ?? "")]).rows.map(Self.subscription)
         }
     }

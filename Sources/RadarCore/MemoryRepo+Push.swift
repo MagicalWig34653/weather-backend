@@ -90,8 +90,8 @@ extension MemoryRepo {
     public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int,
                                 regionLimits: RegionLimits, now: Date) async throws -> AddSubscriptionResult {
         guard push.installs[installationID] != nil else { return .unknownInstallation }
-        guard push.subs.values.filter({ $0.installID == installationID }).count < maxPerInstallation else { return .limitReached }
-        guard push.subs.count < regionLimits.maxSubscriptionsServerwide else { return .serverFull }
+        guard push.subs.values.filter({ $0.installID == installationID && $0.value.kind != .warning }).count < maxPerInstallation else { return .limitReached }
+        guard push.subs.values.filter({ $0.value.kind != .warning }).count < regionLimits.maxSubscriptionsServerwide else { return .serverFull }
         if input.liveActivity, push.subs.values.filter({ $0.value.liveActivity }).count >= regionLimits.maxLiveActivitySubscriptions { return .activityCapacity }
         if input.kind == .circle {
             let usage = regionUsage(installationID: installationID, excluding: id)
@@ -112,7 +112,7 @@ extension MemoryRepo {
     }
 
     public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool {
-        guard var sub = push.subs[id], sub.installID == installationID else { return false }
+        guard var sub = push.subs[id], sub.installID == installationID, sub.value.kind != .warning else { return false }
         if input.liveActivity, !sub.value.liveActivity,
            push.subs.values.filter({ $0.value.liveActivity }).count >= regionLimits.maxLiveActivitySubscriptions { throw PushRegionLimitError.activityCapacity }
         if input.kind == .circle {
@@ -131,13 +131,13 @@ extension MemoryRepo {
     }
 
     public func deleteSubscription(installationID: String, id: String) async throws -> Bool {
-        guard let sub = push.subs[id], sub.installID == installationID else { return false }
+        guard let sub = push.subs[id], sub.installID == installationID, sub.value.kind != .warning else { return false }
         push.removeSub(id)
         return true
     }
 
     public func subscriptions(installationID: String) async throws -> [PushSubscription] {
-        push.subs.values.filter { $0.installID == installationID }.sorted { $0.createdAt == $1.createdAt ? $0.value.id < $1.value.id : $0.createdAt < $1.createdAt }
+        push.subs.values.filter { $0.installID == installationID && $0.value.kind != .warning }.sorted { $0.createdAt == $1.createdAt ? $0.value.id < $1.value.id : $0.createdAt < $1.createdAt }
             .map(\.value)
     }
 
@@ -147,7 +147,7 @@ extension MemoryRepo {
 
     public func evaluationSubscriptions(gridVersion: Int, after: String?, limit: Int) async throws -> [PushSubscription] {
         note("evaluationSubscriptions")
-        return Array(push.subs.values.map(\.value).filter { $0.enabled && $0.gridVersion == gridVersion && (after == nil || $0.id > after!) }
+        return Array(push.subs.values.map(\.value).filter { $0.enabled && $0.kind != .warning && $0.gridVersion == gridVersion && (after == nil || $0.id > after!) }
             .sorted { $0.id < $1.id }.prefix(max(1, limit)))
     }
 
