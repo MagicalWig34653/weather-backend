@@ -81,6 +81,8 @@ DASH_WARN_CAP_FILL_RED	Dashboard-Schwellen	number	0.95		0	1		live	0	Füllgrad ei
 DASH_WARN_LA_START_RATIO_YELLOW	Dashboard-Schwellen	number	0.7		0	1		live	0	Anteil zugestellter Live-Activity-Starts, untere Grenze gelb.
 DASH_WARN_LA_START_RATIO_RED	Dashboard-Schwellen	number	0.3		0	1		live	0	Anteil zugestellter Live-Activity-Starts, untere Grenze rot.
 DASH_MIN_GROUP	Dashboard-Schwellen	int	5		3	50		live	0	k-Unterdrückung: Gruppen darunter erscheinen als „<k“.
+WARN_INGEST_ENABLED	Warnungen	bool	false					envOnly	0	DWD-Warnungen abrufen und über /v1/warnings/active ausliefern (Fähigkeit warnings).
+WARN_PUSH_ENABLED	Warnungen	bool	false					envOnly	0	Warn-Abos und Warn-Pushes zulassen (braucht PUSH_ENABLED und WARN_INGEST_ENABLED; Fähigkeit warnings_push). Erst nach Freigabe einschalten.
 DEVICE_LINK_ENABLED	Geräte-Kopplung	bool	false					envOnly	0	Geräte-Kopplung einschalten (braucht Push und Dashboard): Geräte koppeln sich nur in einem vom Betreiber im Dashboard geöffneten Kopplungsfenster.
 DEVICE_LINK_BUNDLE_ID	Geräte-Kopplung	text:bundleIdentifier				155		envOnly	0	Bundle-ID der AppTransaction; leer = Basis von APNS_TOPIC.
 DEVICE_LINK_ALLOWED_ENVS	Geräte-Kopplung	text:free	Sandbox			500		envOnly	0	Erlaubte receiptType-Werte (Sandbox, Xcode, LocalTesting; Production nie).
