@@ -32,7 +32,7 @@ struct PublicRoutesTests {
                 #expect(res.headers.first(name: "Content-Language") == "en")
             }
             try await app.test(.HEAD, "/en") { res async in #expect(res.status == .ok) }
-            for p in ["/datenschutz", "/support", "/marketing", "/healthz"] {
+            for p in ["/datenschutz", "/support", "/impressum", "/marketing", "/healthz"] {
                 try await app.test(.GET, p) { res async in #expect(res.status == .ok, "\(p)") }
             }
         }

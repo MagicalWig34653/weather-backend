@@ -22,7 +22,7 @@ private func fullInfo(_ s: inout SiteInfo) {
 struct SitePageTests {
     @Test func pagesServeWithHeadings() async throws {
         let a = api(fullInfo)
-        for (path, heading) in [("/datenschutz", "<h1>Datenschutzerklärung</h1>"), ("/marketing", "<h1>Showers</h1>"), ("/support", "<h1>Support</h1>")] {
+        for (path, heading) in [("/datenschutz", "<h1>Datenschutzerklärung</h1>"), ("/marketing", "<h1>Showers</h1>"), ("/support", "<h1>Support</h1>"), ("/impressum", "<h1>Impressum</h1>")] {
             let r = try await a.handle(path: path, ifNoneMatch: nil)
             #expect(r.status == 200, "\(path)")
             #expect(text(r).contains(heading), "\(path)")
@@ -52,6 +52,19 @@ struct SitePageTests {
         #expect(t.contains("<h2>9. Betreiber-Diagnose (nur auf Freigabe des Betreibers, freiwillig)</h2>"))
         #expect(t.contains("Koppelcode") && t.contains("48 Stunden") && t.contains("bis zum Widerruf") && t.contains("Kopplungsfenster") && t.contains("Passkey") && !t.contains("App-Transaktion") && !t.contains("nur Testversionen"))
         #expect(t.contains("Es werden keine Standortdaten gespeichert"))
+    }
+
+    @Test func imprintShowsOperatorSourcesAndNavigation() async throws {
+        let t = text(try await api(fullInfo).handle(path: "/impressum", ifNoneMatch: nil))
+        #expect(t.contains("Erika Beispiel") && t.contains("Musterweg 1<br>12345 Musterstadt") && t.contains("mailto:kontakt@example.org"))
+        #expect(t.contains("§ 5 Digitale-Dienste-Gesetz") && !t.contains("class=\"warn\""))
+        #expect(t.contains("Quelle: Deutscher Wetterdienst") && t.contains("CC BY 4.0") && t.contains("EUMETSAT"))
+        for link in ["/datenschutz", "/support", "/marketing", "/impressum"] { #expect(t.contains("<a href=\"\(link)\">"), "\(link)") }
+        for path in ["/datenschutz", "/support", "/marketing"] {
+            #expect(text(try await api(fullInfo).handle(path: path, ifNoneMatch: nil)).contains("href=\"/impressum\""), "\(path)")
+        }
+        let none = text(try await api().handle(path: "/impressum", ifNoneMatch: nil))
+        #expect(none.contains(SitePages.missingNotice) && !none.contains("mailto:"))
     }
 
     @Test func configuredValuesAppearAndNoticeIsHidden() async throws {
@@ -112,7 +125,7 @@ struct SitePageTests {
         let health = try await a.handle(path: "/healthz", ifNoneMatch: nil)
         #expect(health.status == 200 && text(health) == "ok\n" && hdr(health, "Cache-Control") == "no-store")
         #expect(try await a.handle(path: "/v1/radar/latest.json", ifNoneMatch: nil).status == 404)  // nothing published
-        for bad in ["/datenschutz/", "/impressum", "/v1/radar/x"] {
+        for bad in ["/datenschutz/", "/impressum/", "/v1/radar/x"] {
             #expect(try await a.handle(path: bad, ifNoneMatch: nil).status == 404, "\(bad)")
         }
     }

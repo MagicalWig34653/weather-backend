@@ -362,7 +362,7 @@ public enum LandingPage {
         </section>
         </main>
         <footer class="foot"><div class="wrap">
-        <nav aria-label="\(e(c.footerNav))"><a href="/datenschutz">\(e(c.navPrivacy))</a><a href="/support">\(e(c.navSupport))</a><a href="/marketing">\(e(c.footerMore))</a><a href="\(c.switchHref)" hreflang="\(c.switchLang)" lang="\(c.switchLang)">\(other == .de ? "Deutsch" : "English")</a></nav>
+        <nav aria-label="\(e(c.footerNav))"><a href="/datenschutz">\(e(c.navPrivacy))</a><a href="/support">\(e(c.navSupport))</a><a href="/impressum">Impressum</a><a href="/marketing">\(e(c.footerMore))</a><a href="\(c.switchHref)" hreflang="\(c.switchLang)" lang="\(c.switchLang)">\(other == .de ? "Deutsch" : "English")</a></nav>
         <p>\(e(c.footerSource))</p>
         <p>Showers</p>
         </div></footer>

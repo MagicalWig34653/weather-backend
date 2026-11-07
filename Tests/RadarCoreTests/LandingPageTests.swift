@@ -39,7 +39,7 @@ struct LandingPageTests {
         let t = text(r)
         #expect(t.contains("<html lang=\"de\">") && t.contains("<h1 id=\"h-hero\">Regen im Blick.</h1>"))
         #expect(t.contains("Bald im App Store") && t.contains("Quelle: Deutscher Wetterdienst"))
-        #expect(t.contains("href=\"/datenschutz\"") && t.contains("href=\"/support\"") && t.contains("href=\"/marketing\""))
+        #expect(t.contains("href=\"/datenschutz\"") && t.contains("href=\"/support\"") && t.contains("href=\"/marketing\"") && t.contains("href=\"/impressum\""))
         #expect(t.contains("hreflang=\"en\" href=\"/en\"") && t.contains("rel=\"canonical\" href=\"/\""))
         #expect(t.contains("class=\"skip\" href=\"#main\""))
         #expect((try await api().handle(path: "/?utm=x", ifNoneMatch: nil)).status == 200)
@@ -180,10 +180,10 @@ struct LandingPageTests {
 
     @Test func linkedPagesAndOtherPathsUnchanged() async throws {
         let a = api()
-        for path in ["/datenschutz", "/support", "/marketing", "/healthz"] {
+        for path in ["/datenschutz", "/support", "/marketing", "/impressum", "/healthz"] {
             #expect(try await a.handle(path: path, ifNoneMatch: nil).status == 200, "\(path)")
         }
-        for bad in ["/en/", "/index.html", "/impressum", "/assets", "/assets/landing.css", "/robots.txt", "/v1/radar/x"] {
+        for bad in ["/en/", "/index.html", "/assets", "/assets/landing.css", "/robots.txt", "/v1/radar/x"] {
             #expect(try await a.handle(path: bad, ifNoneMatch: nil).status == 404, "\(bad)")
         }
     }

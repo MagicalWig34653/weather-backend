@@ -84,7 +84,7 @@ public enum SitePages {
         .muted,footer{color:var(--muted);font-size:.9rem}
         footer{margin-top:2.5rem;border-top:1px solid var(--line);padding-top:1rem}
         </style></head><body><main>
-        <nav><a href="/marketing">Showers</a><a href="/datenschutz">Datenschutz</a><a href="/support">Support</a></nav>
+        <nav><a href="/marketing">Showers</a><a href="/datenschutz">Datenschutz</a><a href="/support">Support</a><a href="/impressum">Impressum</a></nav>
         \(body)
         <footer>Quelle: Deutscher Wetterdienst. Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet.</footer>
         </main></body></html>
@@ -193,6 +193,7 @@ public enum SitePages {
         <li><a href="\(backendDocsURL)" rel="noopener noreferrer">Dokumentation des Radar-Dienstes</a></li>
         <li><a href="/datenschutz">Datenschutzerklärung</a></li>
         <li><a href="/support">Support</a></li>
+        <li><a href="/impressum">Impressum</a></li>
         </ul>
 
         <h2>Quelle</h2>
@@ -210,9 +211,42 @@ public enum SitePages {
         <p>Fragen, Fehler oder Wünsche zu Showers?</p>
         \(contact)
         <p>Fehler und Ideen kannst du auch auf <a href="\(issuesURL)" rel="noopener noreferrer">GitHub</a> melden. Bitte schreibe dort keine persönlichen Daten oder genauen Standorte.</p>
-        <p><a href="/datenschutz">Datenschutzerklärung</a></p>
+        <p><a href="/datenschutz">Datenschutzerklärung</a> · <a href="/impressum">Impressum</a></p>
         """
         return page(title: "Support", description: "Support für die Showers-App.", body: body)
+    }
+
+    public static func imprint(_ info: SiteInfo) -> String {
+        var provider = ""
+        if info.missingRequired {
+            provider += "<p class=\"warn\">\(escape(missingNotice))</p>"
+        }
+        var lines: [String] = []
+        if !info.operatorName.isEmpty { lines.append("<strong>\(multiline(info.operatorName))</strong>") }
+        if !info.operatorAddress.isEmpty { lines.append(multiline(info.operatorAddress)) }
+        if !lines.isEmpty { provider += "<p>" + lines.joined(separator: "<br>") + "</p>" }
+        let contact = info.operatorEmail.isEmpty ? "" : "<p>E-Mail: \(mailLink(info.operatorEmail))</p>"
+
+        let body = """
+        <h1>Impressum</h1>
+        <p class="muted">Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG) für die App Showers und den zugehörigen Radar-Dienst.</p>
+
+        <h2>Anbieter</h2>
+        \(provider)
+
+        <h2>Kontakt</h2>
+        \(contact)
+        <p>Weitere Wege der Kontaktaufnahme: <a href="/support">Support</a>.</p>
+
+        <h2>Datenschutz</h2>
+        <p>Informationen zur Verarbeitung personenbezogener Daten stehen in der <a href="/datenschutz">Datenschutzerklärung</a>.</p>
+
+        <h2>Quellen und Datenherkunft</h2>
+        <p>Quelle: Deutscher Wetterdienst. Die Radar- und Wetterdaten stammen vom Deutschen Wetterdienst (DWD) und sind als Rasterdaten bildlich wiedergegeben und aufbereitet (verändert).</p>
+        <p>Für Wolken- und Satellitenkarten gilt: Contains modified EUMETSAT Meteosat data. Die Daten von EUMETSAT stehen unter der Lizenz CC BY 4.0 und wurden verändert.</p>
+        <p>Showers ist ein unabhängiges Angebot und steht in keiner Verbindung zum DWD oder zu EUMETSAT. Die Angaben der App sind eine Orientierung und kein Ersatz für amtliche Warnungen und Wetterberichte.</p>
+        """
+        return page(title: "Impressum", description: "Impressum der Showers-App und des Radar-Dienstes.", body: body)
     }
 
     /// Path -> HTML for the public pages; nil for any other path.
@@ -221,6 +255,7 @@ public enum SitePages {
         case "/datenschutz": return privacy(info)
         case "/marketing": return marketing(info)
         case "/support": return support(info)
+        case "/impressum": return imprint(info)
         default: return nil
         }
     }

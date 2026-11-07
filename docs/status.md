@@ -2,6 +2,10 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 7. November 2026: Impressum
+
+Neue Seite `/impressum` (`SitePages.imprint`, § 5 DDG): Anbieter, Anschrift und E-Mail kommen wie bei `/datenschutz` aus `OPERATOR_*` (nichts hartcodiert, Hinweis bei fehlender Konfiguration), Quellen (DWD, EUMETSAT, CC BY 4.0, Hinweis kein Ersatz für amtliche Warnungen). Verlinkt in Nav/Footer aller Seiten, Stats-Gruppe `site_page`, Seitenname `imprint`. Datenschutztext unverändert. Tests: `swift test --filter "SitePageTests|LandingPageTests|PublicRoutesTests|StatsCollectorTests"` (40) grün. Nicht deployt. Vom Nutzer: `OPERATOR_NAME/ADDRESS/EMAIL` im Betrieb setzen; Telefon, USt-ID, Rechtsform/Vertretungsberechtigte, Register sind nicht vorgesehen und bei Bedarf zu ergänzen.
+
 ## Stand 7. November 2026: Warnungen, Vertrag W0 (nur Dokumentation)
 
 Vertrag für amtliche DWD-Warnungen (Unwetter, Frost, Glätte) in `docs-site/content/api.md` ("Amtliche Warnungen") mit Fixtures `docs/fixtures/warnings/` (echte Frost-Meldung vom 7.11. gekürzt, `active.200.json`, Abo-Request). Kein Code, keine Migration, nichts deployt; Capabilities `warnings`/`warnings_push` und Flags `WARN_INGEST_ENABLED`/`WARN_PUSH_ENABLED` sind noch nicht implementiert. Plan und Pakete W1/W2: App-Repo `docs/superpowers/plans/2026-11-07-warnungen-plan.md`. Push bleibt aus, bis der DWD auf die Rückfrage (CAP@dwd.de, Nutzeraufgabe) geantwortet hat und der Datenschutztext freigegeben ist. Nicht geprüft: Build/Tests (nur Docs geändert).

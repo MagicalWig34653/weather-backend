@@ -35,7 +35,7 @@ public enum StatsRoute {
         case "/healthz": return "healthz"
         case "/v1/status": return "status"
         case "/", "/en": return "landing"
-        case "/datenschutz", "/marketing", "/support": return "site_page"
+        case "/datenschutz", "/marketing", "/support", "/impressum": return "site_page"
         case "/v1/radar/latest.json": return "radar_latest"
         case "/v1/radar/history.json": return "radar_history"
         default: break
@@ -62,6 +62,7 @@ public enum StatsRoute {
         case "/datenschutz": return "privacy"
         case "/marketing": return "marketing"
         case "/support": return "support"
+        case "/impressum": return "imprint"
         default: return nil
         }
     }
