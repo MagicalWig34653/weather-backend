@@ -30,8 +30,8 @@ struct TempSourceTests {
     }
 
     @Test func layersMainSwitch() throws {
-        #expect(try Config.fromEnvironment(["LAYERS": "temperature"]).layers == ["temperature_wms"])
-        #expect(try Config.fromEnvironment(["LAYERS": "radar,lightning temperature"]).layers == ["lightning", "temperature_wms"])
+        #expect(try Config.fromEnvironment(["LAYERS": "temperature"]).layers == TempLayers.internalIDs)
+        #expect(try Config.fromEnvironment(["LAYERS": "radar,lightning temperature"]).layers == ["lightning"] + TempLayers.internalIDs)
         // Internal storage IDs are no operator values (incident 2026-11-08: temperature_wms in LAYERS aborted the start of an older image).
         for id in ["temperature_wms", "temperature_d2", "dewpoint_d2", "humidity_d2"] {
             #expect(throws: ConfigError.self) { try Config.fromEnvironment(["LAYERS": "radar,\(id)"]) }

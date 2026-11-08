@@ -171,6 +171,26 @@ public enum LayerCatalog {
             legend: TempWMS.legend(for: TempWMS.defaultLayer),
             modificationNotice: "Datenbasis: Deutscher Wetterdienst (ICON), Lufttemperatur 2 m bildlich wiedergegeben",
             wmsStyle: TempWMS.style(for: TempWMS.defaultLayer), tempVariant: .wms, publicID: "temperature", source: "wms"),
+        // ICON-D2 variants (GRIB from opendata.dwd.de, coloured by the server with the stepped scales of docs/fixtures/scales/scales-v1.json).
+        // No WMS layer or legend: the app draws the legend from the `scale` ID. Public IDs: temperature, dewpoint, humidity.
+        TempLayers.d2Temperature: LayerSpec(
+            id: TempLayers.d2Temperature, title: "Temperatur (ICON-D2)", kind: .forecast, provider: .dwd,
+            wmsLayer: "", capsWorkspace: nil, capsLayer: nil, stepSeconds: 3600,
+            transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: 0, legend: nil,
+            modificationNotice: "Datenbasis: Deutscher Wetterdienst (ICON-D2), Lufttemperatur 2 m bildlich wiedergegeben",
+            tempVariant: .d2, publicID: "temperature", source: "icon_d2", scaleID: "t2m-d2-v1"),
+        TempLayers.d2Dewpoint: LayerSpec(
+            id: TempLayers.d2Dewpoint, title: "Taupunkt (ICON-D2)", kind: .forecast, provider: .dwd,
+            wmsLayer: "", capsWorkspace: nil, capsLayer: nil, stepSeconds: 3600,
+            transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: 0, legend: nil,
+            modificationNotice: "Datenbasis: Deutscher Wetterdienst (ICON-D2), Taupunkt 2 m bildlich wiedergegeben",
+            tempVariant: .d2, publicID: "dewpoint", source: "icon_d2", scaleID: "td-d2-v1"),
+        TempLayers.d2Humidity: LayerSpec(
+            id: TempLayers.d2Humidity, title: "Relative Feuchte (ICON-D2)", kind: .forecast, provider: .dwd,
+            wmsLayer: "", capsWorkspace: nil, capsLayer: nil, stepSeconds: 3600,
+            transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: 0, legend: nil,
+            modificationNotice: "Datenbasis: Deutscher Wetterdienst (ICON-D2), relative Feuchte 2 m bildlich wiedergegeben",
+            tempVariant: .d2, publicID: "humidity", source: "icon_d2", scaleID: "rh-d2-v1"),
     ]
 
     /// Operator-facing tokens of `LAYERS` besides `radar` and `temperature` (the internal storage IDs are not offered).
@@ -179,7 +199,8 @@ public enum LayerCatalog {
     public static var operatorTokens: [String] { publicOrder + ["temperature"] }
 
     /// Fixed order for logs and loops.
-    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", TempLayers.wms]
+    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", TempLayers.wms,
+                                      TempLayers.d2Temperature, TempLayers.d2Dewpoint, TempLayers.d2Humidity]
 
     /// Parses `LAYERS` (comma or space separated). `radar` is accepted but ignored: the radar always runs.
     /// `temperature` is the main switch of the temperature/humidity layers: it enables the internal storage layers of all sources

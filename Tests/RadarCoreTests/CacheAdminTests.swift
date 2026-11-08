@@ -191,7 +191,7 @@ struct CacheToolsTests {
         #expect(sameShape(r.json, fixture("cache.200.json")).isEmpty)
         let json = try #require(r.json as? [String: Any])
         let layers = try #require(json["layers"] as? [[String: Any]])
-        #expect(layers.map { $0["id"] as? String } == ["radar", "pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", "temperature_wms"])
+        #expect(layers.map { $0["id"] as? String } == ["radar", "pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", "temperature_wms", "temperature_d2", "dewpoint_d2", "humidity_d2"])
         let radar = layers[0], lightning = layers.first { $0["id"] as? String == "lightning" }!
         #expect(radar["runs"] as? Int == 1 && radar["slots"] as? Int == TimeUtil.forecastSlots && radar["bytes"] as? Int == TimeUtil.forecastSlots * 10)
         #expect(radar["state"] as? String == "current" && radar["lastAttemptResult"] as? String == "ok")

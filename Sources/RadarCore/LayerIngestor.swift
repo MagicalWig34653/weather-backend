@@ -40,16 +40,19 @@ public final class LayerIngestor: Sendable {
     let sleep: @Sendable (Double) async -> Void
     let clock: @Sendable () -> Date
     let stats: any StatsSink
+    /// ICON-D2 layers only: the grid a GRIB file must have (tests use tiny grids).
+    let d2Grid: GribGrid
 
     public convenience init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                            clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
-        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats)
+                            clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2) {
+        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats, d2Grid: d2Grid)
     }
 
     public init(spec: LayerSpec, configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2) {
+        self.d2Grid = d2Grid
         self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.sleep = sleep; self.clock = clock; self.stats = stats
     }
@@ -264,7 +267,8 @@ public final class LayerIngestor: Sendable {
         // Temperature layers: TEMP_SOURCE is read per tick (live); a closed gate costs no request and no lease.
         if let variant = spec.tempVariant, !TempResolver.ingestAllowed(variant: variant, config: config) { return LayerTickResult() }
         do {
-            let result = spec.kind == .forecast ? try await tickForecast() : try await tickObservation()
+            let result = spec.tempVariant == .d2 ? try await tickIcon2D()
+                : spec.kind == .forecast ? try await tickForecast() : try await tickObservation()
             if result.published != nil { stats.record("ingest_run", label: "\(spec.id):ok") }
             if result.failed > 0 { stats.record("ingest_run", label: "\(spec.id):missed", by: result.failed) }
             return result
