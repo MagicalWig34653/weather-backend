@@ -191,6 +191,7 @@ check_config_with_image() {
   esac
   rc=0
   while IFS= read -r key; do args+=(-e "$key"); done < <(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$file" | sort -u)
+  # shellcheck disable=SC1090  # operator env file, path is not constant
   out="$(set -a; . "$file"; set +a; docker "${args[@]}" "$image" check-config 2>&1)" || rc=$?
   if [ "$rc" = 0 ]; then printf '%s\n' "$out"; return 0; fi
   case "$out" in
