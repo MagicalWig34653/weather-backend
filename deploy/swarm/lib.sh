@@ -182,6 +182,14 @@ check_dashboard_rollout() {
 check_config_with_image() {
   local file="$1" image="$2" key out rc=0
   local -a args=(run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges)
+  # Probe with an EMPTY environment first: an image older than the check loads the full configuration before it looks at the
+  # command, so with the real values it would report e.g. "PUSH_ENABLED=true needs APNS_KEY_FILE..." (that file is a Swarm secret
+  # that only exists in the service) instead of "usage". With the defaults alone it reaches the usage line, which identifies it.
+  out="$(docker "${args[@]}" "$image" check-config 2>&1)" || rc=$?
+  case "$out" in
+    *"usage: radar"*) echo "Note: this image has no check-config command (older than the check); skipped." >&2; return 0 ;;
+  esac
+  rc=0
   while IFS= read -r key; do args+=(-e "$key"); done < <(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$file" | sort -u)
   out="$(set -a; . "$file"; set +a; docker "${args[@]}" "$image" check-config 2>&1)" || rc=$?
   if [ "$rc" = 0 ]; then printf '%s\n' "$out"; return 0; fi
