@@ -16,6 +16,8 @@ export const errorText: Record<string, string> = {
 	push_disabled: 'Push ist ausgeschaltet; Aufträge werden nicht ausgeführt.',
 	push_state_unknown:
 		'Der Push-Zustand ist unbekannt: kein Radar-Replikat hat sich kürzlich gemeldet.',
+	no_warn_subscription:
+		'Dieses Gerät hat kein aktives Warn-Abo. Lege in der App ein Warn-Abo für einen Ort an und versuche es erneut.',
 	command_pending: 'Für dieses Gerät läuft bereits ein gleichartiger Auftrag.',
 	action_rate_limited: 'Zu viele Aktionen in kurzer Zeit. Später erneut versuchen.',
 	rate_limited: 'Zu viele Anfragen. Später erneut versuchen.',

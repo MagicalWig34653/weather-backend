@@ -117,6 +117,22 @@ struct DeviceLinkTests {
         #expect(try await repo.devices().count == 2)
     }
 
+    @Test(arguments: RepoKind.allCases) func commandParameterRoundTrips(kind: RepoKind) async throws {
+        let repo = try await kind.make(); let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        try await register(repo, installA, now: now)
+        let hash = LinkCode.hash("PRM00000")
+        _ = try await repo.createLinkCode(installationID: installA, codeHash: hash, attested: true, now: now, ttl: 600, maxDevices: 3)
+        let id = UUID().uuidString.lowercased()
+        guard case .paired = try await repo.pairDevice(codeHash: hash, label: "d", deviceID: id, now: now, maxDevices: 3, ttlDays: 0) else { Issue.record("pair"); return }
+        guard case .created(let warn) = try await repo.createCommand(deviceID: id, kind: .warnTest, dryRun: nil, param: "ice:3", now: now) else { Issue.record("warn"); return }
+        guard case .created(let plain) = try await repo.createCommand(deviceID: id, kind: .test, dryRun: nil, now: now.addingTimeInterval(1)) else { Issue.record("test"); return }
+        #expect(warn.param == "ice:3" && plain.param == nil)
+        #expect(try await repo.command(id: warn.id, deviceID: id)?.param == "ice:3")
+        let claimed = try await repo.claimNextCommand(now: now)
+        #expect(claimed?.param == "ice:3")
+        #expect(try await repo.command(id: plain.id, deviceID: id)?.param == nil)
+    }
+
     @Test(arguments: RepoKind.allCases) func commandsAndEventsContract(kind: RepoKind) async throws {
         let repo = try await kind.make(); let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         try await register(repo, installA, now: now)

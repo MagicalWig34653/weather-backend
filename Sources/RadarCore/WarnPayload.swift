@@ -18,15 +18,19 @@ public enum WarnPayload {
     }
 
     /// nil when the size limit cannot be met (cannot happen with the fixed alert).
-    public static func make(alert: WarnAlert, subID: String, timeSensitive: Bool) -> String? {
+    ///
+    /// `test: true` (operator test from the dashboard) adds the top-level key `"test": true` and leaves everything else identical,
+    /// so the app shows it exactly like a real warning; the payload carries no DWD wording either way.
+    public static func make(alert: WarnAlert, subID: String, timeSensitive: Bool, test: Bool = false) -> String? {
         let t = titleKey(alert.kind)
         let level = String(alert.severity)
         let alertDict: [String: Any] = ["title": "\(t.fallback) \(level)", "body": bodyFallback,
                                         "title-loc-key": t.key, "title-loc-args": [level], "loc-key": bodyKey]
         var aps: [String: Any] = ["alert": alertDict, "sound": "default", "thread-id": subID, "mutable-content": 1]
         if timeSensitive || alert.severity >= 4 { aps["interruption-level"] = "time-sensitive" }
-        let object: [String: Any] = ["aps": aps, "type": "warning", "kind": alert.kind.rawValue, "severity": alert.severity,
+        var object: [String: Any] = ["aps": aps, "type": "warning", "kind": alert.kind.rawValue, "severity": alert.severity,
                                      "sent": TimeUtil.toISO(alert.sent), "warning_id": alert.identifier]
+        if test { object["test"] = true }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), let json = String(data: data, encoding: .utf8),
               json.utf8.count <= maxPayloadBytes else { return nil }
         return json

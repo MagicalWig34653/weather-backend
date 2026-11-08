@@ -21,11 +21,11 @@ struct MemoryCommandStore {
 }
 
 extension MemoryRepo: DeviceCommandRepo {
-    public func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, now: Date) async throws -> CreateCommandResult {
+    public func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, param: String?, now: Date) async throws -> CreateCommandResult {
         commandStore.reapStuck(now: now)
         guard let device = deviceStore.devices[deviceID], push.installs[device.installID] != nil else { return .deviceGone }
         if commandStore.commands.values.contains(where: { $0.deviceID == deviceID && $0.kind == kind && ($0.status == .queued || $0.status == .running) }) { return .pending }
-        let command = DeviceCommand(id: UUID().uuidString.lowercased(), deviceID: deviceID, kind: kind, dryRun: dryRun, status: .queued, createdAt: now)
+        let command = DeviceCommand(id: UUID().uuidString.lowercased(), deviceID: deviceID, kind: kind, dryRun: dryRun, param: param, status: .queued, createdAt: now)
         commandStore.commands[command.id] = command
         let own = commandStore.commands.values.filter { $0.deviceID == deviceID }.sorted { $0.createdAt < $1.createdAt }
         for old in own.dropLast(DeviceRetention.maxCommandsPerDevice) { commandStore.commands[old.id] = nil }

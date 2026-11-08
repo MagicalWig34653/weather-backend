@@ -48,10 +48,11 @@ private struct Harness {
     /// `replica`: what the radar replica reports (the dashboard process itself runs with push off in the split deployment);
     /// `leader`: a push leader lease is held.
     init(linkEnabled: Bool = true, sender: FakeApnsSender = FakeApnsSender(), maxDevices: Int = 3,
-         replica: PushReplicaReport? = PushReplicaReport(enabled: true, environments: "both", liveActivity: true), leader: Bool = true) async throws {
+         replica: PushReplicaReport? = PushReplicaReport(enabled: true, environments: "both", liveActivity: true), leader: Bool = true,
+         warnPush: Bool = true) async throws {
         var c = smallConfig {
             $0.width = 64; $0.push.enabled = true; $0.push.topic = "de.example.app"; $0.push.environments = [.sandbox, .production]
-            $0.deviceLink.enabled = linkEnabled; $0.deviceLink.maxDevices = maxDevices
+            $0.deviceLink.enabled = linkEnabled; $0.deviceLink.maxDevices = maxDevices; $0.warn.pushEnabled = warnPush
         }
         c.push.keyID = "K"; c.push.teamID = "T"
         config = c
@@ -213,6 +214,85 @@ struct DeviceDashboardTests {
         let r = try await h.runCommand(id, "test")
         let result = try #require(r["result"] as? [String: Any])
         #expect(result["outcome"] as? String == "rejected" && result["reason"] as? String == "BadDeviceToken" && result["apnsStatus"] as? Int == 400)
+    }
+
+    // MARK: warning test
+
+    private func addWarnSub(_ h: Harness, enabled: Bool = true, timeSensitive: Bool = false) async throws {
+        _ = try await h.repo.addWarnSubscription(installationID: installID, id: subID,
+                                                 WarnSubscriptionInput(warncellIDs: ["814522510"], types: Set(WarnKind.allCases), enabled: enabled, timeSensitive: timeSensitive), now: Date())
+    }
+
+    @Test func warnTestSendsWarnPayloadToThisDeviceOnly() async throws {
+        let h = try await Harness()
+        let id = try await h.link()
+        try await addWarnSub(h)
+        let done = try await h.runCommand(id, "warn-test", body: #"{"type":"ice","level":4}"#)
+        #expect(done["status"] as? String == "done" && done["kind"] as? String == "warn_test" && sameShape(done, fixture("command.done-warn_test.json")).isEmpty)
+        let request = try #require(await h.sender.requests.first)
+        #expect(await h.sender.requests.count == 1 && request.tokenHex == deviceToken && request.activityEvent == nil)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(request.payload)) as? [String: Any])
+        let aps = try #require(object["aps"] as? [String: Any])
+        let alert = try #require(aps["alert"] as? [String: Any])
+        #expect(aps["thread-id"] as? String == subID && aps["mutable-content"] as? Int == 1 && aps["interruption-level"] as? String == "time-sensitive")
+        #expect(alert["title-loc-key"] as? String == "WARN_PUSH_TITLE_ICE" && alert["title-loc-args"] as? [String] == ["4"] && alert["loc-key"] as? String == "WARN_PUSH_BODY")
+        #expect(object["type"] as? String == "warning" && object["kind"] as? String == "ice" && object["severity"] as? Int == 4 && object["test"] as? Bool == true)
+        #expect(object["warning_id"] as? String == "test" && !String(decoding: request.payload, as: UTF8.self).contains("DWD"))
+        // Nothing is stored as a real warning or as a sent state; the audit holds only the check value.
+        #expect(try await h.repo.warnSent(subID: subID).isEmpty)
+        let events = await h.call("GET", "/dash/api/devices/\(id)/events")
+        #expect(((events.json as? [String: Any])?["events"] as? [[String: Any]])?.first?["kind"] as? String == "warn_test")
+        let audit = try await h.repo.auditEntries(limit: 5)
+        #expect(audit.contains { $0.action == .deviceAction && $0.outcome == "warn_test:delivered" })
+    }
+
+    @Test func warnTestDefaultsToFrostLevelOneWithoutTimeSensitive() async throws {
+        let h = try await Harness()
+        let id = try await h.link()
+        try await addWarnSub(h)
+        _ = try await h.runCommand(id, "warn-test")
+        let sent = try #require(await h.sender.requests.first)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(sent.payload)) as? [String: Any])
+        #expect(object["kind"] as? String == "frost" && object["severity"] as? Int == 1 && (object["aps"] as? [String: Any])?["interruption-level"] == nil)
+    }
+
+    @Test func warnTestValidationHintsAndRateLimit() async throws {
+        let h = try await Harness()
+        let id = try await h.link()
+        for body in [#"{"type":"hail"}"#, #"{"level":0}"#, #"{"level":5}"#, #"{"level":"2"}"#, #"{"type":"frost","x":1}"#] {
+            #expect(await h.call("POST", "/dash/api/devices/\(id)/actions/warn-test", body: body).status == 400)
+        }
+        // No (enabled) warning subscription: hint instead of a command.
+        let none = await h.call("POST", "/dash/api/devices/\(id)/actions/warn-test")
+        #expect(none.status == 409 && (none.json as? [String: Any])?["error"] as? String == "no_warn_subscription")
+        try await addWarnSub(h, enabled: false)
+        #expect(await h.call("POST", "/dash/api/devices/\(id)/actions/warn-test").status == 409)
+        #expect(await h.sender.requests.isEmpty)
+        let h2 = try await Harness()
+        let id2 = try await h2.link()
+        try await addWarnSub(h2)
+        #expect(await h2.call("POST", "/dash/api/devices/\(id2)/actions/warn-test").status == 202)
+        await h2.service.processCommands()
+        let limited = await h2.call("POST", "/dash/api/devices/\(id2)/actions/warn-test")
+        #expect(limited.status == 429 && (limited.json as? [String: Any])?["error"] as? String == "action_rate_limited")
+        #expect(limited.response.headers.contains { $0.0 == "Retry-After" && $0.1 == "30" })
+    }
+
+    @Test func warnTestFailsClearlyWithoutWarnPush() async throws {
+        let h = try await Harness(warnPush: false)
+        let id = try await h.link()
+        try await addWarnSub(h)
+        let queued = await h.call("POST", "/dash/api/devices/\(id)/actions/warn-test")
+        #expect(queued.status == 202)
+        await h.service.processCommands()
+        let commandID = try #require((queued.json as? [String: Any])?["commandId"] as? String)
+        let done = try #require(await h.call("GET", "/dash/api/devices/\(id)/commands/\(commandID)").json as? [String: Any])
+        #expect(done["status"] as? String == "failed" && done["error"] as? String == "warn_push_disabled")
+        #expect(await h.sender.requests.isEmpty)
+        // Push off in all replicas / no leader: same errors as the other actions.
+        let off = try await Harness(replica: PushReplicaReport(enabled: false, environments: "both", liveActivity: false), leader: false)
+        let id3 = try await off.link()
+        #expect(await off.call("POST", "/dash/api/devices/\(id3)/actions/warn-test").status == 503)
     }
 
     @Test func probeUsesRealStartPathWithTestAlert() async throws {

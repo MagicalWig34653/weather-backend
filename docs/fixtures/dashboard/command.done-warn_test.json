@@ -1,0 +1,16 @@
+{
+  "commandId": "5d1c3b7e-2a64-4f08-9b1e-3c7a8e0d4f21",
+  "createdAt": "2026-11-06T09:22:00Z",
+  "kind": "warn_test",
+  "status": "done",
+  "startedAt": "2026-11-06T09:21:01Z",
+  "finishedAt": "2026-11-06T09:21:02Z",
+  "dryRun": null,
+  "result": {
+    "outcome": "delivered",
+    "apnsStatus": 200,
+    "reason": null,
+    "skipped": null
+  },
+  "error": null
+}

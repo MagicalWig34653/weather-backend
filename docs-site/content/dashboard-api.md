@@ -351,14 +351,14 @@ Immer neun Prüfungen in fester Reihenfolge (`order`). `verdict` = erste Prüfun
 
 ### `GET /dash/api/devices/{id}/events?limit=`
 
-`limit` 1 bis 200 (Standard 50). `200 {"events":[{"at":ISO,"kind":"alert"|"la_start"|"la_update"|"la_end"|"test"|"probe"|"token","outcome":"delivered"|"rejected"|"retry"|"dropped"|"skipped","reason":string|null}]}`, neueste zuerst; `reason` ist ein APNs-Reason (siehe oben) oder ein Überspringgrund. Aufbewahrung 48 Stunden, höchstens 200 Zeilen je Gerät; nur für gekoppelte Geräte geschrieben.
+`limit` 1 bis 200 (Standard 50). `200 {"events":[{"at":ISO,"kind":"alert"|"la_start"|"la_update"|"la_end"|"test"|"probe"|"warn_test"|"token","outcome":"delivered"|"rejected"|"retry"|"dropped"|"skipped","reason":string|null}]}`, neueste zuerst; `reason` ist ein APNs-Reason (siehe oben) oder ein Überspringgrund. Aufbewahrung 48 Stunden, höchstens 200 Zeilen je Gerät; nur für gekoppelte Geräte geschrieben.
 
 ### Aktionen und Befehlstabelle
 
-`POST /dash/api/devices/{id}/actions/{action}` mit `action` ∈ `test`, `la-probe`, `la-end`, `reeval`, `reset-slot`. Body `{}`; `reeval` nimmt `{"dryRun":true|false}` (Standard `true`). Das Dashboard-Prozess sendet selbst nichts (Entscheidung D6): Die Aktion schreibt einen Auftrag in `dashboard_command`; der Leader der `radar`-Replikate fragt die Tabelle alle 2 Sekunden ab, führt aus und schreibt das Ergebnis. Antwort `202`:
+`POST /dash/api/devices/{id}/actions/{action}` mit `action` ∈ `test`, `la-probe`, `la-end`, `reeval`, `reset-slot`, `warn-test`. Body `{}`; `reeval` nimmt `{"dryRun":true|false}` (Standard `true`); `warn-test` nimmt `{"type":"severe_weather"|"frost"|"ice","level":1..4}` (beide optional, Standard `frost`/`1`, weitere Felder: `400 validation`). Das Dashboard-Prozess sendet selbst nichts (Entscheidung D6): Die Aktion schreibt einen Auftrag in `dashboard_command`; der Leader der `radar`-Replikate fragt die Tabelle alle 2 Sekunden ab, führt aus und schreibt das Ergebnis. Antwort `202`:
 
 ```
-{ "commandId": "<uuid>", "kind": "test"|"la_probe"|"la_end"|"reeval"|"reset_slot", "status": "queued", "createdAt": ISO }
+{ "commandId": "<uuid>", "kind": "test"|"la_probe"|"la_end"|"reeval"|"reset_slot"|"warn_test", "status": "queued", "createdAt": ISO }
 ```
 
 Ergebnis per `GET /dash/api/devices/{id}/commands/{commandId}` (Polling 1 bis 2 s, höchstens 2 Minuten):
@@ -380,8 +380,9 @@ Ergebnisformen (`result`, nur bei `status: "done"`):
 | `la_end` | `{"outcome":…,"hadActivity":bool,"reservationCleared":bool}` |
 | `reeval` | `{"dryRun":bool,"radar":Radar,"subscriptions":[ReevalRow]}` (Form unten; `sent` nur bei `dryRun: false`) |
 | `reset_slot` | `{"cleared":"none"\|"reservation"\|"activity"}` |
+| `warn_test` | wie `test`, zusätzlich `"skipped":null\|"no_warn_subscription"` (dann `outcome: "dropped"`, kein Versand; nur wenn das Abo zwischen Anfrage und Ausführung verschwand) |
 
-`error` bei `status: "failed"`: `apns_unavailable`, `environment_not_allowed`, `device_gone` (Installation inzwischen gelöscht), `internal`. Die Pfade verwenden dieselben Dienste wie der normale Betrieb (echter Startpfad, Payload-Vertrag P8); die Probe ignoriert 60-Minuten-Sperre und Hysterese, **nicht** den Platz-/Token-Check, und sendet den Alert-Text `Live-Activity-Test` (`en`: `Live Activity test`). Neuauswertung mit Versand (`dryRun: false`) berücksichtigt Sperren wie ein Tick.
+`error` bei `status: "failed"`: `apns_unavailable`, `environment_not_allowed`, `warn_push_disabled` (nur `warn_test`: `WARN_PUSH_ENABLED` ist auf dem ausführenden Leader aus; nichts gesendet), `device_gone` (Installation inzwischen gelöscht), `internal`. Die Pfade verwenden dieselben Dienste wie der normale Betrieb (echter Startpfad, Payload-Vertrag P8); die Probe ignoriert 60-Minuten-Sperre und Hysterese, **nicht** den Platz-/Token-Check, und sendet den Alert-Text `Live-Activity-Test` (`en`: `Live Activity test`). Neuauswertung mit Versand (`dryRun: false`) berücksichtigt Sperren wie ein Tick.
 
 **`reeval`: Ergebnisform (additiv, 7. November 2026).** Alte Felder (`index`, `decision`, `sent`) bleiben; neue Felder sind additiv, unbekannte Werte zeigt ein Client als Rohtext.
 
@@ -421,10 +422,13 @@ Place = { lat: number, lon: number, x: int, y: int, cellKm: number }    // Mitte
 | `reeval` (`dryRun: true`) | 20 pro Stunde | wie oben |
 | `reeval` (`dryRun: false`) | 3 pro Stunde | wie oben |
 | `reset-slot` | 6 pro Stunde | wie oben |
+| `warn-test` | 1 pro 30 Sekunden | `429 action_rate_limited` mit `Retry-After: 30` |
 
-Weitere Fehler: `400 validation` (unbekannte Aktion, falscher Typ von `dryRun`), `404 not_found`, `409 command_pending` (für dieselbe Art läuft bereits ein Auftrag dieses Geräts), `409 link_disabled`, `503 push_leader_missing` (Push läuft, aber kein Leader-Lease: der Auftrag würde nicht ausgeführt), `503 push_disabled` (alle frischen Replikate melden Push aus), `503 push_state_unknown` (kein Replikat meldet sich). Jede Aktion erzeugt einen Audit-Eintrag `device_action` und einen Ereigniseintrag.
+Weitere Fehler: `400 validation` (unbekannte Aktion, falscher Typ von `dryRun`), `404 not_found`, `409 command_pending` (für dieselbe Art läuft bereits ein Auftrag dieses Geräts), `409 link_disabled`, `409 no_warn_subscription` (nur `warn-test`: das Gerät hat kein aktives Warn-Abo; es wird kein Auftrag angelegt), `503 push_leader_missing` (Push läuft, aber kein Leader-Lease: der Auftrag würde nicht ausgeführt), `503 push_disabled` (alle frischen Replikate melden Push aus), `503 push_state_unknown` (kein Replikat meldet sich). Jede Aktion erzeugt einen Audit-Eintrag `device_action` und einen Ereigniseintrag.
 
-Tabelle `dashboard_command` (Migration 011 oder 012): `id CHAR(36) PK`, `device_id CHAR(36)` (FK `dashboard_device`, `ON DELETE CASCADE`), `kind VARCHAR(16)`, `dry_run TINYINT NULL`, `status VARCHAR(8)`, `created_at`, `started_at NULL`, `finished_at NULL`, `result JSON NULL` (nur die festen Felder oben), `error VARCHAR(32) NULL`. Index `(status, created_at)` für den Leader.
+**`warn-test` (Testwarnung, additiv 8. November 2026).** Prüft die Darstellung eines Warn-Pushes (Benachrichtigungserweiterung, Ortsname im Untertitel, Unterbrechungsstufe) auf genau diesem Gerät. Der Leader baut die Nachricht mit demselben `WarnPayload` wie echte Warnungen (eigene Kurzmeldung per `title-loc-key`/`loc-key`, `mutable-content`, `thread-id` = ID eines aktiven Warn-Abos des Geräts, `type: "warning"`, `kind`, `severity`) und sendet sie über denselben APNs-Sender wie die Testmeldung (direkt, nicht über den Outbox-Puffer). Unterschiede zu einer echten Warnung: zusätzlich `"test": true` und `warning_id: "test"`; kein DWD-Wortlaut, keine amtliche Aussage; nichts wird als Warnung oder in `warn_sent` gespeichert, Dedupe, Sperren und Hysterese bleiben unberührt, keine Kopplung an den Feed. `interruption-level: time-sensitive` wie bei echten Warnungen ab Stufe 4 oder bei zeitkritischem Abo. Voraussetzungen: Kopplung, Push an, Leader aktiv (sonst die `503`-Fehler oben), `WARN_PUSH_ENABLED` auf dem Leader (sonst `failed: warn_push_disabled`) und mindestens ein aktives Warn-Abo des Geräts (sonst `409 no_warn_subscription`). Audit: `device_action` mit `outcome` `warn_test:<outcome>` (nur der Prüfwert, keine Namen, Orte oder Koordinaten); Ereignis `warn_test`. Der Auftragsparameter (`type:level`) liegt in `dashboard_command.param` (Migration 018).
+
+Tabelle `dashboard_command` (Migration 011 oder 012): `id CHAR(36) PK`, `device_id CHAR(36)` (FK `dashboard_device`, `ON DELETE CASCADE`), `kind VARCHAR(16)`, `dry_run TINYINT NULL`, `param VARCHAR(16) NULL` (Migration 018, nur `warn_test`: `<type>:<level>`), `status VARCHAR(8)`, `created_at`, `started_at NULL`, `finished_at NULL`, `result JSON NULL` (nur die festen Felder oben), `error VARCHAR(32) NULL`. Index `(status, created_at)` für den Leader.
 
 ### `DELETE /dash/api/devices/{id}`
 
@@ -556,6 +560,6 @@ Verbindlich für Server und Frontend (6. November 2026):
 
 ## Zusammenfassung Fehlercodes dieses Vertrags
 
-`validation` 400; `unauthorized` 401; `forbidden` 403; `not_found` 404; `code_unknown` 404; `conflict` 409; `device_limit` 409; `link_disabled` 409; `command_pending` 409; `locked_by_env` 409; `rate_limited` 429; `action_rate_limited` 429; `data_unavailable` 503; `push_leader_missing`, `push_disabled`, `push_state_unknown` 503 (nur Geräteaktionen).
+`validation` 400; `unauthorized` 401; `forbidden` 403; `not_found` 404; `code_unknown` 404; `conflict` 409; `device_limit` 409; `link_disabled` 409; `command_pending` 409; `no_warn_subscription` 409; `locked_by_env` 409; `rate_limited` 429; `action_rate_limited` 429; `data_unavailable` 503; `push_leader_missing`, `push_disabled`, `push_state_unknown` 503 (nur Geräteaktionen).
 
 Erweiterung 6. November 2026: `layer_disabled` 409; `refresh_pending` 409; `unsupported_media` 415; `too_large` 413; `ingest_unavailable` 503.

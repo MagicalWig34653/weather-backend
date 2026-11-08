@@ -157,6 +157,7 @@ export const skipName: Record<string, string> = {
 	activity_slot_busy: 'Platz belegt (Live Activity läuft)',
 	reservation_pending: 'Reservierung offen',
 	not_enabled: 'Abo nicht aktiviert',
+	no_warn_subscription: 'Kein aktives Warn-Abo auf dem Gerät',
 	budget_exhausted: 'Budget erschöpft',
 	below_threshold: 'Unter der Schwelle',
 	env_not_allowed: 'APNs-Umgebung nicht erlaubt',
@@ -303,6 +304,7 @@ export const eventKindName: Record<string, string> = {
 	la_end: 'Live Activity beendet',
 	test: 'Testpush',
 	probe: 'Live-Activity-Test',
+	warn_test: 'Testwarnung',
 	token: 'Token geändert'
 };
 export const eventReasonName: Record<string, string> = { ...skipName };
@@ -440,7 +442,8 @@ export const commandKindName: Record<string, string> = {
 	la_probe: 'Live-Activity-Test',
 	la_end: 'Live Activity beenden',
 	reeval: 'Neuauswertung',
-	reset_slot: 'Platz freigeben'
+	reset_slot: 'Platz freigeben',
+	warn_test: 'Testwarnung'
 };
 export const commandStatusName: Record<string, string> = {
 	queued: 'wartet',
@@ -455,6 +458,8 @@ export const commandErrorName: Record<string, string> = {
 	apns_unavailable: 'APNs war nicht erreichbar.',
 	environment_not_allowed: 'Die APNs-Umgebung des Geräts ist auf diesem Server nicht erlaubt.',
 	device_gone: 'Die Installation ist inzwischen gelöscht.',
+	warn_push_disabled:
+		'Warn-Pushes sind auf dem Server ausgeschaltet (WARN_PUSH_ENABLED). Es wurde nichts gesendet.',
 	internal: 'Interner Fehler im Versandpfad.'
 };
 
@@ -467,6 +472,12 @@ export function commandResultText(kind: string, r: Record<string, unknown> | nul
 			return outcome === 'zugestellt'
 				? `Testpush von APNs angenommen (HTTP ${r.apnsStatus ?? '–'}).`
 				: `Testpush ${outcome ?? 'ohne Ergebnis'}${r.reason ? `: ${r.reason}` : ''}.`;
+		case 'warn_test':
+			return r.skipped
+				? `Nicht gesendet: ${skipName[String(r.skipped)] ?? r.skipped}.`
+				: outcome === 'zugestellt'
+					? `Testwarnung von APNs angenommen (HTTP ${r.apnsStatus ?? '–'}).`
+					: `Testwarnung ${outcome ?? 'ohne Ergebnis'}${r.reason ? `: ${r.reason}` : ''}.`;
 		case 'la_probe':
 			return r.skipped
 				? `Nicht gesendet: ${skipName[String(r.skipped)] ?? r.skipped}.`

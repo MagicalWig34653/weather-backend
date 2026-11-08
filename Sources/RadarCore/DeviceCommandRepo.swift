@@ -1,7 +1,7 @@
 import Foundation
 
 public enum DeviceCommandKind: String, Sendable, CaseIterable {
-    case test, laProbe = "la_probe", laEnd = "la_end", reeval, resetSlot = "reset_slot"
+    case test, laProbe = "la_probe", laEnd = "la_end", reeval, resetSlot = "reset_slot", warnTest = "warn_test"
 
     /// Path segment of `POST /dash/api/devices/{id}/actions/{action}`.
     public init?(action: String) {
@@ -11,6 +11,7 @@ public enum DeviceCommandKind: String, Sendable, CaseIterable {
         case "la-end": self = .laEnd
         case "reeval": self = .reeval
         case "reset-slot": self = .resetSlot
+        case "warn-test": self = .warnTest
         default: return nil
         }
     }
@@ -24,15 +25,17 @@ public struct DeviceCommand: Sendable, Equatable {
     public let deviceID: String
     public let kind: DeviceCommandKind
     public let dryRun: Bool?
+    /// Fixed-vocabulary parameter of the command (`warn_test`: `<type>:<level>`, e.g. `frost:1`); nil for all others.
+    public let param: String?
     public var status: DeviceCommandStatus
     public let createdAt: Date
     public var startedAt: Date?
     public var finishedAt: Date?
     public var result: String?
     public var error: String?
-    public init(id: String, deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, status: DeviceCommandStatus, createdAt: Date,
+    public init(id: String, deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, param: String? = nil, status: DeviceCommandStatus, createdAt: Date,
                 startedAt: Date? = nil, finishedAt: Date? = nil, result: String? = nil, error: String? = nil) {
-        self.id = id; self.deviceID = deviceID; self.kind = kind; self.dryRun = dryRun; self.status = status
+        self.id = id; self.deviceID = deviceID; self.kind = kind; self.dryRun = dryRun; self.param = param; self.status = status
         self.createdAt = createdAt; self.startedAt = startedAt; self.finishedAt = finishedAt; self.result = result; self.error = error
     }
 }
@@ -63,7 +66,7 @@ public enum DeviceRetention {
 /// Command table (decision D6: the dashboard process sends nothing; the leader executes) and the 48 hour event log of linked devices.
 public protocol DeviceCommandRepo: Sendable {
     /// `pending` when a command of the same kind is queued or running for the device. Trims to 50 commands per device and touches `last_action_at`.
-    func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, now: Date) async throws -> CreateCommandResult
+    func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, param: String?, now: Date) async throws -> CreateCommandResult
     func command(id: String, deviceID: String) async throws -> DeviceCommand?
     /// Newest first.
     func commands(deviceID: String, limit: Int) async throws -> [DeviceCommand]
@@ -76,4 +79,10 @@ public protocol DeviceCommandRepo: Sendable {
     func deviceEvents(deviceID: String, limit: Int) async throws -> [DeviceEvent]
     /// Commands and events older than 48 hours.
     func purgeDeviceOps(now: Date) async throws
+}
+
+extension DeviceCommandRepo {
+    public func createCommand(deviceID: String, kind: DeviceCommandKind, dryRun: Bool?, now: Date) async throws -> CreateCommandResult {
+        try await createCommand(deviceID: deviceID, kind: kind, dryRun: dryRun, param: nil, now: now)
+    }
 }

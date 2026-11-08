@@ -310,7 +310,12 @@ export interface DeviceEvent {
 	outcome: string;
 	reason: string | null;
 }
-export type DeviceAction = 'test' | 'la-probe' | 'la-end' | 'reeval' | 'reset-slot';
+export type DeviceAction = 'test' | 'la-probe' | 'la-end' | 'reeval' | 'reset-slot' | 'warn-test';
+export type WarnTestType = 'severe_weather' | 'frost' | 'ice';
+export interface WarnTestOptions {
+	type: WarnTestType;
+	level: 1 | 2 | 3 | 4;
+}
 export interface DeviceCommand {
 	commandId: string;
 	kind: string;

@@ -1239,6 +1239,7 @@ export function mockInsights(
 						reason: null,
 						skipped: 'no_start_token'
 					},
+					warn_test: { outcome: 'delivered', apnsStatus: 200, reason: null, skipped: null },
 					la_end: { outcome: 'delivered', hadActivity: true, reservationCleared: false },
 					reeval: {
 						dryRun: c.dryRun,

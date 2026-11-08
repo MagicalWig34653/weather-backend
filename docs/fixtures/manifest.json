@@ -481,6 +481,13 @@
       "method": "GET",
       "path": "/dash/api/devices/{id}/commands/{commandId}",
       "status": 200,
+      "file": "dashboard/command.done-warn_test.json",
+      "description": "Testwarnung zugestellt (kind warn_test)"
+    },
+    {
+      "method": "GET",
+      "path": "/dash/api/devices/{id}/commands/{commandId}",
+      "status": 200,
       "file": "dashboard/command.done-la_probe_rejected.json",
       "description": "Probe von Apple abgelehnt"
     },

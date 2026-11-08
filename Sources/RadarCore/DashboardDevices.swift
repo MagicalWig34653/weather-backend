@@ -275,10 +275,22 @@ final class DashboardDevices: Sendable {
 
     private static let hourlyLimits: [DeviceCommandKind: Int] = [.test: 3, .laProbe: 3, .laEnd: 6, .resetSlot: 6]
 
+    /// One warning test per device and 30 seconds.
+    static let warnTestWindow: TimeInterval = 30
+
     private func action(_ id: String, _ name: String, _ req: DashboardHTTPRequest, settings: DeviceLinkSettings, now: Date) async throws -> ApiResponse {
         guard let kind = DeviceCommandKind(action: name) else { return Self.error(400, "validation") }
         var dryRun: Bool?
+        var param: String?
         if let object = (try? JSONSerialization.jsonObject(with: Data(req.body))) as? [String: Any] {
+            if kind == .warnTest {
+                // Body {"type":"severe_weather"|"frost"|"ice","level":1...4}; both optional (default frost, level 1); nothing else allowed.
+                guard Set(object.keys).isSubset(of: ["type", "level"]) else { return Self.error(400, "validation") }
+                var type = WarnKind.frost, level = 1
+                if let raw = object["type"] { guard let text = raw as? String, let parsed = WarnKind(rawValue: text) else { return Self.error(400, "validation") }; type = parsed }
+                if let raw = object["level"] { guard let value = jsonWholeNumber(raw), (1...4).contains(value) else { return Self.error(400, "validation") }; level = value }
+                param = "\(type.rawValue):\(level)"
+            }
             if kind == .reeval {
                 if let raw = object["dryRun"] { guard let flag = raw as? Bool else { return Self.error(400, "validation") }; dryRun = flag } else { dryRun = true }
             }
@@ -289,11 +301,22 @@ final class DashboardDevices: Sendable {
         guard truth.leaderActive else {
             return Self.error(503, truth.status == .off ? "push_disabled" : (truth.status == .unknown ? "push_state_unknown" : "push_leader_missing"))
         }
-        let limit = kind == .reeval ? (dryRun == true ? 20 : 3) : Self.hourlyLimits[kind]!
-        guard limiter.allow("act:\(id):\(kind.rawValue):\(dryRun == false ? "live" : "dry")", limit: limit, window: 3600, now: now) else {
-            return Self.error(429, "action_rate_limited", retryAfter: 3600)
+        if kind == .warnTest {
+            // Without a warning subscription the app would have no thread (place name): hint instead of a failing command.
+            guard let device = try await repo.device(id: id),
+                  try await repo.warnSubscriptions(installationID: device.installID).contains(where: \.input.enabled) else {
+                return Self.error(409, "no_warn_subscription")
+            }
+            guard limiter.allow("act:\(id):warn_test", limit: 1, window: Self.warnTestWindow, now: now) else {
+                return Self.error(429, "action_rate_limited", retryAfter: Int(Self.warnTestWindow))
+            }
+        } else {
+            let limit = kind == .reeval ? (dryRun == true ? 20 : 3) : Self.hourlyLimits[kind]!
+            guard limiter.allow("act:\(id):\(kind.rawValue):\(dryRun == false ? "live" : "dry")", limit: limit, window: 3600, now: now) else {
+                return Self.error(429, "action_rate_limited", retryAfter: 3600)
+            }
         }
-        switch try await repo.createCommand(deviceID: id, kind: kind, dryRun: dryRun, now: now) {
+        switch try await repo.createCommand(deviceID: id, kind: kind, dryRun: dryRun, param: param, now: now) {
         case .deviceGone: return Self.error(404, "not_found")
         case .pending: return Self.error(409, "command_pending")
         case .created(let c):

@@ -185,6 +185,23 @@ test.describe('Geräte', () => {
 		await expect(page.getByRole('alert').filter({ hasText: 'Code unbekannt' })).toBeVisible();
 	});
 
+	test('Testwarnung: Typ und Stufe wählbar, Bestätigung, Ergebnis', async ({ page }) => {
+		await page.goto('/dash/geraete?mock=auth');
+		await expect(page.getByLabel('Typ')).toHaveValue('frost');
+		await expect(page.getByLabel('Stufe')).toHaveValue('1');
+		await page.getByLabel('Typ').selectOption('ice');
+		await page.getByLabel('Stufe').selectOption('3');
+		await page.getByRole('button', { name: 'Testwarnung senden' }).click();
+		const dialog = page.getByRole('dialog');
+		await expect(dialog).toContainText('Glätte, Stufe 3');
+		await dialog.getByRole('button', { name: 'Testwarnung senden', exact: true }).click();
+		await expect(
+			page.getByRole('status').filter({ hasText: 'Testwarnung senden: erledigt' })
+		).toBeVisible({
+			timeout: 15_000
+		});
+	});
+
 	test('fehlgeschlagener Auftrag nennt den Grund', async ({ page }) => {
 		await page.goto('/dash/geraete?mock=auth&mockcmd=failed');
 		await page.getByRole('button', { name: 'Testpush' }).click();

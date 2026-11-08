@@ -7,6 +7,7 @@
 	import SendIcon from '@lucide/svelte/icons/send';
 	import EraserIcon from '@lucide/svelte/icons/eraser';
 	import UnlinkIcon from '@lucide/svelte/icons/unlink';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import type { Component } from 'svelte';
 	import { ApiError } from '#lib/api.js';
 	import { session } from '#lib/session.svelte.js';
@@ -48,7 +49,9 @@
 		DeviceAction,
 		DeviceBundle,
 		DeviceList,
-		DeviceSubscriptions
+		DeviceSubscriptions,
+		WarnTestOptions,
+		WarnTestType
 	} from '#lib/insights/types.js';
 
 	interface Loaded {
@@ -91,6 +94,7 @@
 		icon: Component;
 		consequence: string;
 		destructive?: boolean;
+		warn?: WarnTestOptions;
 	}
 	const actions: ActionDef[] = [
 		{
@@ -153,6 +157,32 @@
 		}
 	];
 
+	const warnTypeName: Record<WarnTestType, string> = {
+		frost: 'Frost',
+		ice: 'Glätte',
+		severe_weather: 'Unwetter'
+	};
+	const warnTypes = Object.keys(warnTypeName) as WarnTestType[];
+	/** Auswahl je Gerät (Standard: Frost, Stufe 1). */
+	let warnSel = $state<Record<string, WarnTestOptions>>({});
+	const warnOf = (id: string): WarnTestOptions => warnSel[id] ?? { type: 'frost', level: 1 };
+	function setWarn(id: string, patch: Partial<WarnTestOptions>): void {
+		warnSel[id] = { ...warnOf(id), ...patch };
+	}
+	/** Geräte, bei denen der Server „kein Warn-Abo“ gemeldet hat. */
+	let warnHint = $state<Record<string, boolean>>({});
+	function askWarn(device: Device): void {
+		const w = warnOf(device.id);
+		ask(device, {
+			key: 'warn',
+			action: 'warn-test',
+			label: 'Testwarnung senden',
+			icon: TriangleAlertIcon,
+			warn: w,
+			consequence: `Eine Testwarnung (${warnTypeName[w.type]}, Stufe ${w.level}) wird sofort an dieses Gerät gesendet. Sie sieht aus wie eine echte Warnung, ist aber nur ein Test und wird nicht als Warnung gespeichert; Sperren und Wiederholungsregeln bleiben unberührt (höchstens 1 pro 30 Sekunden).`
+		});
+	}
+
 	let pending = $state<{ device: Device; def: ActionDef } | null>(null);
 	let open = $state(false);
 	let busy = $state(false);
@@ -177,7 +207,8 @@
 				ctx.refresh();
 				return;
 			}
-			const started = await insights.runAction(device.id, def.action, def.dryRun);
+			const started = await insights.runAction(device.id, def.action, def.dryRun, def.warn);
+			warnHint[device.id] = false;
 			open = false;
 			running = device.id;
 			runningText = 'in der Warteschlange';
@@ -220,6 +251,8 @@
 			ctx.refresh();
 		} catch (e) {
 			if (e instanceof ApiError && e.code === 'unauthorized') session.expire();
+			if (e instanceof ApiError && e.serverCode === 'no_warn_subscription')
+				warnHint[device.id] = true;
 			toast.error('Aktion fehlgeschlagen', describeError(e));
 			open = false;
 		} finally {
@@ -475,6 +508,55 @@
 							</Button>
 						{/each}
 					</div>
+					{@const w = warnOf(d.id)}
+					<h3 class="mt-5 mb-2 text-[13px] font-semibold">Testwarnung</h3>
+					<div class="flex flex-wrap items-end gap-3">
+						<div class="space-y-1.5">
+							<Label for="warn-type-{d.id}">Typ</Label>
+							<select
+								id="warn-type-{d.id}"
+								class="border-input bg-background h-8 rounded-md border px-2 text-sm"
+								value={w.type}
+								onchange={(e) => setWarn(d.id, { type: e.currentTarget.value as WarnTestType })}
+							>
+								{#each warnTypes as t (t)}<option value={t}>{warnTypeName[t]}</option>{/each}
+							</select>
+						</div>
+						<div class="space-y-1.5">
+							<Label for="warn-level-{d.id}">Stufe</Label>
+							<select
+								id="warn-level-{d.id}"
+								class="border-input bg-background h-8 rounded-md border px-2 text-sm"
+								value={String(w.level)}
+								onchange={(e) =>
+									setWarn(d.id, {
+										level: Number(e.currentTarget.value) as WarnTestOptions['level']
+									})}
+							>
+								{#each [1, 2, 3, 4] as l (l)}<option value={String(l)}>Stufe {l}</option>{/each}
+							</select>
+						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={running === d.id}
+							aria-describedby="warn-note-{d.id}"
+							onclick={() => askWarn(d)}
+						>
+							<TriangleAlertIcon aria-hidden="true" />Testwarnung senden
+						</Button>
+					</div>
+					<p id="warn-note-{d.id}" class="text-muted-foreground mt-2 text-[13px]">
+						Sendet nur an dieses Gerät, mit dem Ortsnamen des Warn-Abos. Voraussetzung: Push und
+						Warn-Push sind eingeschaltet (PUSH_ENABLED, WARN_PUSH_ENABLED) und das Gerät hat ein
+						aktives Warn-Abo.
+					</p>
+					{#if warnHint[d.id]}
+						<p role="alert" class="text-destructive mt-1 text-[13px]">
+							Dieses Gerät hat kein aktives Warn-Abo. Lege in der App ein Warn-Abo für einen Ort an
+							und versuche es erneut.
+						</p>
+					{/if}
 					{#if running === d.id}<p class="text-muted-foreground mt-2 text-[13px]" role="status">
 							Auftrag {runningText}, Ergebnis folgt …
 						</p>{/if}

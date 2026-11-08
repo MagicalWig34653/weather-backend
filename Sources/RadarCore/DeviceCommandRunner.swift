@@ -72,6 +72,8 @@ extension PushService {
                 let d = DeviceOutcome.describe(answer)
                 try await repo.appendDeviceEvent(installationID: device.installID, kind: "test", outcome: d.outcome, reason: d.reason, now: now)
                 return (Self.json(["outcome": d.outcome, "apnsStatus": d.status as Any? ?? NSNull(), "reason": d.reason as Any? ?? NSNull()]), nil)
+            case .warnTest:
+                return try await warnTest(recorder, command: command, device: device, install: install, now: now)
             case .laProbe:
                 return try await probe(worker, recorder, device: device, install: install, now: now)
             case .laEnd:
@@ -91,6 +93,31 @@ extension PushService {
         } catch {
             return (nil, "internal")
         }
+    }
+
+    /// Operator test of the warning display. Goes through the same sender and payload builder as real warning pushes, but writes no
+    /// `warn_sent`, no outbox row and no warning: dedupe, locks and hysteresis stay untouched. Thread id = an enabled warning
+    /// subscription of the device (so the app can show the place name). Needs `PUSH_ENABLED` and `WARN_PUSH_ENABLED` on this replica.
+    private func warnTest(_ recorder: RecordingSender, command: DeviceCommand, device: LinkedDevice, install: PushInstallation, now: Date) async throws -> (String?, String?) {
+        guard config.warn.pushEnabled else { return (nil, "warn_push_disabled") }
+        guard config.push.environments.contains(install.env) else { return (nil, "environment_not_allowed") }
+        let parts = (command.param ?? "").split(separator: ":").map(String.init)
+        guard parts.count == 2, let kind = WarnKind(rawValue: parts[0]), let level = Int(parts[1]), (1...4).contains(level) else { return (nil, "internal") }
+        func skipped(_ reason: String) async throws -> (String?, String?) {
+            try await repo.appendDeviceEvent(installationID: device.installID, kind: "warn_test", outcome: "skipped", reason: reason, now: now)
+            return (Self.json(["outcome": "dropped", "apnsStatus": NSNull(), "reason": NSNull(), "skipped": reason]), nil)
+        }
+        guard let sub = try await repo.warnSubscriptions(installationID: device.installID).first(where: \.input.enabled) else { return try await skipped("no_warn_subscription") }
+        let alert = WarnAlert(identifier: "test", kind: kind, severity: level, event: "test", sent: now, onset: now, expires: now.addingTimeInterval(PushApi.testExpirySeconds),
+                              headline: "", text: "", warncellIDs: [])
+        guard let payload = WarnPayload.make(alert: alert, subID: sub.id, timeSensitive: sub.input.timeSensitive, test: true) else { return (nil, "internal") }
+        let request = ApnsRequest(tokenHex: install.token, env: install.env, topic: config.push.topic, payload: Array(payload.utf8),
+                                  collapseID: "warntest-" + device.installID, expiration: Int(now.addingTimeInterval(PushApi.testExpirySeconds).timeIntervalSince1970))
+        let answer = await recorder.send(request)
+        if case .unregistered = answer { _ = try await repo.deleteInstallations(token: install.token, env: install.env) }
+        let d = DeviceOutcome.describe(answer)
+        try await repo.appendDeviceEvent(installationID: device.installID, kind: "warn_test", outcome: d.outcome, reason: d.reason, now: now)
+        return (Self.json(["outcome": d.outcome, "apnsStatus": d.status as Any? ?? NSNull(), "reason": d.reason as Any? ?? NSNull(), "skipped": NSNull()]), nil)
     }
 
     private func probe(_ worker: PushService, _ recorder: RecordingSender, device: LinkedDevice, install: PushInstallation, now: Date) async throws -> (String?, String?) {

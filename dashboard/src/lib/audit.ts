@@ -85,7 +85,8 @@ const deviceKinds: Record<string, string> = {
 	la_probe: 'Live-Activity-Test',
 	la_end: 'Live Activity beenden',
 	reeval: 'Neuauswertung',
-	reset_slot: 'Platz freigeben'
+	reset_slot: 'Platz freigeben',
+	warn_test: 'Testwarnung'
 };
 const outcomes: Record<string, string> = {
 	delivered: 'zugestellt',

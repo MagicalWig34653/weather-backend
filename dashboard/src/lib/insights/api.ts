@@ -13,6 +13,7 @@ import type {
 	CacheSlotPage,
 	Device,
 	DeviceAction,
+	WarnTestOptions,
 	DeviceBundle,
 	DeviceCommand,
 	DeviceDetail,
@@ -115,10 +116,14 @@ export const insights = {
 	closePairing: () => api.delete<PairingState>('/devices/pairing'),
 	pairDevice: (code: string, label: string) => api.post<Device>('/devices/pair', { code, label }),
 	unpairDevice: (id: string) => api.delete<void>(`/devices/${enc(id)}`),
-	runAction: (id: string, action: DeviceAction, dryRun?: boolean) =>
+	runAction: (id: string, action: DeviceAction, dryRun?: boolean, warn?: WarnTestOptions) =>
 		api.post<{ commandId: string; kind: string; status: string; createdAt: string }>(
 			`/devices/${enc(id)}/actions/${enc(action)}`,
-			action === 'reeval' ? { dryRun: dryRun ?? true } : {}
+			action === 'reeval'
+				? { dryRun: dryRun ?? true }
+				: action === 'warn-test'
+					? { type: warn?.type ?? 'frost', level: warn?.level ?? 1 }
+					: {}
 		),
 	command: (id: string, commandId: string) =>
 		api.get<DeviceCommand>(`/devices/${enc(id)}/commands/${enc(commandId)}`),

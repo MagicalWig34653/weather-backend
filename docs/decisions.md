@@ -321,3 +321,7 @@ Die Zuordnung Ereigniscode zu Typ steht belegt in [research/warnungen-ereignisco
 ## 7.11.2026: Warn-Push als eigene Kurzmeldung (Server-Rückfall)
 
 Auslöser: Rechtsrecherche zur DWD-Weitergabe (App-Repo `docs/research/dwd-warnungen-weitergabe.md`) lässt offen, ob gekürzter DWD-Text eine "Veränderung" ist; die App-NSE ersetzt den Text, fällt sie aus, wäre der gekürzte DWD-Text sichtbar. Entscheidung: Das Backend sendet im Alert nie DWD-Wortlaut. Alert = `title-loc-key`/`title-loc-args` (Typ, Stufe) und `loc-key` `WARN_PUSH_BODY` mit deutschem Rückfalltext, ohne "Quelle: DWD", ohne Ortsname. Schlüssel identisch zu den App-Strings. Metadaten (`kind`, `severity`, `type`, `thread-id`, `mutable-content`) bleiben. Die volle DWD-Warnung mit Vermerk gibt es nur über `GET /v1/warnings/active`. Ersetzt die frühere Festlegung (Headline als Titel, 900-Byte-Text).
+
+## 8.11.2026: Testwarnung im Dashboard (Gerätediagnose)
+
+Betreiber können je gekoppeltem Gerät eine Testwarnung (Typ Unwetter/Frost/Glätte, Stufe 1 bis 4) auslösen. Entscheidung: Versand direkt über den APNs-Sender des Leaders (wie die Testmeldung), nicht über den Outbox-Puffer; Payload-Format von `WarnPayload` plus `"test": true` und `warning_id: "test"`; `thread-id` = ID eines aktiven Warn-Abos des Geräts (ohne Abo `409 no_warn_subscription`). Keine Speicherung als Warnung, keine Wirkung auf Dedupe, Sperren, Hysterese oder `warn_sent`. Limit 1 pro 30 s und Gerät, Audit nur mit Prüfwert. Migration 018 (`dashboard_command.param`). Vertrag: `docs-site/content/dashboard-api.md`.
