@@ -38,7 +38,7 @@ struct LandingPageTests {
         #expect(hdr(r, "Content-Language") == "de")
         let t = text(r)
         #expect(t.contains("<html lang=\"de\">") && t.contains("<h1 id=\"h-hero\">Regen im Blick.</h1>"))
-        #expect(t.contains("Bald im App Store") && t.contains("Quelle: Deutscher Wetterdienst"))
+        #expect(t.contains("Bald im App Store") && t.contains("Quelle: Deutscher Wetterdienst") && t.contains("DWD ICON-D2/ICON-EU Modelldaten (CC BY 4.0, Quelle: Deutscher Wetterdienst)") && t.contains("ESA WorldCover project 2021"))
         #expect(t.contains("href=\"/datenschutz\"") && t.contains("href=\"/support\"") && t.contains("href=\"/marketing\"") && t.contains("href=\"/impressum\""))
         #expect(t.contains("hreflang=\"en\" href=\"/en\"") && t.contains("rel=\"canonical\" href=\"/\""))
         #expect(t.contains("class=\"skip\" href=\"#main\""))
@@ -50,7 +50,7 @@ struct LandingPageTests {
         #expect(r.status == 200 && hdr(r, "Content-Language") == "en")
         let t = text(r)
         #expect(t.contains("<html lang=\"en\">") && t.contains("Rain at a glance.") && t.contains("Coming soon to the App Store"))
-        #expect(t.contains("Source: Deutscher Wetterdienst") && t.contains("rel=\"canonical\" href=\"/en\""))
+        #expect(t.contains("Source: Deutscher Wetterdienst") && t.contains("DWD ICON-D2/ICON-EU model data") && t.contains("ESA WorldCover project 2021") && t.contains("rel=\"canonical\" href=\"/en\""))
         #expect(!t.contains("Regen im Blick"))
     }
 

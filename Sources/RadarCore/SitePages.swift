@@ -198,6 +198,7 @@ public enum SitePages {
 
         <h2>Quelle</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus DWD-Rasterdaten bildlich wiedergegeben und aufbereitet (verändert).</p>
+        <p>Temperatur- und Feuchtekarten: DWD ICON-D2/ICON-EU Modelldaten (CC BY 4.0, Quelle: Deutscher Wetterdienst), verändert.</p>
         """
         return page(title: "Showers", description: "Showers: nativer DWD-Regenradar für iPhone und iPad.", body: body)
     }
@@ -243,6 +244,8 @@ public enum SitePages {
 
         <h2>Quellen und Datenherkunft</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radar- und Wetterdaten stammen vom Deutschen Wetterdienst (DWD) und sind als Rasterdaten bildlich wiedergegeben und aufbereitet (verändert).</p>
+        <p>Temperatur-, Taupunkt- und Feuchtekarten: DWD ICON-D2/ICON-EU Modelldaten (CC BY 4.0, Quelle: Deutscher Wetterdienst); Rasterdaten bildlich wiedergegeben und aufbereitet (verändert). Es sind Modellprognosen, keine Messwerte.</p>
+        <p>Optionale Waldfläche in der Karte: © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0); auf ca. 550 m gemittelt, in 4 Stufen gerundet und eigens eingefärbt (verändert).</p>
         <p>Für Wolken- und Satellitenkarten gilt: Contains modified EUMETSAT Meteosat data. Die Daten von EUMETSAT stehen unter der Lizenz CC BY 4.0 und wurden verändert.</p>
         <p>Showers ist ein unabhängiges Angebot und steht in keiner Verbindung zum DWD oder zu EUMETSAT. Die Angaben der App sind eine Orientierung und kein Ersatz für amtliche Warnungen und Wetterberichte.</p>
         """

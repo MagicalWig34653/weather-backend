@@ -59,6 +59,7 @@ struct SitePageTests {
         #expect(t.contains("Erika Beispiel") && t.contains("Musterweg 1<br>12345 Musterstadt") && t.contains("mailto:kontakt@example.org"))
         #expect(t.contains("§ 5 Digitale-Dienste-Gesetz") && !t.contains("class=\"warn\""))
         #expect(t.contains("Quelle: Deutscher Wetterdienst") && t.contains("CC BY 4.0") && t.contains("EUMETSAT"))
+        #expect(t.contains("DWD ICON-D2/ICON-EU Modelldaten (CC BY 4.0, Quelle: Deutscher Wetterdienst)") && t.contains("© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium"))
         for link in ["/datenschutz", "/support", "/marketing", "/impressum"] { #expect(t.contains("<a href=\"\(link)\">"), "\(link)") }
         for path in ["/datenschutz", "/support", "/marketing"] {
             #expect(text(try await api(fullInfo).handle(path: path, ifNoneMatch: nil)).contains("href=\"/impressum\""), "\(path)")
@@ -104,7 +105,7 @@ struct SitePageTests {
         let none = text(try await api().handle(path: "/marketing", ifNoneMatch: nil))
         #expect(!none.contains("im App Store") && !none.contains("über TestFlight testen"))
         #expect(none.contains(SitePages.appDocsURL) && none.contains(SitePages.backendDocsURL))
-        #expect(none.contains("Quelle: Deutscher Wetterdienst") && none.contains("bildlich wiedergegeben"))
+        #expect(none.contains("Quelle: Deutscher Wetterdienst") && none.contains("bildlich wiedergegeben") && none.contains("ICON-D2/ICON-EU"))
         let some = text(try await api { $0.testflightURL = "https://testflight.example.org/join/abc" }.handle(path: "/marketing", ifNoneMatch: nil))
         #expect(some.contains("href=\"https://testflight.example.org/join/abc\""))
     }
