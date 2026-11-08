@@ -4,7 +4,7 @@ import Testing
 
 @Suite("bz2 decompression (libbz2)")
 struct Bzip2Tests {
-    /// Fixture made with the system tool: `printf 'ICON-D2 ...' | bzip2 -9 | xxd -i`; bytes below decode to `text`.
+    /// Plain text that the system bzip2 tool compresses in the test below.
     private let text = Array("ICON-D2 bz2 fixture, repeated. ".utf8)
 
     @Test func decompressesWhatItCompresses() throws {
