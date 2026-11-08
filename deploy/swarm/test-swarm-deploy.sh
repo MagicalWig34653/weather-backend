@@ -15,7 +15,14 @@ case "$1 $2" in
   "config create") cat > /dev/null ;;  # read the piped lock text like docker does (else printf dies with SIGPIPE under pipefail: flaky rc 141)
 esac
 case "$1 $2" in
-  "run --rm") [ "${STUB_CHECK_FAIL:-no}" = yes ] && { echo "error: LAYERS: unknown layer 'x'" >&2; exit 1; } ;;
+  "run --rm")
+    # STUB_CHECK_OLD: image without check-config (loads the config first: refuses with the real values because APNS_KEY_FILE is a
+    # service secret, prints usage with the defaults). STUB_CHECK_FAIL: new image refusing the values (only when -e values are passed).
+    if [ "${STUB_CHECK_OLD:-no}" = yes ]; then
+      case "$*" in *" -e "*) echo "error: PUSH_ENABLED=true needs APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID and APNS_TOPIC" >&2 ;; *) echo "usage: radar [serve | migrate --yes]" >&2 ;; esac
+      exit 1
+    fi
+    case "$*" in *" -e "*) [ "${STUB_CHECK_FAIL:-no}" = yes ] && { echo "error: LAYERS: unknown layer 'x'" >&2; exit 1; } ;; esac ;;
   "secret inspect") [ "${STUB_SECRET:-yes}" = yes ] || exit 1 ;;
   "service inspect")
     case "$*" in
@@ -192,4 +199,10 @@ export STUB_LOG="$WORK/cc-skip.log"; : > "$STUB_LOG"
 rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" STUB_CHECK_FAIL=yes DB_HOST=db ./update.sh --env-file "$WORK/c.env" --tag sha-new1234 --yes --skip-config-check ) >"$WORK/cc-skip.out" 2>&1 || rc=$?
 if ! grep -q 'check-config' "$STUB_LOG" && grep -q 'stack deploy' "$STUB_LOG"; then echo "ok   config-check-skippable"
 else echo "FAIL config-check-skippable (rc=$rc)"; cat "$WORK/cc-skip.out"; fail=1; fi
+# Image older than check-config: it refuses the real values (APNS_KEY_FILE is a service secret) - must be skipped, not abort.
+printf 'DASH_ENABLED=false\nPUSH_ENABLED=true\nAPNS_KEY_ID=ABC\nAPNS_TEAM_ID=T\nAPNS_TOPIC=t.x\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/o.env"
+export STUB_LOG="$WORK/cc-old.log"; : > "$STUB_LOG"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED -u PUSH_ENABLED PATH="$WORK/bin:$PATH" STUB_CHECK_OLD=yes ./update.sh --env-file "$WORK/o.env" --tag sha-new1234 --yes ) >"$WORK/cc-old.out" 2>&1 || rc=$?
+if grep -q 'has no check-config command' "$WORK/cc-old.out" && grep -q 'stack deploy' "$STUB_LOG" && ! grep -q 'needs APNS_KEY_FILE' "$WORK/cc-old.out"; then echo "ok   config-check-old-image-skipped"
+else echo "FAIL config-check-old-image-skipped (rc=$rc)"; cat "$WORK/cc-old.out"; fail=1; fi
 exit $fail
