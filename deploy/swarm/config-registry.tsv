@@ -25,7 +25,7 @@ EUMETSAT_WMS_URL	Quellen	text:free	https://view.eumetsat.int/geoserver/wms			500
 APNS_KEY	Push	secret						envOnly	1	APNs-Schlüssel (.p8, Swarm-Secret), nur per Umgebung.
 CACHE_MAX_MB	Cache	int	64	MB	8	1024		restart	0	Größe des Bild-Caches im Speicher.
 IMAGE_WIDTH	Radar	int	1024	px	256	2048		restart	0	Breite des Radarbilds; mit Push fest 1024. Änderung entwertet das Bildraster.
-LAYERS	Ebenen	layers					pressure|pressure_eu|lightning|clouds|cloudmask|cloudmask_vis|cloudmask_vis_eu	restart	0	Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.
+LAYERS	Ebenen	layers					pressure|pressure_eu|lightning|clouds|cloudmask|cloudmask_vis|cloudmask_vis_eu|temperature_wms	restart	0	Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.
 RETENTION_RUNS	Radar	int	16		15	96		live	0	Aufbewahrte Radar-Läufe.
 HISTORY_HOURS	Radar	int	48	h	1	72		live	0	Stunden Radar-Historie (history.json).
 FETCH_WORKERS	Radar	int	3		1	6		restart	0	Parallele Abrufe beim DWD.
@@ -42,6 +42,12 @@ CLOUDMASK_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie Wolkenmaske.
 CLOUDMASK_VIS_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie sichtbarer Kanal.
 CLOUDMASK_VIS_EU_HISTORY_HOURS	Ebenen	int	3	h	1	24		live	0	Historie sichtbarer Kanal Europa.
 LAYER_PAUSE_SECONDS	Ebenen	number	2	s	1	60		live	0	Pause zwischen zwei Abrufen einer Zusatzebene (Dashboard strenger als der Code, schont den DWD).
+TEMP_SOURCE	Temperatur	choice	off				off|wms|icon_d2	live	0	Quelle der Ebenen Temperatur/Feuchte: off (404, kein Abruf), wms (nur Temperatur), icon_d2 (Temperatur, Taupunkt, optional rel. Feuchte). Braucht LAYERS mit temperature.
+TEMP_D2_PARAMS	Temperatur	text:printableASCII	td_2m			40		live	0	ICON-D2-Variablen mit Last: td_2m (Taupunkt, Standard), relhum_2m (rel. Feuchte, zuschaltbar); t_2m ist bei icon_d2 immer dabei.
+TEMP_FALLBACK_WARM	Temperatur	bool	true					live	0	Bei icon_d2 läuft die WMS-Temperatur als Warmstand weiter (ca. 200 Abrufe/Tag) und springt bei Ausfall ein.
+TEMP_D2_MAX_AGE_HOURS	Temperatur	int	7	h	1	48		live	0	Älter als dieser ICON-D2-Lauf gilt als Ausfall (Temperatur fällt auf WMS zurück, Taupunkt/Feuchte antworten 404).
+TEMP_WMS_LAYER	Temperatur	text:printableASCII	dwd:Icon-eu_reg00625_fd_gl_T			60		restart	0	DWD-WMS-Ebene der Temperatur: dwd:Icon-eu_reg00625_fd_gl_T (7 km, Standard) oder dwd:Icon_reg025_fd_sl_T2M (Rückfall). Nicht mitten im Lauf ändern.
+TEMP_D2_RUN_INTERVAL_HOURS	Temperatur	choice	6	h			3|6	live	0	Takt der ICON-D2-Läufe: 6 h (Standard, halbe Last) oder 3 h.
 OPERATOR_NAME	Betreiberseiten	text:free				500		live	0	Name auf /datenschutz.
 OPERATOR_ADDRESS	Betreiberseiten	text:free				500		live	0	Anschrift auf /datenschutz.
 OPERATOR_EMAIL	Betreiberseiten	text:free				500		live	0	E-Mail auf /datenschutz.
