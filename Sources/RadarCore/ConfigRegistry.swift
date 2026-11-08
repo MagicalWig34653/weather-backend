@@ -212,6 +212,18 @@ public enum ConfigRegistry {
         s("CLOUDMASK_VIS_EU_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie sichtbarer Kanal Europa.", .live),
         s("LAYER_PAUSE_SECONDS", "Ebenen", .number(min: 1, max: 60), "2", unit: "s",
           "Pause zwischen zwei Abrufen einer Zusatzebene (Dashboard strenger als der Code, schont den DWD).", .live),
+        s("TEMP_SOURCE", "Temperatur", .choice(["off", "wms", "icon_d2"]), "off",
+          "Quelle der Ebenen Temperatur/Feuchte: off (404, kein Abruf), wms (nur Temperatur), icon_d2 (Temperatur, Taupunkt, optional rel. Feuchte). Braucht LAYERS mit temperature.", .live),
+        s("TEMP_D2_PARAMS", "Temperatur", .text(maxLength: 40, rule: .printableASCII), "td_2m",
+          "ICON-D2-Variablen mit Last: td_2m (Taupunkt, Standard), relhum_2m (rel. Feuchte, zuschaltbar); t_2m ist bei icon_d2 immer dabei.", .live),
+        s("TEMP_FALLBACK_WARM", "Temperatur", .bool, "true",
+          "Bei icon_d2 läuft die WMS-Temperatur als Warmstand weiter (ca. 200 Abrufe/Tag) und springt bei Ausfall ein.", .live),
+        s("TEMP_D2_MAX_AGE_HOURS", "Temperatur", .int(min: 1, max: 48), "7", unit: "h",
+          "Älter als dieser ICON-D2-Lauf gilt als Ausfall (Temperatur fällt auf WMS zurück, Taupunkt/Feuchte antworten 404).", .live),
+        s("TEMP_WMS_LAYER", "Temperatur", .text(maxLength: 60, rule: .printableASCII), "dwd:Icon-eu_reg00625_fd_gl_T",
+          "DWD-WMS-Ebene der Temperatur: dwd:Icon-eu_reg00625_fd_gl_T (7 km, Standard) oder dwd:Icon_reg025_fd_sl_T2M (Rückfall). Nicht mitten im Lauf ändern.", .restart),
+        s("TEMP_D2_RUN_INTERVAL_HOURS", "Temperatur", .choice(["3", "6"]), "6", unit: "h",
+          "Takt der ICON-D2-Läufe: 6 h (Standard, halbe Last) oder 3 h.", .live),
         // Public pages
         s("OPERATOR_NAME", "Betreiberseiten", any, "", "Name auf /datenschutz.", .live, mask: true),
         s("OPERATOR_ADDRESS", "Betreiberseiten", any, "", "Anschrift auf /datenschutz.", .live, mask: true),
@@ -509,6 +521,7 @@ extension Config {
             case "CLOUDMASK_VIS_HISTORY_HOURS": c.cloudmaskVisHistoryHours = try int(key, raw)
             case "CLOUDMASK_VIS_EU_HISTORY_HOURS": c.cloudmaskVisEUHistoryHours = try int(key, raw)
             case "LAYER_PAUSE_SECONDS": c.layerPauseSeconds = try double(key, raw)
+            case _ where TempConfig.keys.contains(key): try c.temp.apply(key: key, raw: raw)
             case "OPERATOR_NAME": c.site.operatorName = raw
             case "OPERATOR_ADDRESS": c.site.operatorAddress = raw
             case "OPERATOR_EMAIL": c.site.operatorEmail = raw

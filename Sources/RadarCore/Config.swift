@@ -120,6 +120,8 @@ public struct Config: Sendable {
     public var site = SiteInfo()
     /// Additional layers (`LAYERS`); the radar always runs. Default: none.
     public var layers: [String] = []
+    /// Temperature and humidity layers (`TEMP_*`); `LAYERS` with `temperature` is the main switch, `TEMP_SOURCE` (live) the source.
+    public var temp = TempConfig()
     public var eumetsatWMSURL = "https://view.eumetsat.int/geoserver/wms"
     /// Hours of ICON forecast per pressure run (`PRESSURE_FORECAST_HOURS`, 1-168).
     public var pressureForecastHours = 48
@@ -201,6 +203,7 @@ public struct Config: Sendable {
         c.pressureEUForecastHours = try int("PRESSURE_EU_FORECAST_HOURS", c.pressureEUForecastHours)
         c.layerPauseSeconds = try double("LAYER_PAUSE_SECONDS", c.layerPauseSeconds)
         c.layers = try LayerCatalog.parse(env["LAYERS"])
+        for key in TempConfig.keys { if let raw = env[key] { try c.temp.apply(key: key, raw: raw) } }
         c.migrationsDirectory = env["MIGRATIONS_DIR"] ?? c.migrationsDirectory
         func text(_ key: String) -> String { String((env[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(500)) }
         c.site.operatorName = text("OPERATOR_NAME")

@@ -116,7 +116,32 @@ public final class Api: Sendable {
     private let manifestState = ManifestState()
     private let statusState = ManifestState()
     private let historyState = ManifestState()
-    private let layerStates: [String: ManifestState] = Dictionary(uniqueKeysWithValues: LayerCatalog.order.map { ($0, ManifestState()) })
+    private let layerStates: [String: ManifestState] = Dictionary(uniqueKeysWithValues: (LayerCatalog.order + TempLayers.publicIDs).map { ($0, ManifestState()) })
+    /// Short memo of the public -> internal resolution of the temperature layers (slot requests must not cost two queries each).
+    private let aliasState = AliasState()
+
+    actor AliasState {
+        var memo: [String: (at: Date, internal: String?)] = [:]
+        func get(_ id: String, now: Date, ttl: TimeInterval, build: () async throws -> String?) async throws -> String? {
+            if let hit = memo[id], now.timeIntervalSince(hit.at) <= ttl { return hit.internal }
+            let value = try await build()
+            memo[id] = (now, value)
+            return value
+        }
+    }
+
+    /// Internal layer that serves a public temperature/humidity ID right now, nil = 404 (off, not enabled, no fresh data).
+    func resolveTemperature(_ publicID: String) async throws -> String? {
+        let repo = self.repo, config = self.config, now = clock()
+        guard TempResolver.isEnabled(publicID: publicID, config: config) else { return nil }
+        return try await aliasState.get(publicID, now: now, ttl: Self.manifestTTL) {
+            var runs: [String: Date] = [:]
+            for id in TempLayers.internalIDs where config.layers.contains(id) {
+                if let run = try await repo.layerLatestPublished(layer: id) { runs[id] = run.nominal }
+            }
+            return TempResolver.resolve(publicID: publicID, config: config, latest: { runs[$0] }, now: now)
+        }
+    }
 
     /// Short memo with single-flight: concurrent requests share one build.
     actor ManifestState {
@@ -174,7 +199,7 @@ public final class Api: Sendable {
         let prefix = "/v1/layers/"
         guard path.hasPrefix(prefix) else { return nil }
         let parts = path.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard let layer = parts.first, LayerCatalog.specs[layer] != nil else { return nil }
+        guard let layer = parts.first, LayerCatalog.specs[layer] != nil || TempLayers.isPublic(layer) else { return nil }
         if parts.count == 2, parts[1] == "latest.json" { return (layer, nil) }
         guard parts.count == 3, parts[2].hasSuffix(".webp") else { return nil }
         let slotID = String(parts[2].dropLast(5))
@@ -209,11 +234,16 @@ public final class Api: Sendable {
     private func buildStatus() async throws -> [UInt8] {
         func iso(_ d: Date) -> String { TimeUtil.toISO(d) }
         var layers: [[String: Any]] = []
-        for id in ["radar"] + LayerCatalog.order {
-            let enabled = id == "radar" || config.layers.contains(id)
+        // Temperature/humidity are reported with their public IDs (the internal storage IDs are not part of the contract).
+        for id in ["radar"] + LayerCatalog.order.filter({ !TempLayers.isInternal($0) }) + TempLayers.publicIDs {
+            let isPublicTemp = TempLayers.isPublic(id)
+            let enabled = id == "radar" || (isPublicTemp ? TempResolver.isEnabled(publicID: id, config: config) : config.layers.contains(id))
             var entry: [String: Any] = ["id": id, "enabled": enabled, "has_data": false]
             if enabled {
-                let run = id == "radar" ? try await repo.latestPublished() : try await repo.layerLatestPublished(layer: id)
+                let run: PublishedRun?
+                if id == "radar" { run = try await repo.latestPublished() }
+                else if isPublicTemp { run = try await resolveTemperature(id).asyncFlatMap { try await repo.layerLatestPublished(layer: $0) } }
+                else { run = try await repo.layerLatestPublished(layer: id) }
                 if let run {
                     entry["has_data"] = true
                     entry["latest_run"] = run.runID
@@ -277,8 +307,18 @@ public final class Api: Sendable {
             return respond(headers: [("Content-Type", blob.contentType), ("Cache-Control", Self.immutable)],
                            body: blob.data, ifNoneMatch: ifNoneMatch, etag: "\"\(blob.sha256)\"")
         }
-        if let route = Self.parseLayerRoute(path), let spec = config.spec(for: route.layer), let state = layerStates[route.layer] {
+        if let route = Self.parseLayerRoute(path), let state = layerStates[route.layer] {
             let repo = self.repo, config = self.config
+            let spec: LayerSpec
+            if TempLayers.isPublic(route.layer) {
+                // Public temperature/humidity ID: the active internal layer (source switch and fallback) serves it; the cache key is the internal one.
+                guard let internalID = try await resolveTemperature(route.layer), let internalSpec = config.spec(for: internalID) else { return Self.notFound }
+                spec = internalSpec
+            } else if let plain = config.spec(for: route.layer), !TempLayers.isInternal(route.layer) {
+                spec = plain
+            } else {
+                return Self.notFound
+            }
             if let (runID, slotID) = route.slot {
                 guard let blob = try await cache.load("layer:\(spec.id)/\(runID)/\(slotID)",
                                                       { try await repo.layerGetSlot(layer: spec.id, runID: runID, slotID: slotID) })
@@ -294,5 +334,12 @@ public final class Api: Sendable {
                            body: body, ifNoneMatch: ifNoneMatch, etag: etag)
         }
         return Self.notFound
+    }
+}
+
+extension Optional {
+    fileprivate func asyncFlatMap<T>(_ transform: (Wrapped) async throws -> T?) async rethrows -> T? {
+        guard let value = self else { return nil }
+        return try await transform(value)
     }
 }

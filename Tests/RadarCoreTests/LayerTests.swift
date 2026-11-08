@@ -338,7 +338,7 @@ struct LayerServiceTests {
         #expect(doc["push"] as? Bool == false)
         let layers = try #require(doc["layers"] as? [[String: Any]])
         func entry(_ id: String) -> [String: Any]? { layers.first { $0["id"] as? String == id } }
-        #expect(layers.count == 8)
+        #expect(layers.count == 11)
         #expect(entry("pressure_eu")?["enabled"] as? Bool == false && entry("cloudmask_vis_eu")?["enabled"] as? Bool == false)
         #expect(entry("radar")?["enabled"] as? Bool == true && entry("radar")?["has_data"] as? Bool == false)
         #expect(entry("lightning")?["enabled"] as? Bool == true && entry("lightning")?["has_data"] as? Bool == true)

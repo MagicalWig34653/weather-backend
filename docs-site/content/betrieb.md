@@ -39,7 +39,7 @@ Der Radar-Dienst führt keine Zugriffsprotokolle und speichert keine IP-Adressen
 curl -s http://127.0.0.1:38090/v1/status
 ```
 
-Die Umgebungsvariable `LAYERS` (kommagetrennt aus `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`; `radar` läuft immer) schaltet die Zusatzebenen ein; ohne sie ist nur das Radar aktiv und jede Ebenen-Route antwortet `404`. Zugehörige Stellschrauben: `PRESSURE_FORECAST_HOURS`, `PRESSURE_RETENTION_RUNS`, `PRESSURE_EU_FORECAST_HOURS`, `CLOUDMASK_VIS_HISTORY_HOURS`, `CLOUDMASK_VIS_EU_HISTORY_HOURS`, `LIGHTNING_HISTORY_HOURS`, `CLOUDS_HISTORY_HOURS`, `CLOUDMASK_HISTORY_HOURS`, `LAYER_PAUSE_SECONDS` (siehe `.env.example`).
+Die Umgebungsvariable `LAYERS` (kommagetrennt aus `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`; `radar` läuft immer) schaltet die Zusatzebenen ein; ohne sie ist nur das Radar aktiv und jede Ebenen-Route antwortet `404`. Zugehörige Stellschrauben: `PRESSURE_FORECAST_HOURS`, `PRESSURE_RETENTION_RUNS`, `PRESSURE_EU_FORECAST_HOURS`, `CLOUDMASK_VIS_HISTORY_HOURS`, `CLOUDMASK_VIS_EU_HISTORY_HOURS`, `LIGHTNING_HISTORY_HOURS`, `CLOUDS_HISTORY_HOURS`, `CLOUDMASK_HISTORY_HOURS`, `LAYER_PAUSE_SECONDS` (siehe `.env.example`). Temperatur/Feuchte: `LAYERS` darf zusätzlich `temperature` enthalten (siehe Abschnitt "Temperatur- und Feuchtekarte aktivieren").
 
 Symptom „Ebenen 404“, mögliche Ursachen in dieser Reihenfolge prüfen:
 
@@ -74,6 +74,16 @@ docker config rm radar_deployment-lock
 3. Update erneut starten (`deploy/swarm/update.sh`, bei Bedarf mit `--pull-scripts` für aktuelle Skripte; bei nicht geändertem Tag mit `--force`).
 
 Die Migrationen sind additiv und über den Advisory-Lock `showernow_migrate` gegen parallele Läufe geschützt.
+
+## Temperatur- und Feuchtekarte aktivieren
+
+Alles ist standardmäßig aus: ohne `temperature` in `LAYERS` und mit `TEMP_SOURCE=off` antworten `/v1/layers/temperature|dewpoint|humidity/…` mit `404`, es gibt keinen DWD-Abruf (Vertrag und Manifest: API-Referenz "Temperatur- und Feuchtekarten"). Reihenfolge (Entscheidung 8.11.2026):
+
+1. Image ausrollen, Einstellungen unverändert (keine Wirkung, keine Migration: `layer` ist `VARCHAR(16)`, interne IDs höchstens 15 Zeichen).
+2. `LAYERS=...,temperature` setzen (Neustart nötig) und `TEMP_SOURCE=wms` (live, auch im Dashboard): nur Temperatur, 49 `GetMap` je Lauf, 6-stündlich, **etwa 200 Abrufe am Tag** beim DWD (sequentiell, Pause `LAYER_PAUSE_SECONDS`), kleiner Speicher (49 Bilder zu 20 bis 30 KB je Lauf, 2 Läufe).
+3. Später `TEMP_SOURCE=icon_d2` (Paket P4, noch nicht umgesetzt; bis dahin liefert `icon_d2` nur den Warmstand A): Standard `TEMP_D2_PARAMS=td_2m` (Taupunkt zuerst, relative Feuchte mit `relhum_2m` zuschaltbar, nicht Standard), Takt der ICON-D2-Läufe `TEMP_D2_RUN_INTERVAL_HOURS=6` (Standard) oder `3`. Last beobachten (`ingest_lag`, `ingest_dur`); bei zu großer Last zurück auf `wms` oder `off`, **ohne App-Update**.
+
+Einstellungen: `TEMP_SOURCE` (`off`/`wms`/`icon_d2`, live), `TEMP_D2_PARAMS` (live), `TEMP_FALLBACK_WARM` (Standard `true`: bei `icon_d2` läuft die WMS-Temperatur als Warmstand weiter und springt ein), `TEMP_D2_MAX_AGE_HOURS` (Standard 7, live), `TEMP_D2_RUN_INTERVAL_HOURS` (Standard 6, live), `TEMP_WMS_LAYER` (Standard `dwd:Icon-eu_reg00625_fd_gl_T` mit Stil `tkb`, Rückfall `dwd:Icon_reg025_fd_sl_T2M`, Neustart; nicht mitten im Lauf wechseln, ein Lauf mischt sonst zwei Layer). `TEMP_SOURCE` wird je Ingest-Takt gelesen: `off` beendet Abrufe sofort, bereits gespeicherte Daten werden nicht mehr ausgeliefert. Fehlersuche: `GET /v1/status` führt `temperature`/`dewpoint`/`humidity` mit `enabled` (Schalter) und `has_data` (frischer Lauf der aktiven Quelle); `enabled: false` heißt `LAYERS` ohne `temperature`, `TEMP_SOURCE=off` oder (Taupunkt/Feuchte) Quelle ohne diese Größe.
 
 ## Amtliche Warnungen aktivieren
 

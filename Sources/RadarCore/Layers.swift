@@ -45,6 +45,18 @@ public struct LayerSpec: Sendable {
     public let fixedWidth: Int?
     /// How often one slot may be claimed and fetched before it is given up (sources with real gaps, e.g. night VIS).
     public let maxAttempts: Int
+    /// WMS `STYLES` (empty = server default).
+    public let wmsStyle: String
+    /// Temperature layers only: data variant, decides the `TEMP_SOURCE` gate of the ingest.
+    public let tempVariant: TempVariant?
+    /// Public ID that the manifest reports (`temperature`, ...) when the storage ID is internal (`temperature_wms`).
+    public let publicID: String?
+    /// Manifest `source` (`wms` or `icon_d2`).
+    public let source: String?
+    /// Manifest `scale` (scale ID of docs/fixtures/scales/scales-v1.json); only for server-coloured sources (`icon_d2`).
+    public let scaleID: String?
+    /// Explicit cadence of new runs in seconds (staleness checks); nil = derived from the kind.
+    public let cadenceSeconds: Int?
 
     /// The app accepts images up to this many pixels per side.
     public static let maxPixelsPerSide = 4096
@@ -53,13 +65,15 @@ public struct LayerSpec: Sendable {
                 capsWorkspace: String?, capsLayer: String?, stepSeconds: Double, transparent: Bool, lossless: Bool,
                 webpQuality: Float, completeness: LayerCompleteness, availabilityDelay: Double, legend: LayerLegend?,
                 modificationNotice: String, bbox: [Double] = RadarConstants.bbox, fixedWidth: Int? = nil,
-                maxAttempts: Int = LayerIngestor.maxSlotAttempts) {
+                maxAttempts: Int = LayerIngestor.maxSlotAttempts, wmsStyle: String = "", tempVariant: TempVariant? = nil,
+                publicID: String? = nil, source: String? = nil, scaleID: String? = nil, cadenceSeconds: Int? = nil) {
         self.id = id; self.title = title; self.kind = kind; self.provider = provider; self.wmsLayer = wmsLayer
         self.capsWorkspace = capsWorkspace; self.capsLayer = capsLayer; self.stepSeconds = stepSeconds
         self.transparent = transparent; self.lossless = lossless; self.webpQuality = webpQuality
         self.completeness = completeness; self.availabilityDelay = availabilityDelay; self.legend = legend
         self.modificationNotice = modificationNotice; self.bbox = bbox; self.fixedWidth = fixedWidth
-        self.maxAttempts = maxAttempts
+        self.maxAttempts = maxAttempts; self.wmsStyle = wmsStyle; self.tempVariant = tempVariant; self.publicID = publicID
+        self.source = source; self.scaleID = scaleID; self.cadenceSeconds = cadenceSeconds
     }
 
     public func width(_ config: Config) -> Int { fixedWidth ?? config.width }
@@ -70,7 +84,9 @@ public struct LayerSpec: Sendable {
         LayerSpec(id: id, title: title, kind: kind, provider: provider, wmsLayer: wmsLayer, capsWorkspace: capsWorkspace,
                   capsLayer: capsLayer, stepSeconds: stepSeconds, transparent: transparent, lossless: lossless,
                   webpQuality: webpQuality, completeness: completeness, availabilityDelay: availabilityDelay, legend: legend,
-                  modificationNotice: modificationNotice, bbox: bbox, fixedWidth: width, maxAttempts: maxAttempts)
+                  modificationNotice: modificationNotice, bbox: bbox, fixedWidth: width, maxAttempts: maxAttempts,
+                  wmsStyle: wmsStyle, tempVariant: tempVariant, publicID: publicID, source: source, scaleID: scaleID,
+                  cadenceSeconds: cadenceSeconds)
     }
 
     /// `Quelle: ...` for DWD layers; EUMETSAT's prescribed wording with the distribution year of the newest slot.
@@ -85,7 +101,18 @@ public struct LayerSpec: Sendable {
 
     /// How often a new run is published at best: forecast layers once per ICON run (6 h), observation layers per slot.
     /// Staleness checks must use this, not `stepSeconds` (an hourly forecast step is not an hourly publication).
-    public var publishCadenceSeconds: Int { kind == .forecast ? Int(LayerIngestor.forecastRunInterval) : Int(stepSeconds) }
+    public var publishCadenceSeconds: Int { cadenceSeconds ?? (kind == .forecast ? Int(LayerIngestor.forecastRunInterval) : Int(stepSeconds)) }
+
+    /// Like `publishCadenceSeconds`, but ICON-D2 runs follow `TEMP_D2_RUN_INTERVAL_HOURS`.
+    public func publishCadenceSeconds(_ config: Config) -> Int {
+        tempVariant == .d2 ? config.temp.d2RunIntervalHours * 3600 : publishCadenceSeconds
+    }
+
+    /// WMS layer name of the request: `TEMP_WMS_LAYER` for the temperature WMS variant.
+    func wmsLayerName(_ config: Config) -> String { tempVariant == .wms ? config.temp.wmsLayer : wmsLayer }
+    func wmsStyleName(_ config: Config) -> String { tempVariant == .wms ? TempWMS.style(for: config.temp.wmsLayer) : wmsStyle }
+    /// Legend of the manifest; for the temperature WMS variant it follows `TEMP_WMS_LAYER`.
+    public func legend(_ config: Config) -> LayerLegend? { tempVariant == .wms ? TempWMS.legend(for: config.temp.wmsLayer) : legend }
 }
 
 public enum LayerCatalog {
@@ -136,20 +163,31 @@ public enum LayerCatalog {
             transparent: false, lossless: true, webpQuality: 100, completeness: .blackCellsInDaylight, availabilityDelay: 0, legend: nil,
             modificationNotice: "Datenbasis: EUMETSAT Meteosat (EUMETView), Bild ausgeschnitten und reprojiziert (Graustufen, WebP, verlustfrei)",
             bbox: RadarConstants.europeBBox, fixedWidth: 2048, maxAttempts: 2),
+        // Temperature, WMS variant (public ID `temperature`, see TempResolver). Default layer ICON-EU 7 km with the 5 K class style `tkb`.
+        TempLayers.wms: LayerSpec(
+            id: TempLayers.wms, title: "Temperatur (ICON)", kind: .forecast, provider: .dwd,
+            wmsLayer: TempWMS.defaultLayer, capsWorkspace: nil, capsLayer: nil, stepSeconds: 3600,
+            transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: 0,
+            legend: TempWMS.legend(for: TempWMS.defaultLayer),
+            modificationNotice: "Datenbasis: Deutscher Wetterdienst (ICON), Lufttemperatur 2 m bildlich wiedergegeben",
+            wmsStyle: TempWMS.style(for: TempWMS.defaultLayer), tempVariant: .wms, publicID: "temperature", source: "wms"),
     ]
 
     /// Fixed order for logs and loops.
-    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu"]
+    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", TempLayers.wms]
 
     /// Parses `LAYERS` (comma or space separated). `radar` is accepted but ignored: the radar always runs.
+    /// `temperature` is the main switch of the temperature/humidity layers: it enables the internal storage layers of all sources
+    /// (`temperature_wms`; the ICON-D2 layers follow); `TEMP_SOURCE` then decides which of them fetch.
     public static func parse(_ raw: String?) throws -> [String] {
         let tokens = (raw ?? "").lowercased().split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init)
         var out: [String] = []
         for token in tokens where token != "radar" {
-            guard specs[token] != nil else {
-                throw ConfigError(description: "LAYERS: unknown layer '\(token)' (allowed: radar, \(order.joined(separator: ", ")))")
+            let ids = token == "temperature" ? TempLayers.internalIDs.filter { specs[$0] != nil } : (specs[token] != nil ? [token] : [])
+            guard !ids.isEmpty else {
+                throw ConfigError(description: "LAYERS: unknown layer '\(token)' (allowed: radar, temperature, \(order.joined(separator: ", ")))")
             }
-            if !out.contains(token) { out.append(token) }
+            for id in ids where !out.contains(id) { out.append(id) }
         }
         return order.filter(out.contains)
     }
@@ -159,7 +197,8 @@ extension Config {
     public func spec(for layer: String) -> LayerSpec? { layers.contains(layer) ? LayerCatalog.specs[layer] : nil }
 
     public func forecastHours(for spec: LayerSpec) -> Int {
-        spec.id == "pressure_eu" ? pressureEUForecastHours : pressureForecastHours
+        if spec.tempVariant != nil { return 48 }  // 49 hourly slots (ICON-D2 and the WMS run both reach +48 h)
+        return spec.id == "pressure_eu" ? pressureEUForecastHours : pressureForecastHours
     }
 
     public func historyHours(for spec: LayerSpec) -> Int {
@@ -189,7 +228,7 @@ public enum LayerSources {
         var query: [(String, String)]
         switch spec.provider {
         case .dwd:
-            query = [("SERVICE", "WMS"), ("VERSION", "1.1.1"), ("REQUEST", "GetMap"), ("LAYERS", spec.wmsLayer), ("STYLES", ""),
+            query = [("SERVICE", "WMS"), ("VERSION", "1.1.1"), ("REQUEST", "GetMap"), ("LAYERS", spec.wmsLayerName(config)), ("STYLES", spec.wmsStyleName(config)),
                      ("SRS", "EPSG:3857"), ("BBOX", bbox), ("WIDTH", width), ("HEIGHT", height),
                      ("FORMAT", "image/png"), ("TRANSPARENT", spec.transparent ? "TRUE" : "FALSE"), ("TIME", TimeUtil.toWMS(slot))]
             if spec.kind == .forecast { query.append(("DIM_REFERENCE_TIME", TimeUtil.toWMS(run))) }

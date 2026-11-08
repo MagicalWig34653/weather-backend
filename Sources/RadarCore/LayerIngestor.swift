@@ -261,6 +261,8 @@ public final class LayerIngestor: Sendable {
     }
 
     public func tick() async throws -> LayerTickResult {
+        // Temperature layers: TEMP_SOURCE is read per tick (live); a closed gate costs no request and no lease.
+        if let variant = spec.tempVariant, !TempResolver.ingestAllowed(variant: variant, config: config) { return LayerTickResult() }
         do {
             let result = spec.kind == .forecast ? try await tickForecast() : try await tickObservation()
             if result.published != nil { stats.record("ingest_run", label: "\(spec.id):ok") }
@@ -294,7 +296,7 @@ public enum LayerManifest {
             tail = "\"history_hours\":\(hours),"
         }
         let year = TimeUtil.year(of: latest.publishedAt)
-        var json = "{\"schema\":1,\"layer\":\(Manifest.jsonString(spec.id)),\"title\":\(Manifest.jsonString(spec.title)),"
+        var json = "{\"schema\":1,\"layer\":\(Manifest.jsonString(spec.publicID ?? spec.id)),\"title\":\(Manifest.jsonString(spec.title)),"
             + "\"kind\":\"\(spec.kind.rawValue)\",\"run\":\(Manifest.jsonString(latest.runID)),"
             + "\"reference_time\":\(Manifest.jsonString(TimeUtil.toISO(latest.nominal))),"
             + "\"generated_at\":\(Manifest.jsonString(TimeUtil.toISO(latest.publishedAt))),"
@@ -302,7 +304,9 @@ public enum LayerManifest {
             + "\"image\":\(Manifest.imageJSON(bbox: spec.bbox, width: spec.width(config), height: spec.height(config))),\"slots\":[\(entries.joined(separator: ","))],"
             + "\"attribution\":\(Manifest.jsonString(spec.attribution(year: year))),"
             + "\"modification_notice\":\(Manifest.jsonString(spec.modificationNotice))"
-        if let legend = spec.legend {
+        if let source = spec.source { json += ",\"source\":\(Manifest.jsonString(source))" }
+        if let scale = spec.scaleID { json += ",\"scale\":\(Manifest.jsonString(scale))" }
+        if let legend = spec.legend(config) {
             json += ",\"legend\":{\"url\":\(Manifest.jsonString(legend.url)),\"width\":\(legend.width),\"height\":\(legend.height)}"
         }
         return Array((json + "}\n").utf8)

@@ -73,7 +73,7 @@ Größe: bis zu 576 Einträge, etwa 60 KB.
 
 ## Zusatzebenen `/v1/layers/<ebene>/…`
 
-Ebenen: `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`. Nur aktiv, wenn in `LAYERS` aktiviert; sonst `404`. Das Radar-API (`/v1/radar/…`, Schema 1) ist davon unberührt.
+Ebenen: `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu` (Temperatur/Feuchte: eigener Abschnitt unten). Nur aktiv, wenn in `LAYERS` aktiviert; sonst `404`. Das Radar-API (`/v1/radar/…`, Schema 1) ist davon unberührt.
 
 - `GET /v1/layers/<ebene>/latest.json`: Cache-Header wie Radar (`max-age=30, stale-while-revalidate=30`), `ETag`/`304`, `404` solange nichts veröffentlicht ist.
 - `GET /v1/layers/<ebene>/<run>/<slot>.webp`: `public, max-age=31536000, immutable`, `ETag`. Pfade in `slots[].path` sind relativ zu `/v1/layers/<ebene>/`.
@@ -82,13 +82,56 @@ Ebenen: `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmas
 - `cloudmask_vis` (Deutschland, 1024 × 1311) und `cloudmask_vis_eu` (Europa, 2048 × 2168): sichtbarer Kanal `mtg_fd:vis06_hrfi` (Meteosat MTG FCI, 0,6 µm), nur Beobachtung, 10 min. **Pixelformat:** verlustfreies WebP, 8 Bit Graustufen als RGB mit R = G = B (Rohwert des Kanals 0 bis etwa 180, **nicht** auf 0 bis 255 normiert), Alpha 255. Keine Farbgebung und keine Sonnenhöhen-Normierung im Backend; die App liest den Rotkanal und rechnet Wolkendichte (Reflexion geteilt durch sin(Sonnenhöhe)). Nachts ist das Bild fast schwarz (Werte 0 bis 3, Rauschen); in der Nacht vom 31.10. zum 1.11.2026 lieferte EUMETView zwischen 22:30 und 01:30 UTC gar keine Bilder (Zeitwert nicht vorhanden, HTTP 502; ganze Scheibe dunkel). Solche Slots fehlen dann im Manifest (Lücken sind erlaubt, je Slot höchstens 2 Versuche); das neueste Manifest-Bild kann nachts also Stunden alt sein. Keine Legende (`legend` fehlt).
 - Beobachtungsebenen listen nur veröffentlichte Slots, Lücken sind erlaubt; EUMETSAT-Bilder mit fehlenden (schwarzen) Kacheln werden nie veröffentlicht. Beim sichtbaren Kanal gilt die Prüfung nur dort, wo die Sonne um mehr als etwa 10 Grad über dem Horizont steht; Nachtbilder werden dadurch nicht verworfen.
 
+## Temperatur- und Feuchtekarten `/v1/layers/temperature|dewpoint|humidity/…` (8. November 2026, Vertrag P1, Flags aus)
+
+Drei **öffentliche** Ebenen-IDs: `temperature` (Lufttemperatur 2 m), `dewpoint` (Taupunkt 2 m), `humidity` (relative Feuchte 2 m). Die Routen sind die der Zusatzebenen (`latest.json`, `<run>/<slot>.webp`, Schema 1, Cache-Header, `ETag`). Der Server speichert je Quelle getrennt unter **internen** IDs (`temperature_wms`, `temperature_d2`, `dewpoint_d2`, `humidity_d2`, höchstens 16 Zeichen) und löst die öffentliche ID **zur Anfragezeit** auf die aktive interne Ebene auf; interne IDs sind **keine** Routen (`404`) und erscheinen weder im Manifest noch in `/v1/status`. Das Manifest nennt immer die öffentliche ID in `layer`. Die Cache-Schlüssel und "Cache leeren" im Dashboard arbeiten mit den internen IDs (`layer:temperature_wms/…`).
+
+**Schalter** (Standard: alles aus, kein Verhaltenswechsel bestehender Deployments): `LAYERS` muss `temperature` enthalten (Hauptschalter, Neustart); `TEMP_SOURCE` (live) wählt die Quelle:
+
+| `TEMP_SOURCE` | `temperature` | `dewpoint` | `humidity` |
+|---|---|---|---|
+| `off` (Standard) | `404` | `404` | `404` |
+| `wms` | DWD-WMS-Bild (A), `source: "wms"` | `404` | `404` |
+| `icon_d2` | ICON-D2 (B), `source: "icon_d2"`, sonst Warmstand A | nur mit `td_2m` in `TEMP_D2_PARAMS` und frischem Lauf | nur mit `relhum_2m` in `TEMP_D2_PARAMS` und frischem Lauf |
+
+Ausfall und Fallback: ein ICON-D2-Lauf zählt bis `TEMP_D2_MAX_AGE_HOURS` (Standard 7 h) als frisch; ist er älter oder fehlt, liefert `temperature` den WMS-Lauf (nur wenn dieser höchstens 18 h alt ist, der Warmstand läuft bei `TEMP_FALLBACK_WARM=true` weiter), `dewpoint` und `humidity` antworten `404` (kein Ersatz). Die App blendet Ebenen mit `404` aus; ein Quellenwechsel zeigt sich im nächsten Manifest als anderer `run`, anderes `source`/`scale`/`legend`.
+
+**Manifest** wie bei den Zusatzebenen (`kind: "forecast"`, 49 stündliche Slots, `step_minutes: 60`, `forecast_horizon_minutes: 2880`, `image` mit Radar-BBox 1024 × 1311, WebP) plus zwei **neue optionale** Felder (ältere App-Builds ignorieren sie):
+
+- `source`: `"wms"` oder `"icon_d2"`.
+- `scale`: Skalen-ID, **nur bei `icon_d2`** (das Backend färbt selbst): `t2m-d2-v1` (`temperature`), `td-d2-v1` (`dewpoint`), `rh-d2-v1` (`humidity`). Unbekannte `scale` oder `source`: die App zeigt nur einen Hinweistext (kein erratenes Raster).
+- `legend` (nur Verweis, `maps.dwd.de`) bei `wms`; bei `icon_d2` fehlt es (die App zeichnet die Legende aus der Skala).
+
+Beispiel A (`TEMP_SOURCE=wms`, Slots gekürzt):
+
+```json
+{"schema":1,"layer":"temperature","title":"Temperatur (ICON)","kind":"forecast","run":"20261108T0600Z",
+ "reference_time":"2026-11-08T06:00:00Z","generated_at":"2026-11-08T07:41:12Z","step_minutes":60,"forecast_horizon_minutes":2880,
+ "image":{"format":"image/webp","width":1024,"height":1311,"projection":"EPSG:3857","bbox":[612257.0,5942074.0,1736584.0,7381298.0],"bbox_wgs84":[5.5,47.2,15.6,55.1]},
+ "slots":[{"time":"2026-11-08T06:00:00Z","kind":"analysis","path":"20261108T0600Z/20261108T0600Z.webp"},{"time":"2026-11-08T07:00:00Z","kind":"forecast","path":"20261108T0600Z/20261108T0700Z.webp"}],
+ "attribution":"Quelle: Deutscher Wetterdienst","modification_notice":"Datenbasis: Deutscher Wetterdienst (ICON), Lufttemperatur 2 m bildlich wiedergegeben",
+ "source":"wms","legend":{"url":"https://maps.dwd.de/geoserver/ows?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&layer=dwd:Icon-eu_reg00625_fd_gl_T&style=icon-eu_reg00625_fd_gl_t_isoarea_tkb","width":72,"height":482}}
+```
+
+Beispiel B (`TEMP_SOURCE=icon_d2`, Taupunkt; Umsetzung folgt mit Paket P4, Vertrag hier festgelegt): wie oben mit `"layer":"dewpoint"`, `"source":"icon_d2"`, `"scale":"td-d2-v1"`, ohne `legend`, Veränderungshinweis z. B. `Datenbasis: Deutscher Wetterdienst (ICON-D2), Taupunkt 2 m bildlich wiedergegeben`.
+
+**Skalen** (Quelle der Wahrheit: `docs/fixtures/scales/scales-v1.json`, erzeugt und geprüft mit `tools/check_palette.py`; die App kopiert die Datei): `{"schema":1,"scales":[{"id","unit","min","max","step","label_every","bands":[{"from","hex"}]}]}`. Ein Band gilt von `from` (einschließlich) bis zum nächsten `from`; das letzte Band gilt bis `max` und darüber. Werte unter `min` gehören zum ersten, über `max` zum letzten Band (Beschriftung "unter -30", "über 40"). Die Bänder sind **gestuft**, die Pixelfarbe im (verlustfreien) Bild entspricht exakt der Bandfarbe (lokale Wertabfrage in der App, ohne Netz); Zellen ohne Wert sind transparent ("kein Wert").
+
+| ID | Größe | Einheit | Bereich | Band | Beschriftung alle |
+|---|---|---|---|---|---|
+| `t2m-d2-v1` | Temperatur | °C | -30 bis 40 | 1 K (70 Bänder) | 5 K |
+| `td-d2-v1` | Taupunkt | °C | -20 bis 24 | 1 K (44 Bänder) | 5 K |
+| `rh-d2-v1` | relative Feuchte | % | 0 bis 100 | 5 % (20 Bänder) | 20 % |
+
+Bei `wms` liefert der DWD die Farben (Klassen zu 5 K, Legendenbild); die App hat dafür keine Skalentabelle. Feuchte-Wörter ("schwül", "trocken") gibt es erst nach belegten Schwellen; bis dahin nur Zahlen. Quelle und Hinweis: "Quelle: Deutscher Wetterdienst" und `modification_notice` aus dem Manifest, Aussage "Modell, 2 m über Grund, kein Messwert".
+
 ## `GET /healthz`
 
 Liveness für den Healthcheck (nur intern gedacht): `200` mit Body `ok`, `503` mit `stale`, wenn die Ingest-Schleife nicht mehr lebt. Prüft nicht die Datenaktualität.
 
 ## `GET /v1/status`
 
-Datensparsame Betreiberdiagnose (additiv, `Cache-Control: no-store`). JSON: `schema` (1), `revision` (Commit des Images oder `null`), `push` (Boolean, kein Geheimnis), `capabilities` (Liste; aktuell `["regions", "live_activity", "live_activity_regions"]` bei `PUSH_ENABLED=true` (zusätzlich `"device_link"` bei `DEVICE_LINK_ENABLED=true`), sonst `[]`; `regions` steht für Umkreis-Abos, `live_activity` für den unten beschriebenen ActivityKit-Vertrag, `live_activity_regions` für Live Activities auf Umkreis-Abos (7. November 2026; ohne sie lehnten ältere Server `live_activity: true` mit `kind: "circle"` mit `400` ab, deshalb bietet die App die Option nur bei vorhandener Fähigkeit an). Die App prüft die einzelne Fähigkeit vor dem Anbieten der Option; fehlt sie, darf die Option nicht angeboten werden, weil ältere Backends unbekannte Abo-Felder ignorieren können), `now`, `layers[]` mit `id` (`radar`, `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`), `enabled`, `has_data` und, falls Daten vorliegen, `latest_run` und `published_at`. Unterscheidet „Ebene nicht aktiviert“, „noch keine Daten“ und „Daten vorhanden“; bei Datenbankfehler `503`. Keine Nutzerdaten, keine Konfigurationswerte außer den genannten.
+Datensparsame Betreiberdiagnose (additiv, `Cache-Control: no-store`). JSON: `schema` (1), `revision` (Commit des Images oder `null`), `push` (Boolean, kein Geheimnis), `capabilities` (Liste; aktuell `["regions", "live_activity", "live_activity_regions"]` bei `PUSH_ENABLED=true` (zusätzlich `"device_link"` bei `DEVICE_LINK_ENABLED=true`), sonst `[]`; `regions` steht für Umkreis-Abos, `live_activity` für den unten beschriebenen ActivityKit-Vertrag, `live_activity_regions` für Live Activities auf Umkreis-Abos (7. November 2026; ohne sie lehnten ältere Server `live_activity: true` mit `kind: "circle"` mit `400` ab, deshalb bietet die App die Option nur bei vorhandener Fähigkeit an). Die App prüft die einzelne Fähigkeit vor dem Anbieten der Option; fehlt sie, darf die Option nicht angeboten werden, weil ältere Backends unbekannte Abo-Felder ignorieren können), `now`, `layers[]` mit `id` (`radar`, `pressure`, `pressure_eu`, `lightning`, `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu`, `temperature`, `dewpoint`, `humidity`; die letzten drei mit `enabled` nach `TEMP_SOURCE`/`LAYERS` und `has_data` der aufgelösten Quelle), `enabled`, `has_data` und, falls Daten vorliegen, `latest_run` und `published_at`. Unterscheidet „Ebene nicht aktiviert“, „noch keine Daten“ und „Daten vorhanden“; bei Datenbankfehler `503`. Keine Nutzerdaten, keine Konfigurationswerte außer den genannten.
 
 ## Push-Registrierung `/v1/push/…` (optional, Standard aus)
 
