@@ -10,6 +10,9 @@ public enum Icon2D {
     static let maxUnpackedBytes = 4_000_000
     /// Upper bound of the directory listing we are willing to read.
     static let maxListingBytes = 2_000_000
+    /// libwebp effort for the stepped images: method 4 takes 0.2 s per slot for +0.5 % size, the default method 6 takes 3.4 s
+    /// (measured 8 Nov 2026 on real files, Release, 1024 x 1311).
+    static let webpMethod: Int32 = 4
 
     private static func runStamp(_ run: Date) -> String {
         let id = TimeUtil.toID(run)  // 20261108T0600Z
@@ -137,7 +140,7 @@ extension LayerIngestor {
             let field = try GribDecoder.decode(raw, expecting: d2Grid)
             guard field.referenceTime == run, field.forecastMinutes == hour * 60 else { throw ImageError.invalid("grib time does not match the file name") }
             try MercatorRender.validate(field, kind: kind)
-            return try ImagePipeline.toWebP(MercatorRender.image(field: field, kind: kind, scale: scale, bbox: spec.bbox, width: width), lossless: true)
+            return try ImagePipeline.toWebP(MercatorRender.image(field: field, kind: kind, scale: scale, bbox: spec.bbox, width: width), lossless: true, method: Icon2D.webpMethod)
         } catch let error as ImageError {
             throw error
         } catch {

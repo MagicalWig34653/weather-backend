@@ -14,7 +14,7 @@ Zweck: Die App soll die Deutschland-Radarkarte schnell und ohne Ortsbezug im Req
 
 Architektur (Details und Begründungen in [decisions.md](docs/decisions.md)):
 
-- Swift 6 mit Vapor 4 (`Sources/radar`), Fachlogik ohne Vapor in `Sources/RadarCore` (Zustand, Ingest, Manifest, API-Logik, Bildpipeline). PNG-Dekodierung mit swift-png (reines Swift), WebP-Lossless über die System-Bibliothek libwebp, MariaDB über mysql-nio/MySQLKit.
+- Swift 6 mit Vapor 4 (`Sources/radar`), Fachlogik ohne Vapor in `Sources/RadarCore` (Zustand, Ingest, Manifest, API-Logik, Bildpipeline). PNG-Dekodierung mit swift-png (reines Swift), WebP-Lossless über die System-Bibliothek libwebp, bz2 (ICON-D2-Dateien) über libbz2, eigener GRIB2-Dekoder, MariaDB über mysql-nio/MySQLKit.
 - Ein Swarm-Service `radar` (Standard 2 Replikate) plus ein One-Shot-Service `migrate` (`radar migrate --yes`). Jedes Replikat liefert die HTTP-API und nimmt am Ingest teil; Migrationen laufen nicht beim Start der Replikate.
 - Gemeinsamer Zustand in der vorhandenen MariaDB (InnoDB): `radar_run` (Lauf, Status, Lease), `radar_slot` (WebP-Bytes, SHA-256). Ein Lauf wird per Claim-Zeile (atomar, Lease, Übernahme bei Absturz) nur von einem Replikat geholt; Veröffentlichung = Statuswechsel auf `published` nach allen 25 Slots.
 - Cache im Stack: prozesslokaler LRU je Replikat (Standard 64 MB) mit Single-Flight bei Misses; die DB wird nur bei Cache-Miss gelesen. Der Reverse Proxy reicht nur durch (TLS, Domain, Routing). Kein Redis.
@@ -34,7 +34,7 @@ Architektur (Details und Begründungen in [decisions.md](docs/decisions.md)):
 
 ### Entwicklung und Tests
 
-Swift 6.2 oder neuer, `libwebp-dev` und `pkg-config` (macOS: `brew install webp`, Linux: `apt install libwebp-dev pkg-config`). Die Tests laufen ohne Datenbank gegen einen Fake; mit `RADAR_TEST_DB_HOST` zusätzlich gegen eine WEGWERF-MariaDB:
+Swift 6.2 oder neuer, `libwebp-dev`, `libbz2-dev` und `pkg-config` (macOS: `brew install webp`, bz2 liegt im SDK; Linux: `apt install libwebp-dev libbz2-dev pkg-config`). Die Tests laufen ohne Datenbank gegen einen Fake; mit `RADAR_TEST_DB_HOST` zusätzlich gegen eine WEGWERF-MariaDB:
 
 ```
 swift build

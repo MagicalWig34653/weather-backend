@@ -206,3 +206,43 @@ struct Icon2DIngestorTests {
         #expect(r.published == "20261108T0900Z")
     }
 }
+
+/// Measurement with the real files (not run without `ICON_D2_SAMPLE` = directory with the downloaded `.grib2.bz2` files):
+/// `ICON_D2_SAMPLE=<dir> swift test -c release -Xswiftc -enable-testing --filter realPipelineTiming`, numbers go to the test log.
+@Suite("ICON-D2 real files")
+struct Icon2DRealFileTests {
+    @Test func realPipelineTiming() throws {
+        guard let dir = ProcessInfo.processInfo.environment["ICON_D2_SAMPLE"] else { return }
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir).filter { $0.hasSuffix(".grib2.bz2") }.sorted()
+        var total = (unpack: 0.0, decode: 0.0, validate: 0.0, render: 0.0, webp: 0.0)
+        var sizes: [Int] = []
+        func clock() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
+        let spec = LayerCatalog.specs["temperature_d2"]!
+        let methodUnderTest = Int32(ProcessInfo.processInfo.environment["WEBP_METHOD"] ?? "6") ?? 6
+        for name in names {
+            let variable = name.contains("relhum_2m") ? "relhum_2m" : name.contains("td_2m") ? "td_2m" : "t_2m"
+            let kind = try #require(TempKind.kind(variable: variable)), scale = try #require(TempScale.load(id: kind.scaleID))
+            let packed = [UInt8](try Data(contentsOf: URL(fileURLWithPath: dir).appendingPathComponent(name)))
+            var t = clock()
+            let raw = try Bzip2.decompress(packed, maxOutput: Icon2D.maxUnpackedBytes); total.unpack += clock() - t; t = clock()
+            let field = try GribDecoder.decode(raw); total.decode += clock() - t; t = clock()
+            try MercatorRender.validate(field, kind: kind); total.validate += clock() - t; t = clock()
+            let image = MercatorRender.image(field: field, kind: kind, scale: scale, bbox: spec.bbox, width: 1024); total.render += clock() - t; t = clock()
+            let webp = try ImagePipeline.toWebP(image, lossless: true, method: methodUnderTest); total.webp += clock() - t
+            if name.contains("_012_2d_t_2m") {
+                for m: Int32 in [0, 2, 3, 4, 6] {
+                    let t0 = clock(); let bytes = try ImagePipeline.toWebP(image, lossless: true, method: m)
+                    print("MEASURE webp method \(m): \(bytes.count) bytes, \(Int((clock() - t0) * 1000)) ms")
+                }
+            }
+            sizes.append(webp.count)
+            #expect(image.height == 1311)
+            print("MEASURE \(name.suffix(28)) webp \(webp.count) bytes")
+        }
+        let n = Double(names.count)
+        print(String(format: "MEASURE files %d per file ms: unpack %.0f decode %.0f validate %.0f render %.0f webp %.0f total %.0f", names.count,
+                     total.unpack / n * 1000, total.decode / n * 1000, total.validate / n * 1000, total.render / n * 1000, total.webp / n * 1000,
+                     (total.unpack + total.decode + total.validate + total.render + total.webp) / n * 1000))
+        print("MEASURE webp bytes min \(sizes.min() ?? 0) max \(sizes.max() ?? 0) avg \(sizes.reduce(0, +) / max(sizes.count, 1))")
+    }
+}

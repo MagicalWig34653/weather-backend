@@ -104,13 +104,13 @@ public enum ImagePipeline {
 
     /// Lossless and exact by default: the DWD palette stays unchanged (259-260 distinct RGBA values, PNG8 would be lossy).
     /// `lossless: false` is for photographic layers (satellite colour composites), `quality` 0-100.
-    public static func toWebP(_ image: RGBAImage, lossless: Bool = true, quality: Float = 100) throws -> [UInt8] {
+    public static func toWebP(_ image: RGBAImage, lossless: Bool = true, quality: Float = 100, method: Int32 = 6) throws -> [UInt8] {
         var config = WebPConfig()
         guard WebPConfigInit(&config) != 0 else { throw ImageError.invalid("webp config") }
         if lossless {
             config.lossless = 1
             config.quality = 100
-            config.method = 6
+            config.method = method  // 6 = smallest/slowest (default); stepped palette images lose little with 3 or 4
             config.exact = 1
         } else {
             config.lossless = 0

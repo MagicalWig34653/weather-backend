@@ -113,7 +113,7 @@ Beispiel A (`TEMP_SOURCE=wms`, Slots gekürzt):
  "source":"wms","legend":{"url":"https://maps.dwd.de/geoserver/ows?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&layer=dwd:Icon-eu_reg00625_fd_gl_T&style=icon-eu_reg00625_fd_gl_t_isoarea_tkb","width":72,"height":482}}
 ```
 
-Beispiel B (`TEMP_SOURCE=icon_d2`, Taupunkt; Umsetzung folgt mit Paket P4, Vertrag hier festgelegt): wie oben mit `"layer":"dewpoint"`, `"source":"icon_d2"`, `"scale":"td-d2-v1"`, ohne `legend`, Veränderungshinweis z. B. `Datenbasis: Deutscher Wetterdienst (ICON-D2), Taupunkt 2 m bildlich wiedergegeben`.
+Beispiel B (`TEMP_SOURCE=icon_d2`, Taupunkt; umgesetzt mit Paket P4): wie oben mit `"layer":"dewpoint"`, `"source":"icon_d2"`, `"scale":"td-d2-v1"`, ohne `legend`, Veränderungshinweis z. B. `Datenbasis: Deutscher Wetterdienst (ICON-D2), Taupunkt 2 m bildlich wiedergegeben`.
 
 **Skalen** (Quelle der Wahrheit: `docs/fixtures/scales/scales-v1.json`, erzeugt und geprüft mit `tools/check_palette.py`; die App kopiert die Datei): `{"schema":1,"scales":[{"id","unit","min","max","step","label_every","bands":[{"from","hex"}]}]}`. Ein Band gilt von `from` (einschließlich) bis zum nächsten `from`; das letzte Band gilt bis `max` und darüber. Werte unter `min` gehören zum ersten, über `max` zum letzten Band (Beschriftung "unter -30", "über 40"). Die Bänder sind **gestuft**, die Pixelfarbe im (verlustfreien) Bild entspricht exakt der Bandfarbe (lokale Wertabfrage in der App, ohne Netz); Zellen ohne Wert sind transparent ("kein Wert").
 
