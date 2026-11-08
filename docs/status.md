@@ -429,3 +429,10 @@ Offen: (1) Fehlermeldung des Servers bei `PUSH_ENABLED=true` ohne lesbare `APNS_
 ## Staleness-Kadenz (6. November 2026)
 
 `InsightsRepoSource.layers` und `DashboardCache.cadence` nutzen `LayerSpec.publishCadenceSeconds` (Luftdruck 21600 statt 3600); `cadenceSeconds`-Beschreibung in `dashboard-api.md` angeglichen, neuer Test `InsightsLayerCadenceTests`. Die roten DB-Tests (`radar_run already exists`, `schema_migration doesn't exist`) kamen von `PushImmediateStartTests` außerhalb der seriellen `DatabaseSuites` (Commit e157593 verschiebt sie). Geprüft: `swift test --filter Insights|Dashboard` (105 Tests, ohne MariaDB), `npm test` im dashboard/. Nicht lokal geprüft: MariaDB-Suite (CI).
+
+## Rollback sha-915cc20 (LAYERS=temperature_wms), 8. November 2026
+
+**Ursache:** `LAYERS=temperature_wms` in der Server-`.env` (aus der Auswahlliste von `settings.sh`: `config-registry.tsv` bot seit 637a978 die interne ID an). Image 915cc20 kennt die Ebene nicht (`LAYERS: unknown layer`), Exit 1, Swarm-Rollback. Der Migrationsdienst lief durch, weil `swarm-deploy.sh` ihn nur per `--image` aktualisiert (alte Umgebung); die neue `.env` gilt erst beim danach folgenden `docker stack deploy`. Ein per Dashboard gespeicherter Wert ist nicht fatal (ConfigRegistry.resolve ignoriert ungültige Overrides mit Warnung; Test ergänzt).
+**Fix:** (1) Auswahl nur öffentliche Tokens (`LayerCatalog.operatorTokens`: ohne `temperature_wms`, mit `temperature`); (2) `LayerCatalog.parse` lehnt interne IDs mit Hinweis ab (Env, Dashboard-Schreiben); (3) neuer Befehl `radar check-config` (`ConfigCheck`, ohne DB/Netz/Secrets); (4) `update.sh` prüft vor dem Schreiben der `.env`, vor Migration und Rollout mit dem neuen Image (`--skip-config-check`), Test mit Docker-Stub.
+**Geprüft:** siehe Commit-Bericht; `settings.sh`-Tests (`test-settings.sh`) brauchen Bash 4.4 (lokal 3.2) und liefen nicht.
+

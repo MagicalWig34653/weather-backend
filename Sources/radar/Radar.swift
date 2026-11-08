@@ -504,6 +504,11 @@ struct Radar {
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let command = arguments.first ?? "serve"
+        if command == "check-config" {  // before the real loader: no secret files, no database, no network
+            let result = ConfigCheck.run()
+            for line in result.lines { (result.ok ? FileHandle.standardOutput : FileHandle.standardError).write(Data((line + "\n").utf8)) }
+            exit(result.ok ? 0 : 1)
+        }
         do {
             let config = try Config.fromEnvironment()
             switch command {
@@ -524,7 +529,7 @@ struct Radar {
                 }
                 try await migrate(config: config)
             default:
-                FileHandle.standardError.write(Data("usage: radar [serve | dashboard | dashboard-reset --yes | migrate --yes]\n".utf8))
+                FileHandle.standardError.write(Data("usage: radar [serve | dashboard | dashboard-reset --yes | migrate --yes | check-config]\n".utf8))
                 exit(64)
             }
         } catch {

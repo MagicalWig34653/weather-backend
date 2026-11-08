@@ -28,7 +28,7 @@ import Testing
         case .text(let n, let rule): type = "text:\(rule.rawValue)"; hi = String(n)
         case .url(let host, let n): type = host.map { "url:\($0)" } ?? "url"; hi = String(n)
         case .choice(let options): choices = options.joined(separator: "|")
-        case .layers: choices = LayerCatalog.order.joined(separator: "|")
+        case .layers: choices = LayerCatalog.operatorTokens.joined(separator: "|")
         case .bool, .secret: break
         }
         let cells = [s.key, s.group, type, s.secret ? "" : s.defaultValue, s.unit ?? "", lo, hi, choices,

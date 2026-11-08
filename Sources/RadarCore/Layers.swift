@@ -173,6 +173,11 @@ public enum LayerCatalog {
             wmsStyle: TempWMS.style(for: TempWMS.defaultLayer), tempVariant: .wms, publicID: "temperature", source: "wms"),
     ]
 
+    /// Operator-facing tokens of `LAYERS` besides `radar` and `temperature` (the internal storage IDs are not offered).
+    public static var publicOrder: [String] { order.filter { !TempLayers.isInternal($0) } }
+    /// Everything an operator may list in `LAYERS` (besides `radar`): offered by the settings table and the dashboard.
+    public static var operatorTokens: [String] { publicOrder + ["temperature"] }
+
     /// Fixed order for logs and loops.
     public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", TempLayers.wms]
 
@@ -183,9 +188,13 @@ public enum LayerCatalog {
         let tokens = (raw ?? "").lowercased().split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init)
         var out: [String] = []
         for token in tokens where token != "radar" {
+            // Internal storage IDs (temperature_wms, *_d2) are no operator values: `temperature` is the only public switch.
+            if TempLayers.isInternal(token) {
+                throw ConfigError(description: "LAYERS: '\(token)' is an internal layer id; use 'temperature' (public switch) instead")
+            }
             let ids = token == "temperature" ? TempLayers.internalIDs.filter { specs[$0] != nil } : (specs[token] != nil ? [token] : [])
             guard !ids.isEmpty else {
-                throw ConfigError(description: "LAYERS: unknown layer '\(token)' (allowed: radar, temperature, \(order.joined(separator: ", ")))")
+                throw ConfigError(description: "LAYERS: unknown layer '\(token)' (allowed: radar, \(operatorTokens.joined(separator: ", ")))")
             }
             for id in ids where !out.contains(id) { out.append(id) }
         }

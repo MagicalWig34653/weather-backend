@@ -15,6 +15,7 @@ case "$1 $2" in
   "config create") cat > /dev/null ;;  # read the piped lock text like docker does (else printf dies with SIGPIPE under pipefail: flaky rc 141)
 esac
 case "$1 $2" in
+  "run --rm") [ "${STUB_CHECK_FAIL:-no}" = yes ] && { echo "error: LAYERS: unknown layer 'x'" >&2; exit 1; } ;;
   "secret inspect") [ "${STUB_SECRET:-yes}" = yes ] || exit 1 ;;
   "service inspect")
     case "$*" in
@@ -179,4 +180,16 @@ else echo "FAIL dash-same-tag-repaired"; cat "$WORK/same-tag.out"; fail=1; fi
 printf 'DASH_ENABLED=true\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/d.env"
 rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" ./update.sh --env-file "$WORK/d.env" --tag sha-new1234 --dry-run ) >"$WORK/dry.out" 2>&1 || rc=$?
 if [ "$rc" = 0 ] && grep -q 'wait for .*_dashboard' "$WORK/dry.out"; then echo "ok   dash-dry-run-text"; else echo "FAIL dash-dry-run-text"; cat "$WORK/dry.out"; fail=1; fi
+# Config check with the new image: a refused configuration aborts BEFORE the env file changes and before any stack deploy;
+# --skip-config-check does not call it.
+printf 'DASH_ENABLED=false\nLAYERS=temperature_wms\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/c.env"; cp "$WORK/c.env" "$WORK/c.env.orig"
+export STUB_LOG="$WORK/cc-fail.log"; : > "$STUB_LOG"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" STUB_CHECK_FAIL=yes ./update.sh --env-file "$WORK/c.env" --tag sha-new1234 --yes ) >"$WORK/cc-fail.out" 2>&1 || rc=$?
+if [ "$rc" != 0 ] && cmp -s "$WORK/c.env" "$WORK/c.env.orig" && ! grep -q 'stack deploy\|service update' "$STUB_LOG" \
+   && grep -q "check-config" "$STUB_LOG" && grep -q "unknown layer" "$WORK/cc-fail.out"; then echo "ok   config-check-aborts-before-change"
+else echo "FAIL config-check-aborts-before-change (rc=$rc)"; cat "$WORK/cc-fail.out"; fail=1; fi
+export STUB_LOG="$WORK/cc-skip.log"; : > "$STUB_LOG"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED PATH="$WORK/bin:$PATH" STUB_CHECK_FAIL=yes DB_HOST=db ./update.sh --env-file "$WORK/c.env" --tag sha-new1234 --yes --skip-config-check ) >"$WORK/cc-skip.out" 2>&1 || rc=$?
+if ! grep -q 'check-config' "$STUB_LOG" && grep -q 'stack deploy' "$STUB_LOG"; then echo "ok   config-check-skippable"
+else echo "FAIL config-check-skippable (rc=$rc)"; cat "$WORK/cc-skip.out"; fail=1; fi
 exit $fail

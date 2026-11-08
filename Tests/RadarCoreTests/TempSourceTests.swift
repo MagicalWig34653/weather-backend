@@ -32,7 +32,17 @@ struct TempSourceTests {
     @Test func layersMainSwitch() throws {
         #expect(try Config.fromEnvironment(["LAYERS": "temperature"]).layers == ["temperature_wms"])
         #expect(try Config.fromEnvironment(["LAYERS": "radar,lightning temperature"]).layers == ["lightning", "temperature_wms"])
-        #expect(try Config.fromEnvironment(["LAYERS": "temperature_wms,temperature"]).layers == ["temperature_wms"])
+        // Internal storage IDs are no operator values (incident 2026-11-08: temperature_wms in LAYERS aborted the start of an older image).
+        for id in ["temperature_wms", "temperature_d2", "dewpoint_d2", "humidity_d2"] {
+            #expect(throws: ConfigError.self) { try Config.fromEnvironment(["LAYERS": "radar,\(id)"]) }
+        }
+        do { _ = try LayerCatalog.parse("temperature_wms") } catch { #expect("\(error)".contains("use 'temperature'")) }
+        #expect(!LayerCatalog.operatorTokens.contains("temperature_wms") && LayerCatalog.operatorTokens.contains("temperature"))
+        // A dashboard value with an internal ID is rejected on write and ignored (with a warning) at start; the service keeps running.
+        #expect(throws: (any Error).self) { try ConfigRegistry.validateWrite(key: "LAYERS", raw: "temperature_wms", env: [:], stored: [:]) }
+        var warnings: [String] = []
+        let cfg = try ConfigRegistry.resolve(env: [:], stored: ["LAYERS": "temperature_wms", "FETCH_WORKERS": "2"], warn: { warnings.append($0) })
+        #expect(cfg.layers.isEmpty && cfg.workers == 2 && warnings.contains { $0.contains("LAYERS") })
         #expect(throws: ConfigError.self) { try Config.fromEnvironment(["LAYERS": "dewpoint"]) }
         #expect(TempLayers.internalIDs.allSatisfy { $0.count <= 16 })
     }
