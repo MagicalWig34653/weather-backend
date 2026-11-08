@@ -26,10 +26,16 @@ let package = Package(
             pkgConfig: "libwebp",
             providers: [.apt(["libwebp-dev"]), .brew(["webp"])]
         ),
+        // libbz2 from the system (ICON-D2 GRIB files are .bz2): libbz2-dev at build time, libbz2-1.0 at run time.
+        // No pkg-config file on Ubuntu; macOS ships bzlib.h and libbz2 in the SDK.
+        .systemLibrary(
+            name: "CBz2",
+            providers: [.apt(["libbz2-dev"])]
+        ),
         .target(
             name: "RadarCore",
             dependencies: [
-                "CWebP",
+                "CWebP", "CBz2",
                 .product(name: "PNG", package: "swift-png"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "MySQLKit", package: "mysql-kit"),
