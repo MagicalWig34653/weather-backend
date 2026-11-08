@@ -173,3 +173,21 @@ check_dashboard_rollout() {
   docker service ps "$svc" --filter desired-state=running --format 'table {{.Name}}\t{{.Node}}\t{{.Image}}\t{{.CurrentState}}'
   say "Dashboard health: a task only counts as Running after its healthcheck passed (start-first update); no request is sent to the dashboard port."
 }
+
+# Config check with the NEW image before anything is changed: `radar check-config` loads the operator environment exactly like
+# `serve` (same LAYERS parser and rules) without database, network or secrets. The migration job keeps the environment of the
+# previously deployed spec (only `--image` changes), so a changed .env would otherwise only show up when the radar tasks start.
+# Usage: check_config_with_image ENV_FILE IMAGE. Needs docker; an image without the command (older than this check) is skipped
+# with a notice. Returns 1 when the image refuses the configuration.
+check_config_with_image() {
+  local file="$1" image="$2" key out rc=0
+  local -a args=(run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges)
+  while IFS= read -r key; do args+=(-e "$key"); done < <(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$file" | sort -u)
+  out="$(set -a; . "$file"; set +a; docker "${args[@]}" "$image" check-config 2>&1)" || rc=$?
+  if [ "$rc" = 0 ]; then printf '%s\n' "$out"; return 0; fi
+  case "$out" in
+    *"usage: radar"*) echo "Note: this image has no check-config command (older than the check); skipped." >&2; return 0 ;;
+  esac
+  printf '%s\n' "$out" >&2
+  return 1
+}

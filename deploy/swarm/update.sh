@@ -14,6 +14,7 @@
 #   --no-dashboard-force  with DASH_ENABLED=true the dashboard service is checked after the rollout and, if it still runs another
 #                     image than the target, forced onto it (docker service update --force --image ...); with this option the
 #                     script only stops with an error and the command instead
+#   --skip-config-check  do not run `radar check-config` of the new image against the env file before the update
 #   --yes             do not ask for confirmation
 #
 # How the newest tag is found: the Docker workflow pushes `edge` (newest main build) together with `sha-<commit>`
@@ -34,6 +35,7 @@ FORCE=0
 DASH_FORCE=1
 PULL=0
 YES=0
+SKIP_CHECK=0
 FOLLOW_TAG=edge # used by lib.sh
 export FOLLOW_TAG
 WAIT_SECONDS=600
@@ -47,6 +49,7 @@ while [ $# -gt 0 ]; do
     --pull-scripts) PULL=1; shift ;;
     --force) FORCE=1; shift ;;
     --no-dashboard-force) DASH_FORCE=0; shift ;;
+    --skip-config-check) SKIP_CHECK=1; shift ;;
     --yes|-y) YES=1; shift ;;
     -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 64 ;;
@@ -57,7 +60,7 @@ done
 START_TIME=$(date +%s)
 elapsed() { local t=$(( $(date +%s) - START_TIME )); printf '%02d:%02d' $((t / 60)) $((t % 60)); }
 say() { printf '[%s] %s\n' "$(elapsed)" "$*"; }
-STEP=0; STEPS=5
+STEP=0; STEPS=6
 step() { STEP=$((STEP + 1)); printf '\n[%s] == Step %d/%d: %s\n' "$(elapsed)" "$STEP" "$STEPS" "$*"; }
 ENV_WRITTEN=0
 die() {
@@ -155,6 +158,15 @@ if [ "$YES" = 0 ]; then
   case "$answer" in y|Y|yes|j|J|ja) ;; *) echo "Aborted."; exit 1 ;; esac
 else
   say "Confirmation skipped (--yes)."
+fi
+
+step "Check the configuration with the new image"
+if [ "$SKIP_CHECK" = 1 ]; then
+  say "Skipped (--skip-config-check)."
+else
+  say "docker run --rm ${NEW_IMAGE} check-config (env file values, no database, no network)"
+  check_config_with_image "$ENV_FILE" "$NEW_IMAGE" \
+    || die "the new image refuses the configuration in ${ENV_FILE} (see above); nothing was changed. Fix the value (settings.sh) and run update.sh again"
 fi
 
 step "Write the new tag into ${ENV_FILE}"
