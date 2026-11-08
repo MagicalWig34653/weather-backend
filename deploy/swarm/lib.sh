@@ -199,3 +199,37 @@ check_config_with_image() {
   printf '%s\n' "$out" >&2
   return 1
 }
+
+# Effective environment of a one-shot service from the NEW stack files. `docker service update --image` keeps the environment of
+# the previously deployed spec, so a changed .env (e.g. LAYERS) would not reach the migration job before the final
+# `docker stack deploy`. This renders the stack (`docker stack config`, same variable substitution as the deploy) and prints
+# `--env-rm KEY` for keys that are no longer in the new spec and `--env-add KEY=VALUE` for all new ones, one argument per line.
+# Usage: service_env_sync_args STACK SERVICE STACK_ARG... (stack args like -c stack.yaml). Returns 1 when the stack cannot be rendered.
+service_env_sync_args() {
+  local stack="$1" svc="$2" rendered key line; shift 2
+  rendered="$(docker stack config "$@" 2>/dev/null)" || return 1
+  local -a new_keys=()
+  while IFS= read -r line; do
+    key="${line%%$'\t'*}"; new_keys+=("$key")
+  done < <(printf '%s\n' "$rendered" | _service_env_pairs "$svc")
+  while IFS= read -r line; do
+    key="${line%%=*}"; [ -n "$key" ] || continue
+    printf '%s\n' "${new_keys[@]}" | grep -Fxq -- "$key" || printf '%s\n%s\n' --env-rm "$key"
+  done < <(docker service inspect --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' "${stack}_${svc}" 2>/dev/null || true)
+  while IFS= read -r line; do
+    printf '%s\n%s=%s\n' --env-add "${line%%$'\t'*}" "${line#*$'\t'}"
+  done < <(printf '%s\n' "$rendered" | _service_env_pairs "$svc")
+}
+# Reads `docker stack config` output on stdin; prints KEY<TAB>VALUE of the environment of one service (values unquoted).
+_service_env_pairs() {
+  awk -v svc="$1" '
+    /^  [A-Za-z0-9_-]+:[ ]*$/ { insvc = ($1 == svc ":"); inenv = 0; next }
+    insvc && /^    environment:[ ]*$/ { inenv = 1; next }
+    insvc && inenv && /^      [^ ]/ {
+      line = substr($0, 7); i = index(line, ":"); k = substr(line, 1, i - 1); v = substr(line, i + 1); sub(/^[ ]+/, "", v)
+      if (v ~ /^".*"$/) { v = substr(v, 2, length(v) - 2); gsub(/\\"/, "\"", v); gsub(/\\\\/, "\\", v) }
+      else if (v ~ /^'"'"'.*'"'"'$/) { v = substr(v, 2, length(v) - 2); gsub(/'"'"''"'"'/, "'"'"'", v) }
+      print k "\t" v; next }
+    insvc && inenv && !/^      / { inenv = 0 }
+  '
+}
