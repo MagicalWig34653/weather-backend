@@ -74,7 +74,15 @@ fi
 old_tasks=$(docker service ps --no-trunc --format '{{.ID}}' "${STACK}_migrate")
 docker service scale "${STACK}_migrate=0" >/dev/null
 migration_running=1
-docker service update --detach --image "$image" --force --replicas 1 "${STACK}_migrate" >/dev/null
+# The migration job must run with the effective environment of the NEW .env: `--image` alone keeps the old service environment
+# (a stale LAYERS from a rolled-back update made the migration fail although .env and check-config were fine).
+env_args=()
+if env_out="$(service_env_sync_args "$STACK" migrate "${compose_args[@]}")"; then
+  while IFS= read -r line; do [[ -n "$line" ]] && env_args+=("$line"); done <<< "$env_out"
+else
+  echo "Warning: docker stack config failed; the migration job keeps its previous environment." >&2
+fi
+docker service update --detach --image "$image" --force --replicas 1 ${env_args[@]+"${env_args[@]}"} "${STACK}_migrate" >/dev/null
 for ((i=0; i<120; i++)); do
   task=''
   while IFS= read -r candidate; do

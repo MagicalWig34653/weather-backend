@@ -30,9 +30,13 @@ case "$1 $2" in
           *_dashboard) [ "${STUB_DASH_MISSING:-no}" = yes ] && exit 1; cat "$STUB_LOG.dashimg" 2>/dev/null || echo "${STUB_DASH_IMAGE:-}" ;;
           *) echo "${STUB_RADAR_IMAGE:-}" ;; esac ;;
       *UpdateStatus*) echo completed ;;
+      *ContainerSpec.Env*) printf '%s\n' ${STUB_MIGRATE_ENV:-} ;;
       *) exit 1 ;;
     esac ;;
   "service ls") echo 1/1 ;;
+  "stack config")
+    [ "${STUB_CONFIG_FAIL:-no}" = yes ] && exit 1
+    printf 'services:\n  migrate:\n    command:\n      - migrate\n    environment:\n      DB_HOST: %s\n      LAYERS: %s\n      CACHE_MAX_MB: ""\n      NOTE: "a \\"q\\" b"\n    image: x\n  radar:\n    environment:\n      LAYERS: wrong-service\n' "${DB_HOST:-}" "${LAYERS:-}" ;;
   "service update") case "$*" in *_dashboard*) while [ $# -gt 0 ]; do [ "$1" != --image ] || echo "$2" > "$STUB_LOG.dashimg"; shift; done ;; esac ;;
   "service ps")
     n=$(cat "$STUB_LOG.n" 2>/dev/null || echo 0); echo $((n + 1)) > "$STUB_LOG.n"
@@ -205,4 +209,17 @@ export STUB_LOG="$WORK/cc-old.log"; : > "$STUB_LOG"
 rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED -u PUSH_ENABLED PATH="$WORK/bin:$PATH" STUB_CHECK_OLD=yes ./update.sh --env-file "$WORK/o.env" --tag sha-new1234 --yes ) >"$WORK/cc-old.out" 2>&1 || rc=$?
 if grep -q 'has no check-config command' "$WORK/cc-old.out" && grep -q 'stack deploy' "$STUB_LOG" && ! grep -q 'needs APNS_KEY_FILE' "$WORK/cc-old.out"; then echo "ok   config-check-old-image-skipped"
 else echo "FAIL config-check-old-image-skipped (rc=$rc)"; cat "$WORK/cc-old.out"; fail=1; fi
+
+# ---- migration job gets the effective environment of the new .env (stale service env made the real update fail) ----
+export STUB_LOG="$WORK/envsync.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u DASH_ENABLED PATH="$WORK/bin:$PATH" DB_HOST=db LAYERS=radar,temperature STUB_MIGRATE_ENV="LAYERS=radar,temperature_wms OLD_ONLY=1 DB_HOST=db" ./swarm-deploy.sh ) >"$WORK/envsync.out" 2>&1 || rc=$?
+mline=$(grep 'service update.*_migrate' "$STUB_LOG" | head -1)
+if [ "$rc" = 0 ] && grep -q -- '--env-add LAYERS=radar,temperature ' <<< "$mline" && grep -q -- '--env-add CACHE_MAX_MB= ' <<< "$mline" \
+   && grep -q -- '--env-add NOTE=a "q" b ' <<< "$mline" && grep -q -- '--env-rm OLD_ONLY ' <<< "$mline" && ! grep -q 'wrong-service' <<< "$mline" \
+   && ! grep -q -- '--env-rm LAYERS' <<< "$mline" && grep -q -- '--image' <<< "$mline"; then echo "ok   migrate-env-synced-from-new-env"
+else echo "FAIL migrate-env-synced-from-new-env (rc=$rc): $mline"; cat "$WORK/envsync.out"; fail=1; fi
+export STUB_LOG="$WORK/envsync2.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u DASH_ENABLED PATH="$WORK/bin:$PATH" DB_HOST=db STUB_CONFIG_FAIL=yes ./swarm-deploy.sh ) >"$WORK/envsync2.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ] && grep -q 'docker stack config failed' "$WORK/envsync2.out" && grep -q 'service update.*_migrate' "$STUB_LOG"; then echo "ok   migrate-env-sync-falls-back-with-warning"
+else echo "FAIL migrate-env-sync-falls-back-with-warning (rc=$rc)"; cat "$WORK/envsync2.out"; fail=1; fi
 exit $fail
