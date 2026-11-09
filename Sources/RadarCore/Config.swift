@@ -212,6 +212,7 @@ public struct Config: Sendable {
         c.site.proxyLogNote = text("PROXY_LOG_NOTE")
         c.site.appStoreURL = text("APP_STORE_URL")
         c.site.testflightURL = text("TESTFLIGHT_URL")
+        c.site.englishEnabled = (env["SITE_EN_ENABLED"] ?? "").lowercased() == "true"
         if let rev = env["BUILD_REVISION"]?.lowercased(), !rev.isEmpty, rev.count <= 40, rev.allSatisfy({ $0.isHexDigit }) {
             c.buildRevision = String(rev.prefix(12))
         }

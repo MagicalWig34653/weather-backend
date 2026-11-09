@@ -231,6 +231,8 @@ public enum ConfigRegistry {
         s("PROXY_LOG_NOTE", "Betreiberseiten", any, "", "Satz zu Zugriffsprotokollen des Reverse Proxys.", .live, mask: true),
         s("APP_STORE_URL", "Betreiberseiten", .url(host: "apps.apple.com", maxLength: 500), "", "App-Store-Link auf /marketing.", .live),
         s("TESTFLIGHT_URL", "Betreiberseiten", .url(host: "testflight.apple.com", maxLength: 500), "", "TestFlight-Link auf /marketing.", .live),
+        s("SITE_EN_ENABLED", "Betreiberseiten", .bool, "false",
+          "ENTWURF: englische Seiten /en/privacy, /en/support, /en/imprint, /en/marketing ausliefern (aus: 404). Erst nach ausdrücklicher Freigabe des englischen Datenschutztexts einschalten.", .live),
         // Push
         s("PUSH_ENABLED", "Push", .bool, "false", "Server-Push einschalten (braucht APNs-Werte, Schlüssel und IMAGE_WIDTH=1024).", .restart),
         s("APNS_KEY_ID", "Push", .text(maxLength: 10, rule: .apnsIdentifier), "", "Key-ID des APNs-Schlüssels (10 Zeichen).", .restart),
@@ -528,6 +530,7 @@ extension Config {
             case "PROXY_LOG_NOTE": c.site.proxyLogNote = raw
             case "APP_STORE_URL": c.site.appStoreURL = raw
             case "TESTFLIGHT_URL": c.site.testflightURL = raw
+            case "SITE_EN_ENABLED": c.site.englishEnabled = raw.lowercased() == "true"
             case "PUSH_ENABLED": c.push.enabled = raw.lowercased() == "true"
             case "APNS_KEY_ID": c.push.keyID = raw
             case "APNS_TEAM_ID": c.push.teamID = raw

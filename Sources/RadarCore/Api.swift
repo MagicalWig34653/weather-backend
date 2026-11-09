@@ -278,8 +278,10 @@ public final class Api: Sendable {
         }
         if let html = SitePages.render(path: path, info: config.site) {
             let body = Array(html.utf8)
-            return respond(headers: [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "public, max-age=3600"),
-                                     ("Referrer-Policy", "no-referrer"), ("Content-Security-Policy", Self.pageCSP)],
+            var headers = [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "public, max-age=3600"),
+                           ("Referrer-Policy", "no-referrer"), ("Content-Security-Policy", Self.pageCSP)]
+            if path.hasPrefix("/en/") { headers.append(("Content-Language", "en")) }
+            return respond(headers: headers,
                            body: body, ifNoneMatch: ifNoneMatch, etag: "\"" + Hashing.sha256Hex(body).prefix(32) + "\"")
         }
         if path == "/v1/radar/latest.json" {

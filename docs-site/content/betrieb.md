@@ -105,6 +105,17 @@ Lokal geprobt (8.11.2026, Release-Image aus sauberer `git archive`-Kopie, Wegwer
 
 Beide Schalter sind standardmäßig aus (nur Umgebung, im Dashboard schreibgeschützt). Reihenfolge: (1) Image mit den Migrationen 016 und 017 ausrollen (Migrationsjob, Replikate migrieren nicht selbst); (2) optional die Kreisliste einmalig laden: `tools/seed_warncells.sh | mariadb <db>` (liest `tools/data/warncells-district.txt`, Stand 07.11.2026; optional anderer Pfad als Argument; 402 Kreis-Warnzellen; ohne Seed akzeptiert der Server jede wohlgeformte ID); (3) `WARN_INGEST_ENABLED=true`: der Leader `warn` lädt alle 60 s den DWD-Feed `DISTRICT_DWD_DIFF` bzw. alle 15 min `_STAT` (ETag, nur DE/EN), `/v1/warnings/active` antwortet, Fähigkeit `warnings`; (4) zuletzt `WARN_PUSH_ENABLED=true` (braucht `PUSH_ENABLED=true`): Warn-Abos und Warn-Pushes, Fähigkeit `warnings_push`. Push erst nach Antwort des DWD auf die Rückfrage und Freigabe des Datenschutztexts. Zurück: Schalter entfernen, die Daten bleiben bis zur Bereinigung (24 h Nachlauf) liegen.
 
+## Englische Seiten freischalten (ENTWURF, `SITE_EN_ENABLED`)
+
+Vorbereitet, **nicht freigegeben**: `/en/privacy`, `/en/support`, `/en/imprint`, `/en/marketing` (die deutschen Pfade bleiben unverändert). Standard `SITE_EN_ENABLED=false` (live im Dashboard schaltbar): die vier Pfade antworten `404`, die deutschen Seiten zeigen keinen Sprachlink. Einschalten erst, wenn der Nutzer den englischen Datenschutztext ausdrücklich freigegeben hat.
+
+1. [ ] Freigabe des Nutzers für den Datenschutztext (Entwurf Teil A-EN) und die Warn-Aussagen auf `/en/marketing`; offene Klammern der Seite `/en/privacy` (`<span class="draft">`, z. B. Datum, Backups, Aufsichtsbehörde, Hosting-Bestätigung) im Code füllen oder streichen und deployen.
+2. [ ] `OPERATOR_NAME`, `OPERATOR_ADDRESS`, `OPERATOR_EMAIL` gesetzt (sonst zeigen die Seiten den Hinweis „not configured yet“).
+3. [ ] `SITE_EN_ENABLED=true`; Erwartung: `/en/privacy` usw. `200` mit `Content-Language: en`, deutsche Seiten zeigen den Link „English“.
+4. [ ] Rückweg: `SITE_EN_ENABLED=false` (live), die englischen Pfade antworten wieder `404`.
+
+Der Warn-Baustein (Datenschutz Teil E) ist nur auf Deutsch vorbereitet und **nicht** Teil der englischen Seite; er geht erst mit `WARN_PUSH_ENABLED` und gesonderter Freigabe live.
+
 ## Stellschrauben
 
 - **Replikate:** `RADAR_REPLICAS` (Standard 2). Zwei genügen für unterbrechungsfreie Rolling Updates; die Last ist klein. Änderung in der `.env`, dann `deploy/swarm/update.sh --force` oder `docker service scale radar_radar=<n>` (Letzteres überschreibt die `.env` nicht).

@@ -54,6 +54,7 @@ OPERATOR_EMAIL	Betreiberseiten	text:free				500		live	0	E-Mail auf /datenschutz.
 PROXY_LOG_NOTE	Betreiberseiten	text:free				500		live	0	Satz zu Zugriffsprotokollen des Reverse Proxys.
 APP_STORE_URL	Betreiberseiten	url:apps.apple.com				500		live	0	App-Store-Link auf /marketing.
 TESTFLIGHT_URL	Betreiberseiten	url:testflight.apple.com				500		live	0	TestFlight-Link auf /marketing.
+SITE_EN_ENABLED	Betreiberseiten	bool	false					live	0	ENTWURF: englische Seiten /en/privacy, /en/support, /en/imprint, /en/marketing ausliefern (aus: 404). Erst nach ausdrücklicher Freigabe des englischen Datenschutztexts einschalten.
 PUSH_ENABLED	Push	bool	false					restart	0	Server-Push einschalten (braucht APNs-Werte, Schlüssel und IMAGE_WIDTH=1024).
 APNS_KEY_ID	Push	text:apnsIdentifier				10		restart	0	Key-ID des APNs-Schlüssels (10 Zeichen).
 APNS_TEAM_ID	Push	text:apnsIdentifier				10		restart	0	Apple Team-ID (10 Zeichen).

@@ -8,11 +8,18 @@ public struct SiteInfo: Sendable, Equatable {
     public var proxyLogNote = ""
     public var appStoreURL = ""
     public var testflightURL = ""
+    /// `SITE_EN_ENABLED` (default off): serves the English draft pages under `/en/...` (privacy, support, imprint, marketing).
+    /// DRAFT: the English privacy text is not released by the operator yet; while off, these paths answer 404 and the German
+    /// pages do not link to them.
+    public var englishEnabled = false
 
     public init() {}
 
     public var missingRequired: Bool { operatorName.isEmpty || operatorAddress.isEmpty || operatorEmail.isEmpty }
 }
+
+/// Language of a public page (`/en/...` pages are English drafts, see `SiteInfo.englishEnabled`).
+public enum SiteLang: String, Sendable { case de, en }
 
 /// Static, self-contained HTML pages (no external JS/CSS/fonts). Pure functions: testable without a socket.
 public enum SitePages {
@@ -59,10 +66,23 @@ public enum SitePages {
         return plausible ? "<a href=\"mailto:\(escape(email))\">\(escape(email))</a>" : escape(email)
     }
 
-    static func page(title: String, description: String, body: String) -> String {
-        """
+    /// Shared page frame. `lang` switches language of navigation and footer; `alternate` is the path of the same page in the
+    /// other language (rendered as a language link only when given).
+    static func page(title: String, description: String, body: String, lang: SiteLang = .de, alternate: String? = nil) -> String {
+        let nav: String
+        let footer: String
+        switch lang {
+        case .de:
+            nav = "<a href=\"/marketing\">Showers</a><a href=\"/datenschutz\">Datenschutz</a><a href=\"/support\">Support</a><a href=\"/impressum\">Impressum</a>"
+            footer = "Quelle: Deutscher Wetterdienst. Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet."
+        case .en:
+            nav = "<a href=\"/en/marketing\">Showers</a><a href=\"/en/privacy\">Privacy</a><a href=\"/en/support\">Support</a><a href=\"/en/imprint\">Legal Notice</a>"
+            footer = "Source: Deutscher Wetterdienst (German Weather Service). Data basis: Deutscher Wetterdienst, raster data graphically rendered and processed."
+        }
+        let switcher = alternate.map { "<a href=\"\(escape($0))\" hreflang=\"\(lang == .de ? "en" : "de")\" lang=\"\(lang == .de ? "en" : "de")\">\(lang == .de ? "English" : "Deutsch")</a>" } ?? ""
+        return """
         <!DOCTYPE html>
-        <html lang="de"><head><meta charset="utf-8">
+        <html lang="\(lang.rawValue)"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta name="color-scheme" content="light dark">
         <meta name="robots" content="noindex,follow">
@@ -81,12 +101,13 @@ public enum SitePages {
         nav{display:flex;flex-wrap:wrap;gap:.25rem 1rem;font-size:.95rem;border-bottom:1px solid var(--line);padding-bottom:.75rem}
         .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.25rem 1rem;margin:1rem 0}
         .warn{background:var(--warn);color:var(--warnfg);border-radius:12px;padding:.75rem 1rem;margin:1rem 0;font-weight:600}
+        .draft{background:var(--warn);color:var(--warnfg);border-radius:4px;padding:0 .25rem}
         .muted,footer{color:var(--muted);font-size:.9rem}
         footer{margin-top:2.5rem;border-top:1px solid var(--line);padding-top:1rem}
         </style></head><body><main>
-        <nav><a href="/marketing">Showers</a><a href="/datenschutz">Datenschutz</a><a href="/support">Support</a><a href="/impressum">Impressum</a></nav>
+        <nav>\(nav)\(switcher)</nav>
         \(body)
-        <footer>Quelle: Deutscher Wetterdienst. Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet.</footer>
+        <footer>\(footer)</footer>
         </main></body></html>
         """
     }
@@ -161,7 +182,7 @@ public enum SitePages {
         <h2>12. Quellen</h2>
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet.</p>
         """
-        return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der Showers-App und des Radar-Dienstes.", body: body)
+        return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der Showers-App und des Radar-Dienstes.", body: body, alternate: info.englishEnabled ? "/en/privacy" : nil)
     }
 
     public static func marketing(_ info: SiteInfo) -> String {
@@ -200,7 +221,7 @@ public enum SitePages {
         <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus DWD-Rasterdaten bildlich wiedergegeben und aufbereitet (verändert).</p>
         <p>Temperatur- und Feuchtekarten: DWD ICON-D2/ICON-EU Modelldaten (CC BY 4.0, Quelle: Deutscher Wetterdienst), verändert.</p>
         """
-        return page(title: "Showers", description: "Showers: nativer DWD-Regenradar für iPhone und iPad.", body: body)
+        return page(title: "Showers", description: "Showers: nativer DWD-Regenradar für iPhone und iPad.", body: body, alternate: info.englishEnabled ? "/en/marketing" : nil)
     }
 
     public static func support(_ info: SiteInfo) -> String {
@@ -214,7 +235,7 @@ public enum SitePages {
         <p>Fehler und Ideen kannst du auch auf <a href="\(issuesURL)" rel="noopener noreferrer">GitHub</a> melden. Bitte schreibe dort keine persönlichen Daten oder genauen Standorte.</p>
         <p><a href="/datenschutz">Datenschutzerklärung</a> · <a href="/impressum">Impressum</a></p>
         """
-        return page(title: "Support", description: "Support für die Showers-App.", body: body)
+        return page(title: "Support", description: "Support für die Showers-App.", body: body, alternate: info.englishEnabled ? "/en/support" : nil)
     }
 
     public static func imprint(_ info: SiteInfo) -> String {
@@ -249,7 +270,7 @@ public enum SitePages {
         <p>Für Wolken- und Satellitenkarten gilt: Contains modified EUMETSAT Meteosat data. Die Daten von EUMETSAT stehen unter der Lizenz CC BY 4.0 und wurden verändert.</p>
         <p>Showers ist ein unabhängiges Angebot und steht in keiner Verbindung zum DWD oder zu EUMETSAT. Die Angaben der App sind eine Orientierung und kein Ersatz für amtliche Warnungen und Wetterberichte.</p>
         """
-        return page(title: "Impressum", description: "Impressum der Showers-App und des Radar-Dienstes.", body: body)
+        return page(title: "Impressum", description: "Impressum der Showers-App und des Radar-Dienstes.", body: body, alternate: info.englishEnabled ? "/en/imprint" : nil)
     }
 
     /// Path -> HTML for the public pages; nil for any other path.
@@ -259,6 +280,11 @@ public enum SitePages {
         case "/marketing": return marketing(info)
         case "/support": return support(info)
         case "/impressum": return imprint(info)
+        // DRAFT English pages: only behind SITE_EN_ENABLED (default off, then 404).
+        case "/en/privacy" where info.englishEnabled: return privacyEN(info)
+        case "/en/marketing" where info.englishEnabled: return marketingEN(info)
+        case "/en/support" where info.englishEnabled: return supportEN(info)
+        case "/en/imprint" where info.englishEnabled: return imprintEN(info)
         default: return nil
         }
     }
