@@ -60,6 +60,7 @@ x-radar: &radar
     PROXY_LOG_NOTE: ${PROXY_LOG_NOTE:-}
     APP_STORE_URL: ${APP_STORE_URL:-}
     TESTFLIGHT_URL: ${TESTFLIGHT_URL:-}
+    SITE_EN_ENABLED: ${SITE_EN_ENABLED:-}
     # Optional push (rain-start notifications): off by default. The values are plain settings; the .p8 key itself is the
     # external secret apns_key, mounted only by the overlay stack.push.yaml (swarm-deploy.sh adds it when PUSH_ENABLED=true),
     # so installations without push never depend on that secret.
