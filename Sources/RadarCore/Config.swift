@@ -253,6 +253,7 @@ public struct Config: Sendable {
         if c.push.enabled { c.push.keyPEM = try secret(env, "APNS_KEY", "") }
         c.warn.ingestEnabled = (env["WARN_INGEST_ENABLED"] ?? "").lowercased() == "true"
         c.warn.pushEnabled = (env["WARN_PUSH_ENABLED"] ?? "").lowercased() == "true"
+        c.site.warnPushEnabled = c.push.enabled && c.warn.pushEnabled
         let linkSwitch = (env["DEVICE_LINK_ENABLED"] ?? "").lowercased()
         c.deviceLink.enabled = linkSwitch == "true"
         c.deviceLink.explicitlyDisabled = linkSwitch == "false"

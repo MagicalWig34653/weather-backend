@@ -18,10 +18,10 @@ private func fullInfo(_ s: inout SiteInfo) {
     s.operatorEmail = "kontakt@example.org"
 }
 
-private let enPaths = ["/en/privacy", "/en/support", "/en/imprint", "/en/marketing"]
+private let enPaths = ["/en/support", "/en/imprint", "/en/marketing"]
 
-/// DRAFT English pages: off by default (404), served only with `SITE_EN_ENABLED`.
-@Suite("English site pages (draft, behind SITE_EN_ENABLED)")
+/// English pages: off by default (404), served only with `SITE_EN_ENABLED`. There is no English privacy page.
+@Suite("English site pages (behind SITE_EN_ENABLED)")
 struct SitePageENTests {
     @Test func offByDefaultAnswers404AndGermanPagesDoNotLinkThere() async throws {
         #expect(SiteInfo().englishEnabled == false)
@@ -34,9 +34,9 @@ struct SitePageENTests {
         }
     }
 
-    @Test func enabledServesFourPagesWithHeadersAndLanguage() async throws {
+    @Test func enabledServesThreePagesWithHeadersAndLanguage() async throws {
         let a = api(en: true, fullInfo)
-        let pages = [("/en/privacy", "<h1>Privacy Policy</h1>"), ("/en/support", "<h1>Support</h1>"),
+        let pages = [("/en/support", "<h1>Support</h1>"),
                      ("/en/imprint", "<h1>Legal Notice</h1>"), ("/en/marketing", "<h1>Showers</h1>")]
         for (path, heading) in pages {
             let r = try await a.handle(path: path, ifNoneMatch: nil)
@@ -49,10 +49,12 @@ struct SitePageENTests {
             #expect(hdr(r, "Referrer-Policy") == "no-referrer" && hdr(r, "Set-Cookie") == nil)
             #expect(hdr(r, "Content-Security-Policy") == "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
             #expect(!t.contains("<script") && !t.contains("src=\"http"))
-            #expect(t.contains("<a href=\"/en/privacy\">Privacy</a>") && t.contains(">Deutsch</a>"))
+            #expect(t.contains("<a href=\"/datenschutz\" hreflang=\"de\" lang=\"de\">Privacy (German)</a>") && t.contains(">Deutsch</a>"))
         }
-        #expect(try await a.handle(path: "/en/privacy/", ifNoneMatch: nil).status == 404)
-        #expect(try await a.handle(path: "/en/privacy?x=1", ifNoneMatch: nil).status == 200)
+        #expect(try await a.handle(path: "/en/support/", ifNoneMatch: nil).status == 404)
+        #expect(try await a.handle(path: "/en/support?x=1", ifNoneMatch: nil).status == 200)
+        // No English privacy page, not even with the flag on.
+        #expect(try await a.handle(path: "/en/privacy", ifNoneMatch: nil).status == 404)
         // The existing landing page and German URLs are unchanged.
         #expect(hdr(try await a.handle(path: "/en", ifNoneMatch: nil), "Content-Language") == "en")
         #expect(hdr(try await a.handle(path: "/datenschutz", ifNoneMatch: nil), "Content-Language") == nil)
@@ -60,7 +62,7 @@ struct SitePageENTests {
 
     @Test func languageSwitchLinksPointToTheSamePage() async throws {
         let a = api(en: true, fullInfo)
-        for (de, en) in [("/datenschutz", "/en/privacy"), ("/support", "/en/support"), ("/impressum", "/en/imprint"), ("/marketing", "/en/marketing")] {
+        for (de, en) in [("/support", "/en/support"), ("/impressum", "/en/imprint"), ("/marketing", "/en/marketing")] {
             let g = text(try await a.handle(path: de, ifNoneMatch: nil))
             #expect(g.contains("<a href=\"\(en)\" hreflang=\"en\" lang=\"en\">English</a>"), "\(de)")
             let e = text(try await a.handle(path: en, ifNoneMatch: nil))
@@ -68,28 +70,28 @@ struct SitePageENTests {
         }
     }
 
-    @Test func privacyIsTheDraftTextWithOperatorValues() async throws {
-        let t = text(try await api(en: true, fullInfo).handle(path: "/en/privacy", ifNoneMatch: nil))
-        for h in ["1. Controller", "2. Overview", "3. Radar map and radar service", "4. Direct retrieval from the German Weather Service",
-                  "5. Rain alerts, areas and Live Activities (optional)", "6. Location and saved places", "7. Map view and place search (Apple)",
-                  "8. On-device summary", "9. Apple Watch, widgets and Live Activities", "10. Operational statistics of the radar service",
-                  "11. Operator diagnostics (only on approval by the operator, voluntary)", "12. No debug logs containing personal data",
-                  "13. Your rights", "14. Sources", "15. Hosting and recipients"] {
-            #expect(t.contains("<h2>\(h)</h2>"), "\(h)")
+    @Test func englishPagesLinkToGermanPrivacyOnly() async throws {
+        let a = api(en: true, fullInfo)
+        for p in enPaths {
+            let t = text(try await a.handle(path: p, ifNoneMatch: nil))
+            #expect(!t.contains("/en/privacy"), "\(p)")
+            #expect(t.contains("href=\"/datenschutz\""), "\(p)")
         }
-        #expect(t.contains("No user account, no advertising, no tracking, no analytics SDKs."))
-        #expect(t.contains("Hetzner Online GmbH") && t.contains("Art. 6(1)(f) GDPR") && t.contains("up to roughly 14 months"))
-        #expect(t.contains("Erika Beispiel") && t.contains("Musterweg 1<br>12345 Musterstadt") && t.contains("mailto:kontakt@example.org"))
-        #expect(!t.contains("OPERATOR_NAME") && !t.contains("class=\"warn\""))
-        // Editorial markers are removed; open items stay visible as draft spans and are not silently dropped.
-        #expect(!t.contains("[R1]") && !t.contains("[R9]"))
-        #expect(t.contains("<span class=\"draft\">[date of go-live]</span>"))
-        #expect(t.contains("[Operator to confirm:") && t.contains("Backups: <span class=\"draft\">[operator information pending"))
+        #expect(text(try await a.handle(path: "/en/support", ifNoneMatch: nil)).contains("Privacy Policy (German)"))
+        #expect(text(try await a.handle(path: "/en/marketing", ifNoneMatch: nil)).contains("Privacy Policy (German)"))
+    }
+
+    @Test func englishPagesHaveNoDraftOrInternalStrings() async throws {
+        let a = api(en: true, fullInfo)
+        for p in enPaths {
+            let t = text(try await a.handle(path: p, ifNoneMatch: nil))
+            for b in ["[", "Draft", "draft", "DRAFT", "ShowerNow", "showernow", "placeholder", "Part G", "Part C"] { #expect(!t.contains(b), "\(p): \(b)") }
+        }
     }
 
     @Test func missingOperatorDetailsShowNoticeNotInventedData() async throws {
         let a = api(en: true)
-        for p in ["/en/privacy", "/en/imprint"] {
+        for p in ["/en/imprint"] {
             let t = text(try await a.handle(path: p, ifNoneMatch: nil))
             #expect(t.contains("The controller details are not configured yet."), "\(p)")
         }
@@ -116,7 +118,7 @@ struct SitePageENTests {
             #expect(!t.contains("<script"), "\(p)")
             #expect(!t.contains("javascript:") && !t.contains("onmouseover=\"x"), "\(p)")
         }
-        #expect(text(try await a.handle(path: "/en/privacy", ifNoneMatch: nil)).contains("&lt;script&gt;alert(1)&lt;/script&gt;&quot;&#39;&amp;"))
+        #expect(text(try await a.handle(path: "/en/imprint", ifNoneMatch: nil)).contains("&lt;script&gt;alert(1)&lt;/script&gt;&quot;&#39;&amp;"))
     }
 
     @Test func marketingLinksOnlyWhenConfiguredHttps() async throws {

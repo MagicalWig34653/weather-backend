@@ -8,17 +8,19 @@ public struct SiteInfo: Sendable, Equatable {
     public var proxyLogNote = ""
     public var appStoreURL = ""
     public var testflightURL = ""
-    /// `SITE_EN_ENABLED` (default off): serves the English draft pages under `/en/...` (privacy, support, imprint, marketing).
-    /// DRAFT: the English privacy text is not released by the operator yet; while off, these paths answer 404 and the German
-    /// pages do not link to them.
+    /// `SITE_EN_ENABLED` (default off): serves the English pages under `/en/...` (support, imprint, marketing). There is no
+    /// English privacy page; the English pages link to the German one. While off, these paths answer 404 and the German pages
+    /// do not link to them.
     public var englishEnabled = false
+    /// Set from `WARN_PUSH_ENABLED` together with `PUSH_ENABLED`: only then the privacy page carries the warnings paragraph.
+    public var warnPushEnabled = false
 
     public init() {}
 
     public var missingRequired: Bool { operatorName.isEmpty || operatorAddress.isEmpty || operatorEmail.isEmpty }
 }
 
-/// Language of a public page (`/en/...` pages are English drafts, see `SiteInfo.englishEnabled`).
+/// Language of a public page (`/en/...` pages are English, see `SiteInfo.englishEnabled`).
 public enum SiteLang: String, Sendable { case de, en }
 
 /// Static, self-contained HTML pages (no external JS/CSS/fonts). Pure functions: testable without a socket.
@@ -26,7 +28,7 @@ public enum SitePages {
     public static let appDocsURL = "https://magicalwig34653.github.io/weather-apple/"
     public static let backendDocsURL = "https://magicalwig34653.github.io/weather-backend/"
     public static let issuesURL = "https://github.com/MagicalWig34653/weather-apple/issues"
-    public static let updated = "6. November 2026"
+    public static let updated = "10. November 2026"
 
     public static let missingNotice = "Angaben zum Verantwortlichen sind noch nicht konfiguriert."
 
@@ -76,7 +78,7 @@ public enum SitePages {
             nav = "<a href=\"/marketing\">Showers</a><a href=\"/datenschutz\">Datenschutz</a><a href=\"/support\">Support</a><a href=\"/impressum\">Impressum</a>"
             footer = "Quelle: Deutscher Wetterdienst. Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet."
         case .en:
-            nav = "<a href=\"/en/marketing\">Showers</a><a href=\"/en/privacy\">Privacy</a><a href=\"/en/support\">Support</a><a href=\"/en/imprint\">Legal Notice</a>"
+            nav = "<a href=\"/en/marketing\">Showers</a><a href=\"/datenschutz\" hreflang=\"de\" lang=\"de\">Privacy (German)</a><a href=\"/en/support\">Support</a><a href=\"/en/imprint\">Legal Notice</a>"
             footer = "Source: Deutscher Wetterdienst (German Weather Service). Data basis: Deutscher Wetterdienst, raster data graphically rendered and processed."
         }
         let switcher = alternate.map { "<a href=\"\(escape($0))\" hreflang=\"\(lang == .de ? "en" : "de")\" lang=\"\(lang == .de ? "en" : "de")\">\(lang == .de ? "English" : "Deutsch")</a>" } ?? ""
@@ -101,8 +103,7 @@ public enum SitePages {
         nav{display:flex;flex-wrap:wrap;gap:.25rem 1rem;font-size:.95rem;border-bottom:1px solid var(--line);padding-bottom:.75rem}
         .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.25rem 1rem;margin:1rem 0}
         .warn{background:var(--warn);color:var(--warnfg);border-radius:12px;padding:.75rem 1rem;margin:1rem 0;font-weight:600}
-        .draft{background:var(--warn);color:var(--warnfg);border-radius:4px;padding:0 .25rem}
-        .muted,footer{color:var(--muted);font-size:.9rem}
+                .muted,footer{color:var(--muted);font-size:.9rem}
         footer{margin-top:2.5rem;border-top:1px solid var(--line);padding-top:1rem}
         </style></head><body><main>
         <nav>\(nav)\(switcher)</nav>
@@ -112,6 +113,8 @@ public enum SitePages {
         """
     }
 
+    /// Privacy policy (German, Art. 13 GDPR). Section structure is mirrored in the app repo's `docs/datenschutz-entwurf-release.md`
+    /// (Teil A) and the in-app privacy text; keep them identical.
     public static func privacy(_ info: SiteInfo) -> String {
         var controller = ""
         if info.missingRequired {
@@ -123,66 +126,52 @@ public enum SitePages {
         if !info.operatorEmail.isEmpty { lines.append("E-Mail: \(mailLink(info.operatorEmail))") }
         if !lines.isEmpty { controller += "<p>" + lines.joined(separator: "<br>") + "</p>" }
 
-        let proxy = info.proxyLogNote.isEmpty
-            ? "Ob und wie lange der Reverse Proxy Zugriffe protokolliert, ist hier noch nicht angegeben."
-            : escape(info.proxyLogNote)
+        let proxyNote = info.proxyLogNote.isEmpty ? "" : " " + escape(info.proxyLogNote)
+        let warnBlock = info.warnPushEnabled ? """
+
+        <p><strong>Amtliche Warnungen (optional).</strong> Wenn du Warnungen vor Unwetter, Frost oder Glatteis einschaltest, speichert der Server zusätzlich die Kennungen der Warngebiete (Kreise) deiner Orte und Gebiete, die gewünschten Warnarten und die Mindeststufe, jeweils mit deiner Installationskennung. Koordinaten und Ortsnamen speichert der Server dafür nicht; die Zuordnung deines Ortes zu einem Warngebiet geschieht auf deinem Gerät. Die aktuellen Warnungen ruft die App ohne Ortsangabe ab. Löschung wie bei Regenhinweisen. Quelle der Warnungen: Deutscher Wetterdienst. Die App ersetzt keine offiziellen Warnkanäle; im Notfall wähle 112.</p>
+        """ : ""
 
         let body = """
         <h1>Datenschutzerklärung</h1>
-        <p class="muted">Für die App Showers (iPhone, iPad) und den zugehörigen Radar-Dienst. Stand: \(updated).</p>
+        <p class="muted">Für die App Showers (iPhone, iPad, Apple Watch) und den zugehörigen Radar-Dienst. Stand: \(updated).</p>
 
         <h2>1. Verantwortlicher</h2>
         \(controller)
 
         <h2>2. Überblick</h2>
-        <ul>
-        <li>Kein Benutzerkonto, keine Werbung, kein Tracking, keine Analyse-SDKs.</li>
-        <li>Der Radar-Dienst setzt keine Cookies und vergibt keine Kennung.</li>
-        <li>Betriebsstatistik nur als aggregierte, personenlose Zähler; Geräte-Diagnose nur freiwillig und nur in Testversionen (Abschnitte 8 und 9).</li>
-        <li>Gespeicherte Orte und Einstellungen bleiben auf deinem Gerät.</li>
-        </ul>
+        <p>Kein Benutzerkonto, kein Tracking, keine Werbung, keine Analyse-Dienste. Gespeicherte Orte, ihre Namen und deine Einstellungen bleiben auf deinem Gerät. Die Nutzung ist freiwillig: Du musst keine Daten bereitstellen; ohne Regenhinweise registriert sich die App nicht auf dem Server. Eine automatisierte Entscheidungsfindung im Sinne von Art. 22 DSGVO findet nicht statt.</p>
 
-        <h2>3. Radarkarte und Radar-Dienst</h2>
-        <p>Die App lädt die Radarbilder für ganz Deutschland vom Showers-Radar-Dienst. Die Anfragen enthalten keinen Ort: Es gibt feste Pfade je Radarlauf und Zeitschritt (Ganzbild für Deutschland), keine Cookies und keine Kennung.</p>
-        <p>Der Radar-Dienst selbst führt keine Zugriffsprotokolle und speichert keine IP-Adressen oder Abfragedetails. Seine technischen Logs enthalten nur Lauf-Kennungen und Fehlerklassen.</p>
-        <p>Dem Radar-Dienst ist ein Reverse Proxy (TLS, Weiterleitung) vorgeschaltet. Dieser sieht technisch bedingt die IP-Adresse jedes Abrufs. \(proxy)</p>
+        <h2>3. Radar-Abruf und Server-Protokolle</h2>
+        <p>Die App lädt Radarbilder und weitere Karten (Luftdruck, Blitze, Wolken, Sonne, Temperatur, Feuchte) für ganz Deutschland vom Showers-Radar-Dienst. Die Anfragen enthalten keinen Ort, keine Cookies und keine Kennung. Der Radar-Dienst selbst führt keine Zugriffsprotokolle und speichert keine IP-Adressen; er zählt nur aggregierte, personenlose Werte für den Betrieb (Anfragen je Routengruppe, Fehlerzähler, 30 Tage beziehungsweise 72 Stunden).</p>
+        <p>Dem Radar-Dienst ist ein Reverse Proxy vorgeschaltet. Technisch bedingt sieht er die IP-Adresse jedes Abrufs und protokolliert sie befristet. Zweck sind Betrieb, Fehlersuche und Abwehr von Missbrauch; Rechtsgrundlage ist unser berechtigtes Interesse (Art. 6 Abs. 1 lit. f DSGVO).\(proxyNote)</p>
 
-        <h2>4. Direktabruf beim Deutschen Wetterdienst</h2>
-        <p>Antwortet der Radar-Dienst nicht oder sind seine Daten älter als 20 Minuten, ruft die App die Radarbilder direkt beim Deutschen Wetterdienst (DWD) ab. Der DWD sieht dann den abgefragten Kartenausschnitt und, wie bei jeder Internetverbindung, deine IP-Adresse. Es gelten die Datenschutzhinweise des DWD.</p>
-        <p>Die Punktprognose für einen Ort fragt die App direkt beim DWD ab. Dabei sind der abgefragte Punkt und die IP-Adresse für den DWD sichtbar.</p>
+        <h2>4. Orte, Standort, Prognose und Karten</h2>
+        <p>Der Standortzugriff ist optional und wird erst angefragt, wenn du ihn nutzen willst; es gibt keine Hintergrundortung und keine Standortverläufe. Gespeicherte Orte und ihre Namen liegen nur lokal auf deinem Gerät (auch für Widgets und Apple Watch). Die kurze Einordnung der Regenlage erstellt Apple Foundation Models auf dem Gerät.</p>
+        <p>Die Punktprognose für einen Ort, auch für Widgets und Apple Watch, ruft die App direkt beim Deutschen Wetterdienst (DWD) ab. Der Radar-Dienst erhält diese Orte nicht. Antwortet der Radar-Dienst nicht oder sind seine Daten älter als 20 Minuten, lädt die App die Radarbilder ebenfalls direkt beim DWD; die Legendenbilder einiger Karten lädt sie direkt beim DWD beziehungsweise bei EUMETSAT. Diese Stellen sehen dabei den angefragten Punkt oder Kartenausschnitt und, wie bei jeder Internetverbindung, deine IP-Adresse; es gelten ihre eigenen Datenschutzhinweise.</p>
+        <p>Karte und Ortssuche nutzen Apple MapKit: Dein Gerät ruft Kartendaten von Apple ab, bei der Suche gehen Suchtext und ein fester Suchbereich (Deutschland, nicht dein Standort) an Apple, auf der Apple Watch für den Kartenhintergrund die Koordinate des Ortes. Apple sieht dabei deine IP-Adresse; es gelten die Datenschutzbestimmungen von Apple. Suchtext und Karte gehen nicht an den Radar-Dienst.</p>
 
-        <h2>5. Standort und gespeicherte Orte</h2>
-        <p>Der Standortzugriff ist optional und wird erst angefragt, wenn du den Standort verwenden willst. Es gibt keine Hintergrundortung und keine Standortverläufe. Der Standort verbleibt auf dem Gerät; für die Prognose wird nur der Punkt an den DWD gesendet (siehe Abschnitt 4). Gespeicherte Orte liegen ausschließlich lokal auf dem Gerät.</p>
+        <h2>5. Regenhinweise und Live Activities (optional)</h2>
+        <p>Wenn du Regenhinweise für einen Ort oder ein Gebiet einschaltest, kann dich der Radar-Dienst auch bei geschlossener App benachrichtigen. Zweck ist die Zustellung dieser Hinweise; Rechtsgrundlage ist deine Einwilligung (Art. 6 Abs. 1 lit. a DSGVO), die du mit dem Einschalten erteilst und durch Ausschalten oder Löschen jederzeit mit Wirkung für die Zukunft widerrufen kannst. Ohne diese Funktion wird nichts davon gespeichert.</p>
+        <p><strong>Gespeichert werden</strong> auf dem Server: eine zufällige Installationskennung und der Hash eines Geheimnisses (das Geheimnis selbst liegt nur im Schlüsselbund deines Geräts); das Gerätetoken für Apple Push-Mitteilungen, die Umgebung (Entwicklung oder Produktion) und die Sprache; je Regenhinweis bei einem Ort die Rasterzelle des Radarbildes (Kantenlänge etwa 0,7 km, keine Koordinate, kein Ortsname), bei einem Gebiet der auf etwa 2 km gerundete Mittelpunkt und der Radius, dazu Schwelle, Vorlauf, Einstellungen, Zustand der Auswertung und Zeitpunkte; bei Live Activities Start- und Activity-Token; kurzzeitig der zu sendende Mitteilungstext in einer Warteschlange. Es sind bis zu 10 Regenhinweise je Installation möglich, davon bis zu 3 Gebiete. Die Rasterzelle kann zusammen mit der Installationskennung einem Gerät zugeordnet und damit personenbezogen sein; ein Standortverlauf entsteht nicht. Ortsnamen kennt der Server nicht: Eine Erweiterung der App ergänzt sie auf dem Gerät.</p>
+        <p><strong>Testmeldung.</strong> In den Einstellungen kannst du eine Testmeldung mit festem Text auslösen (höchstens 3 je Stunde); sie wird nicht gespeichert.</p>\(warnBlock)
+        <p><strong>Apple.</strong> Mitteilungen und Live Activities werden über den Apple Push Notification Service zugestellt. Apple erhält dafür vom Server das Gerätetoken, den Inhalt der Mitteilung und technische Kennungen zum Zusammenfassen von Mitteilungen. Dabei können Daten an Server von Apple außerhalb der EU, insbesondere in den USA, übermittelt werden. Es gelten die Datenschutzbestimmungen von Apple.</p>
+        <p><strong>Speicherdauer.</strong> Löschst du einen Regenhinweis oder schaltest die Funktion aus, löscht die App die Registrierung auf dem Server; damit werden Installation, Regenhinweise, Activity-Daten und wartende Mitteilungen gelöscht. Meldet Apple ein Gerätetoken als ungültig (zum Beispiel nach Löschen der App), löscht der Server die Registrierung sofort. Registrierungen, die 60 Tage lang nicht mehr von der App gemeldet wurden, werden automatisch gelöscht. Mitteilungen in der Warteschlange werden nach etwa 6 Stunden entfernt.</p>
 
-        <h2>6. Kartenansicht und Ortssuche (Apple)</h2>
-        <p>Die Karte und die Ortssuche der App nutzen Apple MapKit. Für die Basiskarte ruft dein Gerät die Kartendaten des angezeigten Ausschnitts von Apple ab. Wenn du nach einem Ort suchst, sendet die App deinen Suchtext und einen festen Suchbereich (Deutschland, nicht dein Standort) an Apple. Dabei sieht Apple technisch bedingt deine IP-Adresse. Der Suchtext geht nicht an den Radar-Dienst und nicht an den DWD. Die Verarbeitung durch Apple richtet sich nach den Datenschutzbestimmungen von Apple.</p>
-        <p>Ein Punkt, den du per Suche, langem Druck auf die Karte oder über die Standortfunktion wählst, wird nur lokal auf dem Gerät gespeichert. An den DWD geht für die Prognose lediglich dieser Punkt (siehe Abschnitt 4). Der Radar-Dienst erhält keinen Ort.</p>
+        <h2>6. Betreiber-Diagnose (freiwillig)</h2>
+        <p>Der Betreiber kann ein Gerät zur Fehlersuche bei Regenhinweisen und Live Activities koppeln. Das ist standardmäßig aus, nur in den Einstellungen der App einschaltbar und nur möglich, solange der Betreiber im Dashboard kurzzeitig ein Kopplungsfenster geöffnet hat. Dabei zeigt die App einen kurzen Koppelcode (10 Minuten gültig, einmal verwendbar), den der Betreiber nach Anmeldung mit seinem Passkey im Dashboard eingibt. Gespeichert werden die Zuordnung zur Push-Registrierung, eine vom Betreiber vergebene Bezeichnung, Zeitpunkte und ein Verlauf technischer Versandergebnisse der letzten 48 Stunden. Nur für ein gekoppeltes Gerät sieht der Betreiber dessen Regenhinweise mit der auf etwa 1 km gerundeten Position und der aktuellen Auswertung; er kann diesem Gerät Test-Mitteilungen und eine Test-Live-Activity senden. Höchstens drei Geräte können gleichzeitig gekoppelt sein. Im Betreiberprotokoll werden Kopplung, Entkopplung und Aktionen ohne Installationskennung, Token oder Ort mit einem kurzen Prüfwert 365 Tage aufbewahrt. Die Kopplung gilt bis zum Widerruf, längstens bis die Push-Registrierung gelöscht wird; du kannst sie jederzeit in der App ausschalten, dabei wird sie auf dem Server gelöscht. Rechtsgrundlage ist deine Einwilligung (Art. 6 Abs. 1 lit. a DSGVO).</p>
 
-        <h2>7. Lokale Einordnung</h2>
-        <p>Die kurze Einordnung der Regenlage erstellt Apple Foundation Models auf dem Gerät. Dabei werden keine Koordinaten oder Ortsnamen an Dritte gesendet.</p>
+        <h2>7. Empfänger, Hosting und Drittländer</h2>
+        <p>Der Radar-Dienst und seine Datenbank laufen auf einem eigenen virtuellen Server bei der Hetzner Online GmbH in einem Rechenzentrum in Deutschland. Hetzner verarbeitet die dort gespeicherten Daten als Auftragsverarbeiter nach Art. 28 DSGVO nur nach unseren Weisungen. Empfänger der Push-Daten ist Apple (Abschnitt 5). Direkt von deinem Gerät, ohne Beteiligung des Betreibers, gehen Anfragen an den DWD, an EUMETSAT und an Apple (Abschnitt 4); diese Stellen verarbeiten die Daten in eigener Verantwortung. Darüber hinaus geben wir keine Daten weiter und verkaufen keine Daten. Eine Übermittlung in Drittländer kann nur über Apple erfolgen (Abschnitt 5).</p>
 
-        <h2>8. Betriebsstatistik des Radar-Dienstes</h2>
-        <p>Der Radar-Dienst zählt für den Betrieb aggregierte, personenlose Werte: zum Beispiel Anfragen je Routengruppe und Statusklasse, Antwortzeiten in groben Klassen, Abruf- und Fehlerzähler der Datenquellen sowie Ergebnisse des Push-Versands. Es werden weder IP-Adressen noch Orte, Geräte- oder Installationskennungen gezählt. Die Zähler liegen tageweise (30 Tage) und als Stundenzähler (72 Stunden) in der Datenbank und werden danach gelöscht. Der Zugriff darauf ist nur dem Betreiber über ein geschütztes Dashboard möglich.</p>
+        <h2>8. Deine Rechte</h2>
+        <p>Dir stehen nach der Datenschutz-Grundverordnung (DSGVO) die Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch zu (Art. 15 bis 21 DSGVO) sowie das Recht, eine erteilte Einwilligung jederzeit mit Wirkung für die Zukunft zu widerrufen. Soweit wir Daten auf Grundlage berechtigter Interessen verarbeiten (Protokolle des Reverse Proxys, Abschnitt 3), kannst du aus Gründen, die sich aus deiner besonderen Situation ergeben, jederzeit widersprechen (Art. 21 DSGVO). Zudem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren, insbesondere in dem Mitgliedstaat deines Aufenthaltsorts.</p>
+        <p>Am einfachsten löschst du deine Daten auf dem Server selbst: Schalte alle Regenhinweise in der App aus oder lösche sie. Da die Installationskennung nur auf deinem Gerät liegt, kann der Betreiber Daten auf Anfrage nur zuordnen, wenn du die Installationskennung nennst; du findest sie in der App in den Einstellungen und kannst sie dort kopieren. Wende dich für Anfragen an die in Abschnitt 1 genannte Stelle.</p>
 
-        <h2>9. Betreiber-Diagnose (nur auf Freigabe des Betreibers, freiwillig)</h2>
-        <p>Der Betreiber kann ein Gerät zur Fehlersuche bei Regenhinweisen und Live Activities koppeln. Das ist standardmäßig aus, nur in den Einstellungen der App einschaltbar und nur möglich, solange der Betreiber dafür im Dashboard kurzzeitig (standardmäßig 5 Minuten) ein Kopplungsfenster geöffnet hat; außerhalb des Fensters zeigt die App die Funktion nicht an. Sie hängt nicht davon ab, ob die App aus dem App Store oder aus TestFlight stammt.</p>
-        <ul>
-        <li>Beim Einschalten zeigt die App einen kurzen Koppelcode (10 Minuten gültig, einmal verwendbar), den der Betreiber im Dashboard eingibt und dem Gerät dabei eine eigene Bezeichnung gibt.</li>
-        <li>Der Code wird nur im Kopplungsfenster ausgegeben und ist nur nutzbar, wenn sich der Betreiber im Dashboard mit seinem Passkey angemeldet hat. Es wird kein Beleg von Apple (StoreKit) übertragen oder gespeichert.</li>
-        <li>Gespeichert werden die Zuordnung zur Push-Registrierung des Geräts, die Bezeichnung, Zeitpunkte (Kopplung, zuletzt gesehen) und ein Verlauf technischer Versandergebnisse der letzten 48 Stunden (zum Beispiel Testmitteilung zugestellt oder von Apple abgelehnt). Es werden keine Standortdaten gespeichert.</li>
-        <li>Die Kopplung gilt bis zum Widerruf. Du kannst sie jederzeit durch Ausschalten in der App widerrufen; dabei wird sie auf dem Server gelöscht. Der Betreiber kann sie ebenfalls entfernen. Höchstens drei Geräte können gleichzeitig gekoppelt sein.</li>
-        </ul>
-
-        <h2>10. Keine Debuglogs mit Personenbezug</h2>
-        <p>Die App protokolliert keine URLs, Standorte oder Fehler-Rohdaten. Zwischenspeicher liegen im Arbeitsspeicher beziehungsweise lokal auf dem Gerät.</p>
-
-        <h2>11. Deine Rechte</h2>
-        <p>Dir stehen nach der Datenschutz-Grundverordnung (DSGVO) insbesondere die Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch zu (Art. 15 bis 21 DSGVO). Zudem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren. Wende dich für Anfragen an die oben genannte Stelle.</p>
-
-        <h2>12. Quellen</h2>
-        <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet.</p>
+        <h2>9. Quellen</h2>
+        <p>Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet. Wolken- und Sonnenkarten: Contains modified EUMETSAT Meteosat data 2026. Kartenhintergrund: Apple Karten.</p>
         """
-        return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der Showers-App und des Radar-Dienstes.", body: body, alternate: info.englishEnabled ? "/en/privacy" : nil)
+        return page(title: "Datenschutzerklärung", description: "Datenschutzerklärung der Showers-App und des Radar-Dienstes.", body: body)
     }
 
     public static func marketing(_ info: SiteInfo) -> String {
@@ -280,8 +269,7 @@ public enum SitePages {
         case "/marketing": return marketing(info)
         case "/support": return support(info)
         case "/impressum": return imprint(info)
-        // DRAFT English pages: only behind SITE_EN_ENABLED (default off, then 404).
-        case "/en/privacy" where info.englishEnabled: return privacyEN(info)
+        // English pages: only behind SITE_EN_ENABLED (default off, then 404). No English privacy page.
         case "/en/marketing" where info.englishEnabled: return marketingEN(info)
         case "/en/support" where info.englishEnabled: return supportEN(info)
         case "/en/imprint" where info.englishEnabled: return imprintEN(info)
