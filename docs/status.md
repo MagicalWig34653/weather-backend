@@ -482,3 +482,7 @@ Offen: (1) Fehlermeldung des Servers bei `PUSH_ENABLED=true` ohne lesbare `APNS_
 **Fix:** (1) Auswahl nur öffentliche Tokens (`LayerCatalog.operatorTokens`: ohne `temperature_wms`, mit `temperature`); (2) `LayerCatalog.parse` lehnt interne IDs mit Hinweis ab (Env, Dashboard-Schreiben); (3) neuer Befehl `radar check-config` (`ConfigCheck`, ohne DB/Netz/Secrets); (4) `update.sh` prüft vor dem Schreiben der `.env`, vor Migration und Rollout mit dem neuen Image (`--skip-config-check`), Test mit Docker-Stub.
 **Geprüft:** siehe Commit-Bericht; `settings.sh`-Tests (`test-settings.sh`) brauchen Bash 4.4 (lokal 3.2) und liefen nicht.
 
+
+## Webseite ohne „mit Zeitleiste“ (10. November 2026)
+
+Nutzerwunsch: Slogan „mit Zeitleiste“ entfällt. Landingpage (DE/EN: description, Alt-Texte, Überschrift jetzt „Regenradar“/„Rain radar“), `SitePages.swift` („Regenradar:“), `SitePagesEN.swift` („Rain radar:“) und `LandingPageTests`-Needles angepasst. Die schematische Zeitleiste (CSS-Grafik, Beschriftung) und sachliche Bedienungstexte bleiben. `docs-site/content/index.md` und `apple-externe-tests.md` enthielten die Formulierung nicht (Datei zweite existiert hier nicht). Geprüft: `swift test --filter "LandingPageTests|SitePages"` grün. Nicht geprüft: volle Suite. Deploy durch den Nutzer via `update.sh`.

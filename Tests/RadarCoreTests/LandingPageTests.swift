@@ -140,12 +140,12 @@ struct LandingPageTests {
 
     @Test func contentSections() async throws {
         let de = text(try await api().handle(path: "/", ifNoneMatch: nil))
-        for needle in ["Radar mit Zeitleiste", "Wolken als Ebene", "Deine Orte und Regenhinweise", "Regen beginnt in 12 min", "Beispiel für einen Regenhinweis",
+        for needle in ["Regenradar", "Wolken als Ebene", "Deine Orte und Regenhinweise", "Regen beginnt in 12 min", "Beispiel für einen Regenhinweis",
                        "Widgets und Apple Watch", "Live Activity", "Keine Standortverläufe", "Ohne Werbung", "EUMETSAT", "Deutscher Wetterdienst"] {
             #expect(de.contains(needle), "\(needle)")
         }
         let en = text(try await api().handle(path: "/en", ifNoneMatch: nil))
-        for needle in ["Radar with timeline", "Clouds as a layer", "Rain starts in 12 min", "No location history", "No ads", "EUMETSAT"] {
+        for needle in ["Rain radar", "Clouds as a layer", "Rain starts in 12 min", "No location history", "No ads", "EUMETSAT"] {
             #expect(en.contains(needle), "\(needle)")
         }
         // Every image has an alt attribute; decorative ones use an empty one.

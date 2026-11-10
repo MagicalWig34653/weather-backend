@@ -21,7 +21,7 @@ extension SitePages {
 
         <h2>Features</h2>
         <div class="card"><ul>
-        <li><strong>Rain radar with a timeline:</strong> scrub through the recent past and the short-term development of rain. The app shows when the data was last updated and whether you are looking at a measurement or a forecast.</li>
+        <li><strong>Rain radar:</strong> scrub through the recent past and the short-term development of rain. The app shows when the data was last updated and whether you are looking at a measurement or a forecast.</li>
         <li><strong>Temperature and humidity maps:</strong> temperature, dew point and, where available, relative humidity. These layers are model values from the DWD and are labelled as such.</li>
         <li><strong>Warnings from the DWD:</strong> the Warnings page lists warnings issued by the DWD for storms, frost and ice, grouped by your saved places, each with its source and the time of the data. Showers is not an official warning app and does not replace official channels. In an emergency, follow official instructions.</li>
         <li><strong>Your places and regions:</strong> save places and regions and see a short-term rain forecast for each one. Saved places and their names stay on your device.</li>

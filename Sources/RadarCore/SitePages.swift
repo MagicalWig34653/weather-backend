@@ -187,7 +187,7 @@ public enum SitePages {
 
         <h2>Funktionen</h2>
         <div class="card"><ul>
-        <li><strong>Radar mit Zeitleiste:</strong> aktuelle Niederschlagsanalyse und Vorhersage bis zu zwei Stunden in Fünf-Minuten-Schritten.</li>
+        <li><strong>Regenradar:</strong> aktuelle Niederschlagsanalyse und Vorhersage bis zu zwei Stunden in Fünf-Minuten-Schritten.</li>
         <li><strong>Schnelle Anzeige:</strong> Die Radarbilder kommen aus einem Radar-Cache; bei Störungen greift die App direkt auf den DWD zurück.</li>
         <li><strong>Orte und Punktprognose:</strong> gespeicherte Orte, optional dein Standort, Prognose für den gewählten Punkt.</li>
         <li><strong>Lokale Einordnung:</strong> eine kurze Einschätzung der Regenlage, auf dem Gerät erstellt.</li>
