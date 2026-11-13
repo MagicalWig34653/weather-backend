@@ -491,3 +491,7 @@ Offen: (1) Fehlermeldung des Servers bei `PUSH_ENABLED=true` ohne lesbare `APNS_
 ## Webseite ohne „mit Zeitleiste“ (10. November 2026)
 
 Nutzerwunsch: Slogan „mit Zeitleiste“ entfällt. Landingpage (DE/EN: description, Alt-Texte, Überschrift jetzt „Regenradar“/„Rain radar“), `SitePages.swift` („Regenradar:“), `SitePagesEN.swift` („Rain radar:“) und `LandingPageTests`-Needles angepasst. Die schematische Zeitleiste (CSS-Grafik, Beschriftung) und sachliche Bedienungstexte bleiben. `docs-site/content/index.md` und `apple-externe-tests.md` enthielten die Formulierung nicht (Datei zweite existiert hier nicht). Geprüft: `swift test --filter "LandingPageTests|SitePages"` grün. Nicht geprüft: volle Suite. Deploy durch den Nutzer via `update.sh`.
+
+## test-settings.sh auf macOS (13. November 2026)
+
+**Ursache der 90 FAIL:** nicht `whiptail` (wird im Test gestubbt), sondern Bash 3.2 (macOS), `settings.sh` verlangt 4.4+. **Fix:** `test-settings.sh` meldet das laut und beendet mit Exit 77 (übersprungen, nicht grün); Lauf mit Bash 4.4+ (`brew install bash`, dann `/opt/homebrew/bin/bash deploy/swarm/test-settings.sh`) bleibt der echte Test. **Geprüft (13.11., macOS):** `swift test` (687 Tests grün), dashboard `vitest` (265 grün), `test-swarm-deploy.sh`, `check-config-tables.sh` grün. **Nicht geprüft:** `test-settings.sh` mit Bash 4.4+ (nicht installiert; Inhalt der 143 Prüfungen unter echter Bash unbekannt), Playwright-E2E.
