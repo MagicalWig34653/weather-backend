@@ -42,10 +42,11 @@ export function failureReason(e: unknown): string {
 					: 'Zu viele Anfragen (429).';
 			case 'unauthorized':
 				return 'Sitzung abgelaufen (401).';
-			case 'unavailable':
-				return `Dienst vorübergehend nicht verfügbar (${e.status}).`;
 			default:
-				return e.status > 0 ? `${e.message} (${e.status})` : e.message;
+				// messageFor nennt bei unbekannten Fehlern und 502/503/504 bereits "HTTP <Status>: <Grund>".
+				return e.status > 0 && !e.message.includes(`HTTP ${e.status}`)
+					? `${e.message} (${e.status})`
+					: e.message;
 		}
 	}
 	return errorText.unknown;
