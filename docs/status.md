@@ -2,6 +2,13 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 13. November 2026: Regionen-Zellbudget transaktionssicher, Backend
+
+- Umgesetzt (Branch `feat/region-budget-tx`, `MariaRepo+Push.swift`): Umkreis- und Live-Activity-Writes nehmen nach dem Installations-Lock die globale Sperrzeile `push_state` `budget_lock` (READ COMMITTED), Zellsumme exakt unter der Sperre, Memo nur als Ablehnungs-Vorfilter. Keine Migration, keine API-/Limitänderung. Details [decisions.md](decisions.md#regionen-zellbudget-transaktionssicher-13-november-2026).
+- Geprüft: neue Suite `RegionBudgetConcurrencyTests` (8 Installationen parallel über zwei Repo-Instanzen als Replikate, 10 Runden, echte MariaDB) ohne Fix rot (10/10 Runden 8 statt 3 Regionen bzw. Activity-Abos), mit Fix grün. `swift test` ohne DB 689 grün, mit Wegwerf-MariaDB 12.3 (`--no-parallel`) 689 grün; vitest (`dashboard`) 265 grün. E2E: lokaler Dienst + MariaDB-Container, `PUSH_ENABLED=true` mit Wegwerf-Key (kein Versand), `PUSH_MAX_REGION_CELLS=700`: drei Installationen mit je Umkreis r10 → 201, 201, `409 region_capacity`; Punkt-Abos weiter 201.
+- Nicht geprüft: echter Swarm mit mehreren Replikaten, Last/Sperrwartezeiten unter vielen gleichzeitigen Regionsregistrierungen.
+- Offen: `PUSH_MAX_SUBSCRIPTIONS`/`PUSH_MAX_INSTALLATIONS` bleiben weich (bewusst, Punkt-Abos nicht serialisieren); R2b-Meldungszusammenfassung wartet auf die Nutzerfrage.
+
 ## Stand 13. November 2026: Swarm-Stack Platzierungs-ENVs, Backend
 
 - Neu (Merge 99da7c6): `PLACEMENT_CONSTRAINT_1..3`, `PLACEMENT_SPREAD`, Dienst `radar-pinned` (`PINNED_NODE` + `PINNED_REPLICAS`, Standard 0, kein Port; `swarm-deploy.sh` hält ihn bis nach der Migration auf 0), `EXCLUDE_LABEL` bei radar/migrate/dashboard. Vorlage: timetrack-backend 8665ddb. Tabellen, `.env.example`, Checker und Doku angepasst.
@@ -294,7 +301,7 @@ Auf `main` (letzter Code-Commit `881edeb`): Radar-Cache (Swift/Vapor, produktiv 
 
 1. `/datenschutz` und Dokumentationsseite enthalten noch nichts zu Regenwarnungen/Push, Regionen, Testmeldung und zur EUMETSAT-Quelle (Attribution „Contains modified EUMETSAT Meteosat data 2026“ für Wolken-/Sonnenebenen); Text bewusst noch nicht geändert, Freigabe durch den Nutzer nötig (Änderungsbedarf in [decisions.md](decisions.md)).
 2. MariaDB-Last: Ebenen (insbesondere Europa, Bilder bis etwa 17 MB dekodiert in der App) und Push-Auswertung nicht unter Last gemessen.
-3. Regionen-Zellbudget (8000 je Installation) ist serverweit nicht transaktionssicher über Installationen (weicher Wert); Zusammenfassung mehrerer Abos eines Geräts (R2b) nicht umgesetzt.
+3. Regionen-Zellbudget: seit 13. November 2026 serverweit transaktionssicher (globale Sperre, siehe Abschnitt oben und [decisions.md](decisions.md)); `PUSH_MAX_SUBSCRIPTIONS`/`PUSH_MAX_INSTALLATIONS` bleiben weich. Offen: Zusammenfassung mehrerer Abos eines Geräts (R2b, Meldungsteil) wartet auf die Nutzerfrage.
 4. APNs: unbelegt, ob ein umgebungsbeschränkter Key am falschen Host `InvalidProviderToken` oder `BadDeviceToken` liefert; TestFlight = Produktionstoken nur aus dem Profil abgeleitet.
 5. Möglich später: Druck-Farbfläche über GRIB (libaec), Live Activities (App-Repo-Recherchen).
 

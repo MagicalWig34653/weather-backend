@@ -81,25 +81,36 @@ extension MariaRepo {
 
     private func optional(_ value: Int?) -> MySQLData { value.map { MySQLData(int: $0) } ?? .null }
 
-    /// Inside the installation's row lock: radii of its other regions and cells of all other regions on the server.
-    /// The server-wide sum is a soft budget (installations lock only themselves), so concurrent registrations may overshoot slightly.
+    /// Server-wide serialization point for budget-checked writes (region cells, Live Activity cap) across installations and replicas.
+    /// Lock order everywhere: installation row first, then this row; point and warning subscriptions never take it.
+    /// `INSERT … ON DUPLICATE KEY UPDATE` creates the `push_state` row on first use and takes an exclusive lock on it (no migration).
+    /// Callers run with `readCommitted`, so counts read after the lock see every write committed by the previous holder.
+    private func lockBudget(_ conn: MySQLConnection) async throws {
+        _ = try await query(conn, "INSERT INTO push_state (name, value) VALUES ('budget_lock', '') ON DUPLICATE KEY UPDATE value=value")
+    }
+
+    /// Needs the budget lock (`lockBudget`): radii of the installation's other regions and the exact cells of all other regions on the server.
+    /// The 30-s memo only rejects early when it is clearly over the limit; "still fits" is always decided on the exact sum under the lock.
     private func regionViolation(_ conn: MySQLConnection, installationID: String, excluding id: String, radius: Int, limits: RegionLimits) async throws -> PushRegionLimitError? {
         let own = try await query(conn, "SELECT radius_cells FROM push_sub WHERE install_id=? AND kind=1 AND id<>?", [str(installationID), str(id)])
             .rows.compactMap { $0.column("radius_cells")?.int }
-        // The server-wide sum is memoized for 30 s (no GROUP BY per request); it is a soft budget anyway.
-        let total = try await serverRegionCells(conn)
         var existing = 0
         if let current = try await query(conn, "SELECT radius_cells FROM push_sub WHERE id=? AND kind=1", [str(id)]).rows.first?.column("radius_cells")?.int {
             existing = PushRegion.cellCount(radius: current)
         }
+        if let memo = regionCellsMemo.withLock({ $0 }), Date().timeIntervalSince(memo.at) < Self.cellsMemoSeconds,
+           limits.violation(otherRadii: own, serverCells: max(0, memo.cells - existing), newRadius: radius) == .capacity {
+            return .capacity
+        }
+        let total = try await serverRegionCells(conn)
         return limits.violation(otherRadii: own, serverCells: max(0, total - existing), newRadius: radius)
     }
 
     private static let cellsMemoSeconds: TimeInterval = 30
 
+    /// Exact server-wide region cell sum (one GROUP BY over the region rows); refreshes the memo used as early reject.
     private func serverRegionCells(_ conn: MySQLConnection) async throws -> Int {
         let now = Date()
-        if let memo = regionCellsMemo.withLock({ $0 }), now.timeIntervalSince(memo.at) < Self.cellsMemoSeconds { return memo.cells }
         let all = try await query(conn, "SELECT radius_cells, COUNT(*) AS n FROM push_sub WHERE kind=1 GROUP BY radius_cells")
         var cells = 0
         for row in all.rows { cells += PushRegion.cellCount(radius: row.column("radius_cells")?.int ?? 0) * (row.column("n")?.int ?? 0) }
@@ -109,11 +120,14 @@ extension MariaRepo {
 
     public func addSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, maxPerInstallation: Int,
                                 regionLimits: RegionLimits, now: Date) async throws -> AddSubscriptionResult {
-        try await transaction { conn in
+        let budgeted = input.kind == .circle || input.liveActivity
+        return try await transaction(readCommitted: budgeted) { conn in
             // The installation row lock serializes concurrent additions, so the limit cannot be exceeded.
             guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty else {
                 return .unknownInstallation
             }
+            // Regions and Live Activity opt-ins are checked against server-wide budgets: serialize them across installations.
+            if budgeted { try await lockBudget(conn) }
             let count = try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE install_id=? AND kind<>2", [str(installationID)])
             guard (count.rows.first?.column("n")?.int ?? 0) < maxPerInstallation else { return .limitReached }
             if (try await query(conn, "SELECT COUNT(*) AS n FROM push_sub WHERE kind<>2")).rows.first?.column("n")?.int ?? 0 >= regionLimits.maxSubscriptionsServerwide {
@@ -147,9 +161,11 @@ extension MariaRepo {
     }
 
     public func updateSubscription(installationID: String, id: String, _ input: PushSubscriptionInput, regionLimits: RegionLimits) async throws -> Bool {
-        try await transaction { conn in
-            guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty,
-                  !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=? AND kind<>2", [str(id), str(installationID)])).rows.isEmpty
+        let budgeted = input.kind == .circle || input.liveActivity
+        return try await transaction(readCommitted: budgeted) { conn in
+            guard !(try await query(conn, "SELECT id FROM push_install WHERE id=? FOR UPDATE", [str(installationID)])).rows.isEmpty else { return false }
+            if budgeted { try await lockBudget(conn) }
+            guard !(try await query(conn, "SELECT 1 AS ok FROM push_sub WHERE id=? AND install_id=? AND kind<>2", [str(id), str(installationID)])).rows.isEmpty
             else { return false }
             if input.liveActivity,
                (try await query(conn, "SELECT live_activity FROM push_sub WHERE id=?", [str(id)])).rows.first?.column("live_activity")?.int != 1,
