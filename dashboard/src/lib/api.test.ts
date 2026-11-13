@@ -133,7 +133,37 @@ describe('ApiClient: Fehler', () => {
 		const err = await api.config().catch((e) => e);
 		expect(err).toBeInstanceOf(ApiError);
 		expect(err.message).toBe('Nicht erlaubt.');
-		expect(messageFor(418, null)).toBe('Unbekannter Fehler.');
+		expect(messageFor(418, null)).toBe("HTTP 418: I'm a Teapot.");
+	});
+
+	it('nennt bei 5xx ohne Servercode Status und Grund statt "Unbekannter Fehler"', async () => {
+		const { api } = setup(new Response('<html>Bad Gateway</html>', { status: 502 }));
+		const err = await api.config().catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.message).toBe(
+			'Der Dienst ist vorübergehend nicht verfügbar (HTTP 502: Bad Gateway).'
+		);
+		const empty = await setup(new Response('', { status: 500 }))
+			.api.config()
+			.catch((e) => e);
+		expect(empty.message).toBe('HTTP 500: Internal Server Error.');
+		expect(empty.message).not.toContain('Unbekannter Fehler');
+	});
+
+	it('nimmt den Grund aus dem JSON-Feld reason, wenn kein bekannter Servercode kam', async () => {
+		const { api } = setup(response({ error: true, reason: 'Something went wrong.' }, 500));
+		const err = await api.config().catch((e) => e);
+		expect(err.message).toBe('HTTP 500: Something went wrong.');
+		const odd = await setup(response({ error: 'brand_new_code' }, 520))
+			.api.config()
+			.catch((e) => e);
+		expect(odd.message).toBe('HTTP 520: brand_new_code.');
+	});
+
+	it('nutzt den Statustext der Antwort, wenn die Tabelle den Status nicht kennt', async () => {
+		const { api } = setup(new Response('', { status: 599, statusText: 'Proxy Hiccup' }));
+		const err = await api.config().catch((e) => e);
+		expect(err.message).toBe('HTTP 599: Proxy Hiccup.');
 	});
 
 	it('liest Retry-After bei 429', async () => {

@@ -72,7 +72,7 @@ final class DashboardDevices: Sendable {
         guard let info = try await repo.deviceInstallInfo(id: device.id) else { return [:] }
         let subs = try await repo.subscriptions(installationID: device.installID)
         let events = try await repo.deviceEvents(deviceID: device.id, limit: 5)
-        let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
+        let activities = Dictionary(try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } }, uniquingKeysWith: { first, _ in first })
         let pushPaused = (try? await repo.pushPausedSince()) != nil
         let truth = await PushTruth.resolve(repo: repo, now: now)
         var input = PushDiagnosis.Input(pushEnabled: truth.enabled, pushPaused: pushPaused, allowedEnvironments: truth.environments ?? Set(PushEnvironment.allCases),
@@ -160,7 +160,7 @@ final class DashboardDevices: Sendable {
     private func subscriptionStates(_ id: String, now: Date) async throws -> ApiResponse {
         guard let device = try await repo.device(id: id) else { return Self.error(404, "not_found") }
         let subs = try await repo.subscriptions(installationID: device.installID)
-        let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
+        let activities = Dictionary(try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } }, uniquingKeysWith: { first, _ in first })
         let view = subs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: config(), subs: subs, now: now, allowStale: true)
         let run = try? await repo.latestPublished()
         // The push leader's own progress: when did the real evaluation last handle a run (nil = never or unknown)?
@@ -209,7 +209,7 @@ final class DashboardDevices: Sendable {
         guard let device = try await repo.device(id: id), let info = try await repo.deviceInstallInfo(id: id) else { return Self.error(404, "not_found") }
         let cfg = config()
         let subs = try await repo.subscriptions(installationID: device.installID)
-        let activities = Dictionary(uniqueKeysWithValues: try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } })
+        let activities = Dictionary(try await repo.activityTargets(subscriptionIDs: subs.map(\.id)).compactMap { t in t.activity.map { (t.subscription.id, $0) } }, uniquingKeysWith: { first, _ in first })
         let events = try await repo.deviceEvents(deviceID: id, limit: 20)
         let radarSubs = subs.filter(\.enabled)
         let view = radarSubs.isEmpty ? DeviceRadarView(status: .noSlot) : await DeviceRadarView.load(repo: repo, config: cfg, subs: radarSubs, now: now)
