@@ -138,7 +138,7 @@ if [ "$TAG" = "$CURRENT_TAG" ] && [ "$FORCE" = 0 ]; then
   exit 0
 fi
 if [ "$DRY" = 1 ]; then
-  echo "Dry run: would (with PUSH_ENABLED=true: check the APNs key secret; with DASH_ENABLED=true: the dashboard proxy token secret; then) set RADAR_IMAGE_TAG=${TAG}, run the migration job, then roll ${STACK}_radar."
+  echo "Dry run: would (check the APNs key secret, always; with DASH_ENABLED=true: the dashboard proxy token secret; then) set RADAR_IMAGE_TAG=${TAG}, run the migration job, then roll ${STACK}_radar."
   if dashboard_enabled "$ENV_FILE"; then
     if [ "$DASH_FORCE" = 1 ]; then force_txt="forced onto the target image if it still runs another one"; else force_txt="error with the command if it runs another image (--no-dashboard-force)"; fi
     echo "Dry run: DASH_ENABLED=true -> afterwards wait for ${STACK}_dashboard, show the image tags of both services, dashboard ${force_txt}."
@@ -146,8 +146,9 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
-# Push enabled: the APNs key secret must exist before anything is rolled out (clear error instead of a failed deploy).
-require_push_secret "$ENV_FILE"
+# The APNs key secret must exist before anything is rolled out, also without push (stack.yaml always mounts it); with push the
+# APNS values must be set, too (clear error instead of a failed deploy).
+require_apns_secret "$ENV_FILE"
 # Dashboard enabled: the proxy token secret must exist as well (same early, clear error).
 require_dashboard_secret "$ENV_FILE"
 

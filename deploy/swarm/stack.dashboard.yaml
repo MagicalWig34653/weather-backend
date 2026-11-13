@@ -1,7 +1,7 @@
 version: '3.8'
 # Optional overlay: the dashboard (statistics, traffic, configuration) as its own service `dashboard`.
 # swarm-deploy.sh / update.sh add this file when DASH_ENABLED=true is set (shell first, then the env file); by hand use BOTH files:
-#   docker stack deploy --resolve-image never -c stack.yaml -c stack.dashboard.yaml <stack>     (plus -c stack.push.yaml with push)
+#   docker stack deploy --resolve-image never -c stack.yaml -c stack.dashboard.yaml <stack>
 # dashboard-command: ready
 # ^ marker for settings.sh: `ready` since the command `radar dashboard` exists in the image (WP5, commit 6ae080d); `pending` would make
 #   settings.sh show the hint "Dienstbefehl folgt".
@@ -158,6 +158,9 @@ services:
       start_period: 20s
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.labels.${EXCLUDE_LABEL:-__exclude_unset__}!=true  # opt-in nodes, see stack.yaml
       resources:
         limits:
           cpus: '${DASH_CPU_LIMIT:-0}'

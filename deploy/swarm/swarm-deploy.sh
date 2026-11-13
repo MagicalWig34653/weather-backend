@@ -21,11 +21,11 @@ image=${RADAR_MIGRATE_IMAGE:-ghcr.io/magicalwig34653/weather-backend-radar:${RAD
 # RADAR_MIGRATE_IMAGE (full reference) only overrides the migration image and must match an override file
 # if the stack image is overridden too. Extra stack files (e.g. overrides) may be passed as space-separated STACK_EXTRA_FILES.
 compose_args=(-c stack.yaml)
-# Optional push: only when PUSH_ENABLED=true (needs the external secret apns_key, see stack.push.yaml). Without push the
-# stack does not reference the secret, so a missing secret cannot break the rollout.
-# PUSH_ENABLED / APNS_KEY_SECRET normally come from the caller's environment (update.sh and setup.sh source the env file).
+# APNs key: stack.yaml ALWAYS mounts the external secret apns_key (decision 2026-11-06; the former overlay stack.push.yaml is gone),
+# with and without push. The server reads the file only with PUSH_ENABLED=true, but Swarm needs the secret on every deploy.
+# PUSH_ENABLED / APNS_KEY_SECRET / DASH_* normally come from the caller's environment (update.sh and setup.sh source the env file).
 # If they are not set there (e.g. swarm-deploy.sh started by hand), read them from the env file (ENV_FILE, ./.env or
-# ../../.env) so that the overlay is not skipped silently. The shell environment always wins.
+# ../../.env) so that neither the secret name nor the dashboard overlay is missed. The shell environment always wins.
 SCRIPT_DIR="$(pwd)"
 say() { echo "$*"; }
 die() { echo "$*" >&2; exit 1; }
@@ -42,12 +42,9 @@ if [[ -z "${PUSH_ENABLED+x}" || -z "${APNS_KEY_SECRET+x}" || -z "${DASH_ENABLED+
     break
   done
 fi
-if [[ "${PUSH_ENABLED:-false}" == true ]]; then
-  docker secret inspect "${APNS_KEY_SECRET:-showernow_apns_key}" >/dev/null 2>&1 \
-    || { echo "PUSH_ENABLED=true, but the Swarm secret ${APNS_KEY_SECRET:-showernow_apns_key} does not exist (docker secret create ${APNS_KEY_SECRET:-showernow_apns_key} AuthKey_XXXXXXXXXX.p8)." >&2; exit 1; }
-  compose_args+=(-c stack.push.yaml)
-  echo "Push enabled: stack files ${compose_args[*]}"
-fi
+# Check the secret before anything is deployed (clear error instead of a late "secret not found"); export the name for the stack.
+require_apns_secret ""
+[[ "${PUSH_ENABLED:-false}" == true ]] && echo "Push enabled (APNs key secret ${APNS_KEY_SECRET})."
 # Optional dashboard (DASH_ENABLED=true): own service "dashboard" from the overlay stack.dashboard.yaml (one ingress port, see the overlay).
 # The overlay exists since the dashboard work package; it stops with a clear message when the file is missing (old scripts folder).
 if [[ "${DASH_ENABLED:-false}" == true ]]; then
@@ -69,7 +66,8 @@ for f in ${STACK_EXTRA_FILES:-}; do compose_args+=(-c "$f"); done
 # Required: DB_HOST and the external secrets (see .env.example).
 replicas=${RADAR_REPLICAS:-2}
 if ! docker service inspect "${STACK}_radar" >/dev/null 2>&1; then
-  RADAR_REPLICAS=0 docker stack deploy --resolve-image never "${compose_args[@]}" "$STACK"
+  # radar-pinned (PINNED_REPLICAS) must not start before the migration either.
+  RADAR_REPLICAS=0 PINNED_REPLICAS=0 docker stack deploy --resolve-image never "${compose_args[@]}" "$STACK"
 fi
 old_tasks=$(docker service ps --no-trunc --format '{{.ID}}' "${STACK}_migrate")
 docker service scale "${STACK}_migrate=0" >/dev/null
