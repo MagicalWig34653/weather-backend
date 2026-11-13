@@ -525,3 +525,66 @@ struct DeviceDashboardTests {
 extension PushSubscription {
     func with(wetSeen: Bool) -> PushSubscription { var copy = self; copy.wetSeen = wetSeen; return copy }
 }
+
+// Regression 13.11.2026 (live SIGILL, exit 132): a region subscription in steady rain made `PushMeasureJSON.fields` index the
+// slot array with the wet-cell count (shadowed `$0`), so GET .../subscriptions and the re-evaluation trapped and killed the process.
+extension DeviceDashboardTests {
+    private static let regionID = "44444444-4444-4444-8444-444444444444"
+
+    /// All 25 slots fully covered with class `cls` (no transparent pixel), so every region has far more than 25 wet cells.
+    private func publishSteadyRain(_ h: Harness, cls: Int, nominal: Date) async throws {
+        let id = TimeUtil.toID(nominal)
+        #expect(try await h.repo.tryClaim(runID: id, nominal: nominal, owner: "t", leaseSeconds: 60, maxAttempts: 2))
+        let color = PushIntensity.palette[cls - 1]
+        var pixels = [UInt8](repeating: 255, count: h.config.width * h.config.height * 4)
+        for i in 0..<(h.config.width * h.config.height) { pixels[i * 4] = UInt8(color.r); pixels[i * 4 + 1] = UInt8(color.g); pixels[i * 4 + 2] = UInt8(color.b) }
+        let data = try cachedWebP(RGBAImage(width: h.config.width, height: h.config.height, pixels: pixels))
+        for (index, slot) in TimeUtil.slots(of: nominal).enumerated() {
+            try await h.repo.putSlot(SlotRef(runID: id, slotID: TimeUtil.toID(slot), slotIndex: index, slotTime: slot), contentType: "image/webp", data: data)
+        }
+        #expect(try await h.repo.publish(runID: id, owner: "t", expectedSlots: TimeUtil.forecastSlots))
+    }
+
+    private func regionInSteadyRain(liveActivity: Bool) async throws -> (Harness, String) {
+        let h = try await Harness()
+        let id = try await h.link()
+        try await h.repo.setLiveActivityStartToken(installationID: installID, token: startToken)
+        _ = try await h.repo.addSubscription(installationID: installID, id: Self.regionID,
+                                             .init(gridVersion: 1, cellX: 31, cellY: 31, threshold: 3, leadMinutes: 30, enabled: true,
+                                                   kind: .circle, radiusCells: 6, minSharePercent: 10, liveActivity: liveActivity),
+                                             maxPerInstallation: 10, now: Date())
+        try await publishSteadyRain(h, cls: 5, nominal: TimeUtil.floorStep(Date().addingTimeInterval(-300)))
+        return (h, id)
+    }
+
+    @Test(arguments: [false, true]) func regionInSteadyRainDoesNotTrapSubscriptions(liveActivity: Bool) async throws {
+        let (h, id) = try await regionInSteadyRain(liveActivity: liveActivity)
+        let subs = await h.call("GET", "/dash/api/devices/\(id)/subscriptions")
+        #expect(subs.status == 200)
+        let row = try #require(((subs.json as? [String: Any])?["subscriptions"] as? [[String: Any]])?.first)
+        // Slot 1 (5 minutes) is already wet with enough cells: the onset is the first lead slot, not a random one.
+        #expect(row["kind"] as? String == "circle" && row["leadOnsetMinutes"] as? Int == 5 && row["leadMaxClass"] as? Int == 5)
+        #expect((row["wetCells"] as? Int ?? 0) > TimeUtil.forecastSlots && row["cell"] as? String == "wet")
+        #expect(await h.call("GET", "/dash/api/devices/\(id)").status == 200)
+        #expect(await h.call("GET", "/dash/api/devices/\(id)/diagnosis").status == 200)
+    }
+
+    @Test func regionInSteadyRainDoesNotTrapReevaluation() async throws {
+        let (h, id) = try await regionInSteadyRain(liveActivity: false)
+        let done = try await h.runCommand(id, "reeval")
+        #expect(done["status"] as? String == "done")
+        let row = try #require(((done["result"] as? [String: Any])?["subscriptions"] as? [[String: Any]])?.first)
+        #expect(row["leadOnsetMinutes"] as? Int == 5)
+    }
+
+    /// Onset needs the share of its own slot: wet cells of slot 1 below the need, slot 2 enough.
+    @Test func leadOnsetUsesTheNeedOfItsOwnSlot() {
+        var sub = PushSubscription(id: "s", gridVersion: 1, cellX: 31, cellY: 31, threshold: 3, leadMinutes: 30, enabled: true, state: .dry, lastSentAt: nil)
+        sub.kind = .circle; sub.radiusCells = 6
+        var measures = [SlotMeasure](repeating: SlotMeasure(maxClass: 0, wetCells: 0, cells: 113, neededCells: 12), count: TimeUtil.forecastSlots)
+        measures[1] = SlotMeasure(maxClass: 5, wetCells: 2, cells: 113, neededCells: 12)
+        measures[2] = SlotMeasure(maxClass: 5, wetCells: 40, cells: 113, neededCells: 12)
+        let out = PushMeasureJSON.fields(sub, measures: measures, radarOK: true, width: 64)
+        #expect(out["leadOnsetMinutes"] as? Int == 10)
+    }
+}

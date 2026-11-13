@@ -67,7 +67,11 @@ enum PushMeasureJSON {
         out["measuredMmPerHour"] = now.maxClass < 0 ? NSNull() : mmPerHour(now.maxClass)
         out["pixel"] = now.maxClass < 0 ? "unknown" : (now.maxClass == 0 ? "dry" : "rain")
         out["leadMaxClass"] = measures[1...lead].map(\.maxClass).max().map { max(0, $0) } as Any? ?? NSNull()
-        let onset = (1...lead).first { measures[$0].maxClass >= sub.threshold && (measures[$0].wetCells.map { $0 >= (measures[$0].neededCells ?? 1) } ?? true) }
+        // Named parameters on purpose: a nested `$0` once indexed the slots with the wet-cell count (trap, 13.11.2026).
+        let onset = (1...lead).first { slot in
+            let m = measures[slot]
+            return m.maxClass >= sub.threshold && (m.wetCells.map { wet in wet >= (m.neededCells ?? 1) } ?? true)
+        }
         out["leadOnsetMinutes"] = onset.map { $0 * 5 } as Any? ?? NSNull()
         if sub.kind == .circle, let wet = now.wetCells, let cells = now.cells {
             out["wetCells"] = wet; out["cells"] = cells; out["neededCells"] = now.neededCells as Any? ?? NSNull()

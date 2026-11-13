@@ -212,11 +212,54 @@ export function codeFor(status: number): ApiErrorCode {
 	}
 }
 
-/** Text nach Servercode (bevorzugt), sonst nach Status. Der Server sendet nie Klartext. */
-export function messageFor(status: number, serverCode: string | null): string {
+/** Standard-Gruende der HTTP-Status, die ein Proxy oder Vapor ohne eigenen Servercode liefern kann. */
+const httpReason: Record<number, string> = {
+	400: 'Bad Request',
+	401: 'Unauthorized',
+	403: 'Forbidden',
+	404: 'Not Found',
+	405: 'Method Not Allowed',
+	408: 'Request Timeout',
+	413: 'Payload Too Large',
+	418: "I'm a Teapot",
+	429: 'Too Many Requests',
+	500: 'Internal Server Error',
+	501: 'Not Implemented',
+	502: 'Bad Gateway',
+	503: 'Service Unavailable',
+	504: 'Gateway Timeout'
+};
+
+/** Was der Server ausser dem Code mitgeschickt hat (nur fuer unbekannte Fehler und 5xx angezeigt). */
+export interface ErrorDetail {
+	/** Feld `reason` der JSON-Antwort (Vapor-Fehlerformat `{"error":true,"reason":"..."}`). */
+	reason?: string | null;
+	/** Statuszeile der Antwort (bei HTTP/2 leer). */
+	statusText?: string | null;
+}
+
+/**
+ * Text nach bekanntem Servercode (bevorzugt), sonst nach Status. Fuer unbekannte Fehler und 502/503/504 nennt der Text
+ * Status und Grund (`HTTP 502: Bad Gateway`), damit Abstuerze und Proxyfehler unterscheidbar sind.
+ */
+export function messageFor(
+	status: number,
+	serverCode: string | null,
+	detail: ErrorDetail = {}
+): string {
 	if (serverCode && errorText[serverCode]) return errorText[serverCode];
-	const byStatus = errorText[codeFor(status)];
-	return byStatus ?? `Fehler ${status}.`;
+	const code = codeFor(status);
+	if (code !== 'unknown' && code !== 'unavailable') return errorText[code];
+	const why =
+		detail.reason?.trim() ||
+		serverCode ||
+		detail.statusText?.trim() ||
+		httpReason[status] ||
+		'ohne Angabe';
+	const http = `HTTP ${status}: ${why.replace(/[.\s]+$/, '')}`;
+	return code === 'unavailable'
+		? `${errorText.unavailable.replace(/\.$/, '')} (${http}).`
+		: `${http}.`;
 }
 
 /** Retry-After als ganze Sekunden (nur positive Zahlen), sonst null. */
@@ -285,16 +328,18 @@ export class ApiClient {
 		}
 		if (!res.ok) {
 			let serverCode: string | null = null;
+			let reason: string | null = null;
 			try {
-				const data = (await res.json()) as { error?: unknown };
+				const data = (await res.json()) as { error?: unknown; reason?: unknown };
 				if (typeof data.error === 'string') serverCode = data.error;
+				if (typeof data.reason === 'string') reason = data.reason.slice(0, 200);
 			} catch {
 				/* Fehlerantworten duerfen leer sein (z. B. 403 ohne Details). */
 			}
 			throw new ApiError(
 				res.status,
 				codeFor(res.status),
-				messageFor(res.status, serverCode),
+				messageFor(res.status, serverCode, { reason, statusText: res.statusText }),
 				parseRetryAfter(res.headers.get('Retry-After')),
 				serverCode
 			);

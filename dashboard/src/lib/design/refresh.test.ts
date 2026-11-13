@@ -26,4 +26,20 @@ describe('Wiederholung', () => {
 		expect(failureReason(err(429, 'rate_limited', 5))).toMatch(/429.*5 s/);
 		expect(failureReason(err(401, 'unauthorized'))).toMatch(/401/);
 	});
+	it('zeigt bei 5xx Status und Grund aus der Fehlermeldung, ohne den Status zu doppeln', () => {
+		const bad = new ApiError(
+			502,
+			'unavailable',
+			'Der Dienst ist vorübergehend nicht verfügbar (HTTP 502: Bad Gateway).'
+		);
+		expect(failureReason(bad)).toBe(
+			'Der Dienst ist vorübergehend nicht verfügbar (HTTP 502: Bad Gateway).'
+		);
+		expect(failureReason(new ApiError(500, 'unknown', 'HTTP 500: Internal Server Error.'))).toBe(
+			'HTTP 500: Internal Server Error.'
+		);
+		expect(
+			failureReason(new ApiError(503, 'unavailable', 'Die Datenbank ist nicht erreichbar.'))
+		).toBe('Die Datenbank ist nicht erreichbar. (503)');
+	});
 });
