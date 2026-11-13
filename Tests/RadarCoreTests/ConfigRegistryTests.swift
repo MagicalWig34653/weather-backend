@@ -209,7 +209,7 @@ import Testing
                                             "APNS_TOPIC": "de.example.app", "APNS_KEY_FILE": missing])
             Issue.record("expected a ConfigError")
         } catch let error as ConfigError {
-            #expect(error.description == "APNS_KEY_FILE nicht lesbar: Secret apns_key gemountet? Deploy mit stack.push.yaml")
+            #expect(error.description == "APNS_KEY_FILE nicht lesbar: Secret apns_key gemountet? (stack.yaml hängt es immer ein)")
             #expect(!error.description.contains(missing))
         }
         do {

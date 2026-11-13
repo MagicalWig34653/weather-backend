@@ -13,7 +13,7 @@ fi
 SRC="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 DIR="$WORK/repo/deploy/swarm"; mkdir -p "$DIR" "$WORK/bin"
-cp "$SRC"/settings.sh "$SRC"/config-registry.tsv "$SRC"/config-extra.tsv "$SRC"/stack.yaml "$SRC"/stack.push.yaml "$DIR/"
+cp "$SRC"/settings.sh "$SRC"/config-registry.tsv "$SRC"/config-extra.tsv "$SRC"/stack.yaml "$DIR/"
 cat > "$DIR/swarm-deploy.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "swarm-deploy called STACK=${STACK:-} DB_HOST=${DB_HOST:-}" >> "$STUB_LOG.deploy"
@@ -173,7 +173,12 @@ printf 'APNS_KEY_ID=ABCDE12345\nAPNS_TEAM_ID=ZYXWV98765\nAPNS_TOPIC=de.example.a
 check "check: PUSH mit allen Werten und Secret ist sauber" S --check
 export STUB_SECRETS="showernow_db_password"
 out="$(S --check 2>&1)"; rc=$?
-check "check: fehlendes APNs-Secret ist Fehler" bash -c "[ $rc -ne 0 ] && grep -q 'showernow_apns_key. fehlt\|Secret showernow_apns_key fehlt' <<< \"\$1\"" _ "$out"
+check "check: fehlendes APNs-Secret ist Fehler" bash -c "[ $rc -ne 0 ] && grep -q 'showernow_apns_key (APNs-Schlüssel) fehlt' <<< \"\$1\"" _ "$out"
+# stack.yaml haengt das APNs-Secret immer ein (Entscheidung 6.11.2026): auch ohne Push ist ein fehlendes Secret ein Fehler, mit Platzhalter-Hinweis.
+fresh; export STUB_SECRETS="showernow_db_password"
+out="$(S --check 2>&1)"; rc=$?
+check "check: fehlendes APNs-Secret ohne Push ist Fehler" bash -c "[ $rc -ne 0 ] && grep -q 'showernow_apns_key (APNs-Schlüssel) fehlt' <<< \"\$1\" && grep -q 'placeholder' <<< \"\$1\"" _ "$out"
+fresh; printf 'PUSH_ENABLED=true\nAPNS_KEY_ID=ABCDE12345\nAPNS_TEAM_ID=ZYXWV98765\nAPNS_TOPIC=de.example.app\n' >> "$ENVF"
 export STUB_SECRETS="showernow_apns_key"
 check "check: fehlendes DB-Secret ist Fehler" bash -c "! (cd '$DIR' && ./settings.sh --env '$ENVF' --check >/dev/null 2>&1)"
 export STUB_SECRETS="showernow_db_password showernow_apns_key"
@@ -190,12 +195,12 @@ check "check: DASH_ENABLED ohne DASH_ORIGIN ist Fehler" bash -c "[ $rc -ne 0 ] &
 check "check: Dashboard ohne Overlay: Warnung 'noch nicht verfuegbar'" bash -c "grep -q 'Dashboard noch nicht verfügbar in dieser Version' <<< \"\$1\"" _ "$out"
 check "check: DASH_ENABLED ohne Proxy-Token-Secret ist Fehler mit Anlegen-Hinweis" bash -c "[ $rc -ne 0 ] && grep -q 'FEHLER.*showernow_dashboard_proxy_token (Proxy-Token) fehlt' <<< \"\$1\"" _ "$out"
 printf 'DASH_ORIGIN=https://dash.example.internal\n' >> "$ENVF"
-export STUB_SECRETS="showernow_db_password showernow_dashboard_proxy_token"
+export STUB_SECRETS="showernow_db_password showernow_apns_key showernow_dashboard_proxy_token"
 check "check: Dashboard mit Origin und Proxy-Token-Secret ist ohne Fehler" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check >/dev/null 2>&1"
 printf 'DASH_PROXY_TOKEN_SECRET=tok_new\nDASH_PROXY_TOKEN_PREVIOUS_SECRET=tok_old\n' >> "$ENVF"
 out="$(S --check 2>&1)"; rc=$?
 check "check: Rotation prueft beide Secret-Namen" bash -c "[ $rc -ne 0 ] && grep -q 'tok_new (Proxy-Token) fehlt' <<< \"\$1\" && grep -q 'tok_old (Proxy-Token) fehlt' <<< \"\$1\"" _ "$out"
-export STUB_SECRETS="showernow_db_password tok_new tok_old"
+export STUB_SECRETS="showernow_db_password showernow_apns_key tok_new tok_old"
 check "check: Rotation mit beiden Secrets ist sauber" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check >/dev/null 2>&1"
 printf 'DASH_PROXY_TOKEN_REQUIRED=false\n' >> "$ENVF"
 check "check: DASH_PROXY_TOKEN_REQUIRED=false: Warnung, dass es im Stack nichts bewirkt" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'WARNUNG.*DASH_PROXY_TOKEN_REQUIRED=false wirkt im Swarm-Stack nicht'"

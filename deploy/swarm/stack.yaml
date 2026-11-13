@@ -5,10 +5,13 @@ version: '3.8'
 # MariaDB is EXTERNAL (not part of this stack). TLS and the reverse proxy are external, too. No Redis.
 # Configure via .env in the repository root (written by deploy/swarm/setup.sh, see .env.example)
 # and the external Swarm secret referenced at the bottom.
-# PUSH: the APNs key (external secret apns_key) is NOT in this file but in the overlay stack.push.yaml. Deploy through
-# swarm-deploy.sh / update.sh (they add the overlay when PUSH_ENABLED=true) or by hand with BOTH files:
-#   docker stack deploy --resolve-image never -c stack.yaml -c stack.push.yaml <stack>
-# With PUSH_ENABLED=true and this file alone, /run/secrets/apns_key does not exist and the service fails at start.
+# PUSH: the APNs key is the external secret apns_key (name via APNS_KEY_SECRET), mounted by THIS file for migrate, radar and
+# radar-pinned, with and without push (decision 2026-11-06; replaces the former overlay stack.push.yaml). The secret must therefore
+# always exist, otherwise `docker stack deploy` fails ("secret not found"); swarm-deploy.sh / update.sh check that first.
+# The server reads the file only with PUSH_ENABLED=true; without push a placeholder secret is enough:
+#   printf 'placeholder, no APNs key\n' | docker secret create showernow_apns_key -
+# With push: docker secret create showernow_apns_key ./AuthKey_XXXXXXXXXX.p8 (a secret cannot be changed: rotate with a new name
+# and APNS_KEY_SECRET). The dashboard overlay does NOT get this secret.
 # RESTART: radar uses restart_policy condition `any` (not on-failure): the dashboard restart button makes every replica leave
 # in an orderly way (graceful shutdown, exit code 0, staggered by REPLICA_SLOT x RESTART_STAGGER_SECONDS); with on-failure Swarm
 # would NOT start such a replica again. `any` is safe with the rest of the service: `migrate` stays `none` with replicas 0 (one-shot
@@ -62,8 +65,7 @@ x-radar: &radar
     TESTFLIGHT_URL: ${TESTFLIGHT_URL:-}
     SITE_EN_ENABLED: ${SITE_EN_ENABLED:-}
     # Optional push (rain-start notifications): off by default. The values are plain settings; the .p8 key itself is the
-    # external secret apns_key, mounted only by the overlay stack.push.yaml (swarm-deploy.sh adds it when PUSH_ENABLED=true),
-    # so installations without push never depend on that secret.
+    # external secret apns_key, always mounted below (also without push; then the server does not read it).
     PUSH_ENABLED: ${PUSH_ENABLED:-false}
     APNS_KEY_FILE: /run/secrets/apns_key
     APNS_KEY_ID: ${APNS_KEY_ID:-}
@@ -114,7 +116,7 @@ x-radar: &radar
     DASH_DEVICE_STALE_DAYS: ${DASH_DEVICE_STALE_DAYS:-}
     # BUILD_REVISION is deliberately NOT passed through: the image sets it (Dockerfile ENV from the build argument); an
     # entry here would override it with an empty value and /v1/status would show no revision.
-  secrets: [db_password]
+  secrets: [db_password, apns_key]
 services:
   migrate:
     <<: *radar
@@ -223,3 +225,7 @@ secrets:
   db_password:
     external: true
     name: ${DB_PASSWORD_SECRET:-showernow_db_password}
+  # APNs .p8 key (push); must exist on every deploy, see the head of this file.
+  apns_key:
+    external: true
+    name: ${APNS_KEY_SECRET:-showernow_apns_key}

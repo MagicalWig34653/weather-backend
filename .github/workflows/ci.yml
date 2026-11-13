@@ -70,6 +70,9 @@ jobs:
       - name: Validate the stack file and the dev compose file
         run: |
           DB_HOST=db.example.internal docker compose -f deploy/swarm/stack.yaml config --quiet
+          # APNs key secret is part of stack.yaml itself (decision 2026-11-06): every radar service mounts it, name via APNS_KEY_SECRET.
+          DB_HOST=db.example.internal docker compose -f deploy/swarm/stack.yaml config --format json \
+            | python3 -c 'import json,sys; c=json.load(sys.stdin); assert all("apns_key" in [x["source"] for x in c["services"][n]["secrets"]] for n in ("migrate", "radar", "radar-pinned")); assert c["secrets"]["apns_key"]["name"] == "showernow_apns_key" and c["secrets"]["apns_key"]["external"] is True, c["secrets"]'
           docker compose -f compose.yaml config --quiet
           # Dashboard overlay: valid together with the stack; exactly one published ingress port (target = dashboard port), hardened service.
           DB_HOST=db.example.internal DASH_ORIGIN=https://dash.example.internal docker compose -f deploy/swarm/stack.yaml -f deploy/swarm/stack.dashboard.yaml config --format json \

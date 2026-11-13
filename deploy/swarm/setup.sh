@@ -165,6 +165,13 @@ valid_baseurl() { [ -z "$1" ] || [[ "$1" =~ ^https?://[a-z0-9.-]+(:[0-9]{1,5})?$
 # ---------------------------------------------------------------- docker helpers
 docker_ok() { [ "$DRY" = 1 ] && return 1; docker "$@" >/dev/null 2>&1; }
 secret_exists() { docker_ok secret inspect "$1"; }
+# APNs placeholder secret (created below when push is off): recognised by its label, never usable as a real key.
+APNS_PLACEHOLDER_LABEL="showernow.placeholder"
+is_placeholder_secret() { [ "$DRY" = 0 ] && [ "$(docker secret inspect --format "{{index .Spec.Labels \"$APNS_PLACEHOLDER_LABEL\"}}" "$1" 2>/dev/null)" = true ]; }
+valid_apns_secret() {
+  valid_ident "$1" || return 1
+  ! is_placeholder_secret "$1" || bad "Secret '$1' ist der Platzhalter ohne Schlüssel (Installation ohne Push). Secrets sind unveränderlich: einen neuen Namen wählen, z. B. ${1}_p8"
+}
 
 # Returns the secret value from the answers/environment: <KEY> or <KEY>_FILE (path); empty when none.
 provided_secret() {
@@ -287,7 +294,7 @@ ask DB_PASSWORD_SECRET "Name des Swarm-Secrets für das DB-Passwort" "showernow_
 
 # ---------------------------------------------------------------- Step 5b: push (optional)
 step "Push-Benachrichtigungen (APNs, optional)"
-echo "Regenbeginn-Benachrichtigungen für die App. Ohne Push (Standard) bleibt der Radar-Cache unverändert und braucht den Schlüssel nicht."
+echo "Regenbeginn-Benachrichtigungen für die App. Ohne Push (Standard) braucht der Radar-Cache keinen Schlüssel; der Stack hängt das Secret aber immer ein (dann genügt ein Platzhalter, wird bei Bedarf angelegt)."
 lookup PUSH_ENABLED ''; push_src="$SRC"
 PUSH_DEFAULT=n; [ "$(get PUSH_ENABLED false)" != true ] || PUSH_DEFAULT=y
 if [ "$NONINTERACTIVE" = 1 ] || [ "$push_src" = answer ] || [ "$push_src" = env ] || { [ "$REUSE" = 1 ] && [ "$push_src" = existing ]; }; then
@@ -301,7 +308,7 @@ if [ "$PUSH_ENABLED" = true ]; then
   ask APNS_TOPIC "Topic (Bundle-ID der App)" "$(get APNS_TOPIC '')" valid_topic
   ask APNS_ENV "Erlaubte APNs-Umgebung (production/sandbox/both)" "production" valid_apnsenv \
     "TestFlight und App Store nutzen production, Xcode-Debug-Builds sandbox. 'both' braucht einen Schlüssel für beide Umgebungen."
-  ask APNS_KEY_SECRET "Name des Swarm-Secrets für die .p8-Datei" "showernow_apns_key" valid_ident
+  ask APNS_KEY_SECRET "Name des Swarm-Secrets für die .p8-Datei" "showernow_apns_key" valid_apns_secret
   if secret_exists "$APNS_KEY_SECRET"; then
     SS_APNS=exists
     say "Secret '$APNS_KEY_SECRET' existiert bereits und bleibt unverändert."
@@ -314,6 +321,16 @@ if [ "$PUSH_ENABLED" = true ]; then
         "Die Datei wird nur in das Swarm-Secret übernommen (Inhalt wird nie angezeigt oder kopiert). Danach aus Downloads/Backup-Ordnern entfernen und sicher archivieren."
       valid_p8 "$APNS_KEY_SOURCE" || true # repeats the check only to show the file-permission warning
     fi
+  fi
+else
+  # stack.yaml always mounts the APNs secret (decision 2026-11-06): without push a placeholder (no key, labelled) is enough,
+  # the server reads the file only with PUSH_ENABLED=true. An existing secret of that name is kept.
+  APNS_KEY_SECRET="$(get APNS_KEY_SECRET showernow_apns_key)"
+  valid_ident "$APNS_KEY_SECRET" || die "APNS_KEY_SECRET '$APNS_KEY_SECRET' ist kein gültiger Secret-Name"
+  if secret_exists "$APNS_KEY_SECRET"; then
+    SS_APNS=exists; say "Secret '$APNS_KEY_SECRET' existiert bereits und bleibt unverändert (ohne Push nicht gelesen)."
+  else
+    SS_APNS=placeholder; say "Ohne Push wird '$APNS_KEY_SECRET' als Platzhalter ohne Schlüssel angelegt (der Stack braucht das Secret immer). Für Push später: setup.sh --reconfigure mit neuem Secret-Namen für die .p8-Datei."
   fi
 fi
 
@@ -392,6 +409,8 @@ done
 printf 'Push (APNs):       %s\n' "$([ "$PUSH_ENABLED" = true ] && echo "an, Key-ID $APNS_KEY_ID, Team $APNS_TEAM_ID, Topic $APNS_TOPIC, Umgebung $APNS_ENV" || echo aus)"
 if [ "$PUSH_ENABLED" = true ]; then
   printf 'Secret %-28s %s\n' "$APNS_KEY_SECRET" "$([ "$SS_APNS" = exists ] && echo 'vorhanden, bleibt unverändert' || echo 'wird aus der .p8-Datei angelegt')"
+else
+  printf 'Secret %-28s %s\n' "$APNS_KEY_SECRET" "$([ "$SS_APNS" = exists ] && echo 'vorhanden, bleibt unverändert' || echo 'wird als Platzhalter ohne Schlüssel angelegt')"
 fi
 echo "Danach: Migrationsjob (deploy/swarm/swarm-deploy.sh), Rolling Update, Health-Prüfung."
 echo "Sichern Sie vor einem Update einer bestehenden Installation die Datenbank."
@@ -427,8 +446,8 @@ write_env() {
       echo "APNS_TEAM_ID=$APNS_TEAM_ID"
       echo "APNS_TOPIC=$APNS_TOPIC"
       echo "APNS_ENV=$APNS_ENV"
-      echo "APNS_KEY_SECRET=$APNS_KEY_SECRET"
     fi
+    echo "APNS_KEY_SECRET=$APNS_KEY_SECRET"  # always: stack.yaml mounts the secret also without push
     # Optional values not asked here (operator details, layers and tuning) are carried over unchanged, so that
     # --reconfigure does not silently drop e.g. LAYERS (the layer routes would answer 404 afterwards).
     for optional in OPERATOR_NAME OPERATOR_ADDRESS OPERATOR_EMAIL PROXY_LOG_NOTE APP_STORE_URL TESTFLIGHT_URL SITE_EN_ENABLED \
@@ -457,6 +476,7 @@ if [ "$DRY" = 1 ]; then
     [ "${!status}" = exists ] || echo "  docker secret create $(secret_name "$key") -   (Wert nicht angezeigt)"
   done
   [ "$PUSH_ENABLED" = true ] && [ "$SS_APNS" != exists ] && echo "  docker secret create $APNS_KEY_SECRET <APNS_KEY_SOURCE>   (.p8-Inhalt nicht angezeigt)"
+  [ "$SS_APNS" = placeholder ] && echo "  docker secret create --label $APNS_PLACEHOLDER_LABEL=true $APNS_KEY_SECRET -   (Platzhalter ohne Schlüssel, Push aus)"
   echo "  deploy/swarm/swarm-deploy.sh   (STACK=$RADAR_STACK, Migrationsjob, danach Rollout mit $RADAR_REPLICAS Replikaten)"
   echo "  Rollout abwarten, GET /v1/radar/latest.json (200 oder 404) auf dem Ingress-Port${PUBLIC_BASE_URL:+ und $PUBLIC_BASE_URL} prüfen"
   say "Trockenlauf beendet; es wurden keine Docker-Aufrufe ausgeführt."
@@ -481,6 +501,14 @@ if [ "$PUSH_ENABLED" = true ] && [ "$SS_APNS" = create ]; then
     # The file is handed to docker directly; its content is neither read into a variable nor printed.
     docker secret create "$APNS_KEY_SECRET" "$APNS_KEY_SOURCE" >/dev/null
     say "Secret '$APNS_KEY_SECRET' angelegt. Die Datei kann jetzt aus Downloads/Backup-Ordnern entfernt werden."
+  fi
+fi
+if [ "$SS_APNS" = placeholder ]; then
+  if secret_exists "$APNS_KEY_SECRET"; then
+    say "Secret '$APNS_KEY_SECRET' wurde inzwischen angelegt, unverändert gelassen."
+  else
+    printf 'placeholder, no APNs key (PUSH_ENABLED=false)\n' | docker secret create --label "$APNS_PLACEHOLDER_LABEL=true" "$APNS_KEY_SECRET" - >/dev/null
+    say "Secret '$APNS_KEY_SECRET' als Platzhalter angelegt (kein Schlüssel; Push bleibt aus)."
   fi
 fi
 

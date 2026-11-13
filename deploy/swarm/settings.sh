@@ -342,7 +342,7 @@ secret_hint() { # KEY -> Text mit dem docker-secret-create-Befehl
   local name; name="$(secret_name_for "$1")"
   case "$1" in
     APNS_KEY)
-      printf 'Der APNs-Schlüssel (.p8) liegt als Docker-Secret, nie in der .env.\n\nAnlegen (auf einem Swarm-Manager):\n  docker secret create %s /pfad/AuthKey_XXXXXXXXXX.p8\n\nDas Secret wird nur mit PUSH_ENABLED=true über stack.push.yaml eingehängt. Der Name steht in APNS_KEY_SECRET.' "$name" ;;
+      printf 'Der APNs-Schlüssel (.p8) liegt als Docker-Secret, nie in der .env.\n\nAnlegen (auf einem Swarm-Manager):\n  docker secret create %s /pfad/AuthKey_XXXXXXXXXX.p8\n\nstack.yaml hängt das Secret immer ein, auch mit PUSH_ENABLED=false (dann genügt ein Platzhalter, der Dienst liest die Datei nicht):\n  printf '"'"'placeholder, no APNs key\\n'"'"' | docker secret create %s -\nSecrets sind unveränderlich: für Push später ein neues Secret mit neuem Namen anlegen. Der Name steht in APNS_KEY_SECRET.' "$name" "$name" ;;
     DASH_PROXY_TOKEN)
       printf 'Das Proxy-Token des Dashboards liegt als Docker-Secret, nie in der .env. Der Reverse Proxy sendet es als Header X-Dashboard-Proxy-Token (setzen, nicht anhängen); ohne Token antwortet das Dashboard mit 404.\n\nErzeugen und anlegen (auf einem Swarm-Manager; ein Secret lässt sich nicht auslesen, daher zuerst in eine Datei):\n  umask 077; openssl rand -base64 32 | tr '"'"'+/'"'"' '"'"'-_'"'"' | tr -d '"'"'='"'"' > proxy-token.txt\n  docker secret create %s proxy-token.txt\n  (Wert aus der Datei im Proxy als Header eintragen, danach: rm proxy-token.txt)\n\nROTATION (Secrets sind unveränderlich): neues Secret unter neuem Namen anlegen, DASH_PROXY_TOKEN_SECRET=<neu> und DASH_PROXY_TOKEN_PREVIOUS_SECRET=<alt> setzen, ausrollen (beide gelten), Header im Proxy auf den neuen Wert umstellen, danach DASH_PROXY_TOKEN_PREVIOUS_SECRET wieder entfernen und ausrollen.' "$name" ;;
     DASH_PROXY_TOKEN_PREVIOUS)
@@ -405,11 +405,6 @@ check_all() {
       [ -n "$(eff_value "$k")" ] || chk_err "PUSH_ENABLED=true, aber $k fehlt."
     done
     if [ "$(eff_value IMAGE_WIDTH)" != 1024 ]; then chk_err "PUSH_ENABLED=true verlangt IMAGE_WIDTH=1024 (aktuell $(eff_value IMAGE_WIDTH))."; fi
-    name="$(secret_name_for APNS_KEY)"; st="$(secret_status "$name")"
-    case "$st" in
-      fehlt) chk_err "PUSH_ENABLED=true, aber das Docker-Secret $name fehlt (docker secret create $name /pfad/AuthKey_XXXXXXXXXX.p8)." ;;
-      unbekannt) chk_warn "Docker-Secret $name konnte nicht geprüft werden (docker nicht erreichbar oder kein Manager)." ;;
-    esac
   fi
   if [ "$(eff_value DASH_ENABLED)" = true ]; then
     if [ -z "$(eff_value DASH_ORIGIN)" ]; then chk_err "DASH_ENABLED=true, aber DASH_ORIGIN fehlt (https-Adresse, unter der das Dashboard aufgerufen wird)."; fi
@@ -429,6 +424,12 @@ check_all() {
     name="$(secret_name_for DB_PASSWORD)"; st="$(secret_status "$name")"
     case "$st" in
       fehlt) chk_err "Docker-Secret $name (Datenbank-Passwort) fehlt." ;;
+      unbekannt) chk_warn "Docker-Secret $name konnte nicht geprüft werden (docker nicht erreichbar oder kein Manager)." ;;
+    esac
+    # APNs-Secret: stack.yaml hängt es immer ein (Entscheidung 6.11.2026), also auch ohne Push Pflicht (dann genügt ein Platzhalter).
+    name="$(secret_name_for APNS_KEY)"; st="$(secret_status "$name")"
+    case "$st" in
+      fehlt) chk_err "Docker-Secret $name (APNs-Schlüssel) fehlt; stack.yaml hängt es immer ein, auch mit PUSH_ENABLED=false (docker secret create $name /pfad/AuthKey_XXXXXXXXXX.p8, ohne Push genügt: printf 'placeholder, no APNs key\\n' | docker secret create $name -)." ;;
       unbekannt) chk_warn "Docker-Secret $name konnte nicht geprüft werden (docker nicht erreichbar oder kein Manager)." ;;
     esac
   fi

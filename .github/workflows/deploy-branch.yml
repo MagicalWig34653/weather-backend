@@ -46,7 +46,7 @@ jobs:
             git -C "$out" rm -rfq --ignore-unmatch .
           fi
           mkdir -p "$out/deploy/swarm"
-          for f in stack.yaml stack.push.yaml healthcheck.sh lib.sh setup.sh update.sh swarm-deploy.sh settings.sh config-registry.tsv config-extra.tsv; do
+          for f in stack.yaml healthcheck.sh lib.sh setup.sh update.sh swarm-deploy.sh settings.sh config-registry.tsv config-extra.tsv; do
             cp -p "deploy/swarm/$f" "$out/deploy/swarm/$f"
           done
           # Optional overlay of the dashboard (delivered with the dashboard work package); swarm-deploy.sh/update.sh stop with a
