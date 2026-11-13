@@ -15,3 +15,10 @@ DASH_CPU_LIMIT	Dashboard	number	0	CPUs	0	64		envOnly	0	CPU-Limit des Dienstes da
 DASH_MEMORY_LIMIT	Dashboard	text:memlimit	0			16		envOnly	0	Speicher-Limit des Dienstes dashboard, z. B. 256M, 0 = unbegrenzt.
 DASH_PROXY_TOKEN_SECRET	Dashboard	text:secretname	showernow_dashboard_proxy_token			64		envOnly	0	Name des Swarm-Secrets mit dem Proxy-Token (nur der Name; Wert siehe DASH_PROXY_TOKEN).
 DASH_PROXY_TOKEN_PREVIOUS_SECRET	Dashboard	text:secretname	showernow_dashboard_proxy_token			64		envOnly	0	Rotation: Name des alten Proxy-Token-Secrets (nur der Name). Ohne Rotation leer lassen; die Skripte nehmen dann das aktuelle Secret.
+PLACEMENT_CONSTRAINT_1	Platzierung	text:free				200		envOnly	0	Zusätzliche harte Platzierungsbedingung für radar, z. B. node.role==worker. Leer = ohne Wirkung. Plätze _1 bis _3 (Compose kann keine Listen aufteilen).
+PLACEMENT_CONSTRAINT_2	Platzierung	text:free				200		envOnly	0	Zweiter Platz für eine harte Platzierungsbedingung, z. B. node.labels.disk==ssd. Leer = ohne Wirkung.
+PLACEMENT_CONSTRAINT_3	Platzierung	text:free				200		envOnly	0	Dritter Platz für eine harte Platzierungsbedingung. Leer = ohne Wirkung.
+PLACEMENT_SPREAD	Platzierung	text:free				200		envOnly	0	Weiche Präferenz: Replikate nach Knoten-Label verteilen, z. B. node.labels.zone. Keine Garantie; leer = nach Betriebssystem (ohne Wirkung).
+PINNED_NODE	Platzierung	text:free				200		envOnly	0	Hostname eines Knotens, auf dem mindestens ein Container laufen muss (zweiter Dienst radar-pinned). Aktiv nur zusammen mit PINNED_REPLICAS.
+PINNED_REPLICAS	Platzierung	int	0		0	50		envOnly	0	Anzahl Container von radar-pinned auf PINNED_NODE; 0 = aus. Der Dienst veröffentlicht keinen Port.
+EXCLUDE_LABEL	Platzierung	text:free				63		envOnly	0	Label-Schlüssel, z. B. reserved: ergänzt node.labels.reserved!=true bei radar, migrate und dashboard. Konvention, kein harter Schutz (hart: docker node update --availability drain).

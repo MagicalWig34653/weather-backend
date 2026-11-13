@@ -45,6 +45,8 @@ for f in stack.yaml stack.push.yaml stack.dashboard.yaml; do
     [ -n "$d" ] || continue
     # LAYERS: the stack default is 'radar' (the radar always runs); the register default is empty (no additional layer).
     [ "$v" = LAYERS ] && continue
+    # Placement variables: the stack default is an inert placeholder (always-true expression), the table default is empty (= not set).
+    case "$v" in PLACEMENT_CONSTRAINT_[123]|PLACEMENT_SPREAD|PINNED_NODE|EXCLUDE_LABEL) continue ;; esac
     t="$(default_of "$v")"
     [ "$t" = "$d" ] || err "$f: Default von $v ist '$d', Tabelle sagt '$t'"
   done < <(grep -o '\${[A-Z_][A-Z0-9_]*:-[^}]*}' "$DIR/$f" | sort -u)

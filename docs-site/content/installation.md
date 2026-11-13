@@ -98,6 +98,10 @@ deploy/swarm/setup.sh --non-interactive --answers-file answers.env --swarm-init
 | `RADAR_STACK` | `radar` | Stack-Name; bestimmt die Service-Namen `<stack>_radar` und `<stack>_migrate`. |
 | `RADAR_IMAGE_TAG` | `edge` | Image-Tag. `edge` folgt jedem Push auf `main`; für Produktion ein festes `sha-<commit>` oder eine Version. `update.sh` pflegt den Wert. |
 | `RADAR_REPLICAS` | `2` | Anzahl Replikate; ab 2 sind unterbrechungsfreie Rolling Updates möglich. |
+| `PLACEMENT_CONSTRAINT_1`, `_2`, `_3` | leer | Zusätzliche harte Platzierungsbedingungen für `radar` (drei Plätze), z. B. `node.role==worker`. Leer = ohne Wirkung. |
+| `PLACEMENT_SPREAD` | leer | Weiche Verteilung nach Knoten-Label, z. B. `node.labels.zone`; keine Garantie. |
+| `PINNED_NODE`, `PINNED_REPLICAS` | leer, `0` | Zweiter Dienst `radar-pinned`: mindestens ein Container auf diesem Hostnamen. Nur aktiv, wenn beide gesetzt sind; kein veröffentlichter Port. |
+| `EXCLUDE_LABEL` | leer | Label-Schlüssel, z. B. `reserved`: ergänzt `node.labels.reserved!=true` bei `radar`, `migrate`, `dashboard`. Konvention, kein harter Schutz (hart: `docker node update --availability drain`). |
 | `RADAR_PORT` | `38090` | Veröffentlichter Port der Swarm-Knoten (Ingress), auf den der Reverse Proxy zeigt. Im Container lauscht der Dienst auf 8080. |
 | `DASH_PUBLISH_PORT` | `39090` | Nur mit `DASH_ENABLED=true`: veröffentlichter Ingress-Port des Dashboards für den Reverse Proxy (Container-Port `DASH_PORT`, 9090). Per Firewall auf den Proxy beschränken. |
 | `RADAR_CPU_LIMIT` | `0` | CPU-Limit je Replikat, `0` = unbegrenzt. |
