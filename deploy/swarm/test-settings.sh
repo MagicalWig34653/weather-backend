@@ -2,9 +2,14 @@
 # Offline test of settings.sh: whiptail and docker are replaced by stubs on PATH (scripted answers), the .env is a temp file.
 # Covers: set/get/list/unset/check, validation, secrets never in the .env, backups without touching .env.bak, comments and unknown
 # lines kept, atomic write with mode kept, quoting and shell injection (the file is sourced like update.sh does), menu flows.
-# Usage: deploy/swarm/test-settings.sh   (needs bash 4.4+; not part of the deploy branch)
+# Usage: deploy/swarm/test-settings.sh   (needs bash 4.4+, otherwise exit 77 = skipped; not part of the deploy branch)
 # shellcheck disable=SC2016,SC1090,SC2012  # Testdaten enthalten absichtlich $ und Backticks; .env wird absichtlich gesourct
 set -uo pipefail
+# settings.sh needs bash 4.4+ (macOS ships 3.2): without it every check would fail for the wrong reason -> loud SKIP, exit 77 (not green)
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  echo "SKIP test-settings.sh: braucht Bash 4.4+ (gefunden: $BASH_VERSION). Auf macOS: brew install bash, dann /opt/homebrew/bin/bash $0. Exit 77 = uebersprungen, NICHT bestanden." >&2
+  exit 77
+fi
 SRC="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 DIR="$WORK/repo/deploy/swarm"; mkdir -p "$DIR" "$WORK/bin"
