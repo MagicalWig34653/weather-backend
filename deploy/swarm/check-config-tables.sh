@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consistency of the settings tables (config-registry.tsv, config-extra.tsv) with stack.yaml, stack.push.yaml and .env.example:
+# Consistency of the settings tables (config-registry.tsv, config-extra.tsv) with stack.yaml, stack.dashboard.yaml and .env.example:
 #  - every ${VAR} of the stack files is in one of the tables (no variable without metadata for settings.sh),
 #  - every ${VAR:-default} of the stack files has the same default as the table (LAYERS excepted, see below),
 #  - every variable of .env.example (active or commented) is in a table (DEV_* are local development only),
@@ -33,7 +33,7 @@ has_key() { [[ $'\n'"$keys"$'\n' == *$'\n'"$1"$'\n'* ]]; }
 default_of() { awk -F'\t' -v k="$1" '$1 == k { print $4; exit }' <<< "$rows"; }
 
 # ${VAR} der Stack-Dateien
-for f in stack.yaml stack.push.yaml stack.dashboard.yaml; do
+for f in stack.yaml stack.dashboard.yaml; do
   for v in $(grep -o '\${[A-Z_][A-Z0-9_]*' "$DIR/$f" | tr -d '${' | sort -u); do
     has_key "$v" || err "$f: \${$v} fehlt in config-registry.tsv/config-extra.tsv"
   done

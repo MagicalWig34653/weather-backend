@@ -79,16 +79,23 @@ wait_for_rollout() {
 # Push (optional): value of a KEY=VALUE line of an env file (last one wins, quotes stripped); empty when unset.
 env_value() { sed -n "s/^$2=//p" "$1" | tail -n 1 | tr -d "\"'"; }
 
-# Dies with a clear message when push is enabled (PUSH_ENABLED=true in the env file) but the Swarm secret with the
-# .p8 key does not exist. Without this check `docker stack deploy` fails late with a bare "secret not found".
-# Usage: require_push_secret ENV_FILE. Needs docker; prints no secret value.
-require_push_secret() {
-  local file="$1" enabled name
-  enabled="$(env_value "$file" PUSH_ENABLED)"
-  [ "$enabled" = true ] || return 0
-  name="$(env_value "$file" APNS_KEY_SECRET)"; name="${name:-showernow_apns_key}"
+# APNs key secret (decision 2026-11-06): stack.yaml ALWAYS mounts the external secret apns_key, with and without push, so it must
+# exist before every deploy; without this check `docker stack deploy` fails late with a bare "secret not found". With push off the
+# server never reads the file: a placeholder secret is enough (setup.sh creates one on a fresh install without push).
+# With PUSH_ENABLED=true the values APNS_KEY_ID, APNS_TEAM_ID and APNS_TOPIC must be set as well.
+# Name: APNS_KEY_SECRET (shell wins over the env file), default showernow_apns_key; exported for `docker stack deploy`.
+# Usage: require_apns_secret [ENV_FILE]. Without ENV_FILE only the shell variables count. Needs docker; prints no secret value.
+require_apns_secret() {
+  local file="${1:-}" enabled="${PUSH_ENABLED-}" name="${APNS_KEY_SECRET-}" k
+  if [ -n "$file" ] && [ -f "$file" ]; then
+    [ -n "${PUSH_ENABLED+x}" ] || enabled="$(env_value "$file" PUSH_ENABLED)"
+    [ -n "$name" ] || name="$(env_value "$file" APNS_KEY_SECRET)"
+  fi
+  name="${name:-showernow_apns_key}"; export APNS_KEY_SECRET="$name"
   docker secret inspect "$name" >/dev/null 2>&1 \
-    || die "PUSH_ENABLED=true, but the Swarm secret '${name}' (the APNs .p8 key) does not exist. Create it first: docker secret create ${name} /path/to/AuthKey_XXXXXXXXXX.p8 (or set PUSH_ENABLED=false in ${file}). Nothing was changed."
+    || die "The Swarm secret '${name}' (APNs .p8 key) does not exist. stack.yaml always mounts it, also with PUSH_ENABLED=false. Create it first: docker secret create ${name} /path/to/AuthKey_XXXXXXXXXX.p8 - without push a placeholder is enough: printf 'placeholder, no APNs key\\n' | docker secret create ${name} - (later for push: new secret name plus APNS_KEY_SECRET, secrets cannot be changed). Nothing was changed."
+  # Values check only with an env file (update.sh); swarm-deploy.sh checks the secret only, as before.
+  [ -n "$file" ] && [ -f "$file" ] && [ "$enabled" = true ] || return 0
   local missing=""
   for k in APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC; do [ -n "$(env_value "$file" "$k")" ] || missing="$missing $k"; done
   [ -z "$missing" ] || die "PUSH_ENABLED=true, but these values are missing in ${file}:${missing}. Nothing was changed."

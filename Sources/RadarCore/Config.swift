@@ -152,7 +152,7 @@ public struct Config: Sendable {
             let text: String
             do { text = try String(contentsOfFile: path, encoding: .utf8) } catch {
                 // Clear operator hint instead of a bare Foundation error; neither the path content nor the error text is echoed.
-                let hint = name == "APNS_KEY" ? "Secret apns_key gemountet? Deploy mit stack.push.yaml"
+                let hint = name == "APNS_KEY" ? "Secret apns_key gemountet? (stack.yaml hängt es immer ein)"
                     : name == "DB_PASSWORD" ? "Secret db_password gemountet?" : "Secret gemountet?"
                 throw ConfigError(description: "\(name)_FILE nicht lesbar: \(hint)")
             }

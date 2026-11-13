@@ -142,7 +142,7 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf mit [`settings.sh`
 | `PUSH_RATE_PER_INSTALLATION`, `PUSH_RATE_GLOBAL_REGISTRATIONS`, `PUSH_RATE_GLOBAL_REQUESTS`, `PUSH_RATE_FAILED_AUTH`, `PUSH_TEST_LIMIT_PER_HOUR` | `60`, `600`, `3000`, `10`, `3` | Ratenlimits (Bereiche 10 bis 600, 60 bis 6000, 300 bis 30000, 3 bis 60 pro Minute; Testmeldungen 1 bis 10 pro Stunde); die globalen Werte gelten je Replikat. |
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | leer | Key-ID (10 Zeichen), Team-ID und `apns-topic` (Bundle-ID). Keine Geheimnisse, aber Betreiberwerte. |
 | `APNS_ENV` | `production` | `sandbox`, `production` oder `both`: erlaubte APNs-Umgebungen. Jede Installation meldet ihre Umgebung; der Sender nutzt den passenden Apple-Host. Meldungen einer nicht erlaubten Umgebung werden verworfen, die Testmeldung antwortet `409`. Beim Start steht die erlaubte Menge im Log. |
-| `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`; vom Overlay `stack.push.yaml` eingehängt, siehe unten). |
+| `APNS_KEY_FILE` | – | Im Container der Pfad des `.p8`-Schlüssels (Swarm-Secret `showernow_apns_key`, Name über `APNS_KEY_SECRET`; von `stack.yaml` immer eingehängt, auch ohne Push, siehe unten). |
 
 Die Variablen `DEV_*` in `.env.example` gehören zur lokalen Entwicklung und werden in Produktion nicht gebraucht.
 
@@ -167,29 +167,29 @@ Der Dienst nutzt einen einzigen `.p8`-Schlüssel für alle erlaubten Umgebungen.
 
 Fehlbedienung zeigt sich zur Laufzeit, nicht beim Start (der Dienst prüft den Schlüssel nicht gegen Apple): Testmeldung `POST /v1/push/installations/<uuid>/test` liefert `apns_bad_device_token` oder `apns_key_rejected` mit Apples Reason; im regulären Versand zählt das Log die Apple-Reasons je Lauf (`apns reasons BadDeviceToken=…`), nie Token oder Schlüssel.
 
-#### Optional: Push einschalten (Secret `showernow_apns_key`)
+#### APNs-Secret (immer nötig) und Push einschalten (Secret `showernow_apns_key`)
+
+**Das Secret muss immer existieren, auch ohne Push** (Entscheidung 6.11.2026): `deploy/swarm/stack.yaml` hängt es fest in `migrate`, `radar` und `radar-pinned` ein (wie das DB-Passwort). Fehlt es, brechen `update.sh` und `swarm-deploy.sh` vor jeder Änderung mit dem passenden `docker secret create`-Befehl ab (sonst schlüge `docker stack deploy` mit „secret not found“ fehl). Ohne Push liest der Dienst die Datei nicht; dann genügt ein Platzhalter ohne Schlüssel, den `setup.sh` bei einer Installation ohne Push selbst anlegt (Label `showernow.placeholder=true`). Von Hand:
+
+```sh
+printf 'placeholder, no APNs key\n' | docker secret create --label showernow.placeholder=true showernow_apns_key -
+```
+
+Secrets sind unveränderlich: Wer später Push einschaltet, legt die `.p8` unter einem **neuen Namen** an und setzt `APNS_KEY_SECRET` (der Assistent lehnt den Platzhalter als Schlüssel ab).
 
 Der Pushdienst braucht den APNs-Auth-Key (`.p8`) aus dem Apple-Developer-Konto. Er wird wie das DB-Passwort als Swarm-Secret angelegt, nie als Umgebungswert und nie im Repo. Der Setup-Assistent fragt alles ab (Push an/aus, Key-ID, Team-ID, Topic, Umgebung, Pfad zur `.p8`) und legt das Secret mit `docker secret create <name> <datei>` an, ohne den Inhalt zu lesen oder auszugeben; er warnt, wenn die Datei für andere Benutzer lesbar ist. Von Hand:
 
 ```sh
-docker secret create showernow_apns_key /pfad/zu/AuthKey_XXXXXXXXXX.p8
-# in der .env: PUSH_ENABLED=true, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_ENV (optional APNS_KEY_SECRET)
+docker secret create showernow_apns_key /pfad/zu/AuthKey_XXXXXXXXXX.p8   # existiert schon ein Platzhalter: neuer Name, z. B. showernow_apns_key_p8
+# in der .env: PUSH_ENABLED=true, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_ENV (APNS_KEY_SECRET bei abweichendem Namen)
 deploy/swarm/update.sh --pull-scripts --force
 ```
 
-> **Achtung: Hauptdatei allein reicht nicht.** `deploy/swarm/stack.yaml` enthält den APNs-Schlüssel nicht; das Secret hängt nur im Overlay `stack.push.yaml`. Wer mit `PUSH_ENABLED=true` nur `stack.yaml` deployt (zum Beispiel von Hand mit `docker stack deploy -c stack.yaml …`), erhält Container ohne `/run/secrets/apns_key`; sie starten nicht (Startfehler beim Lesen von `APNS_KEY_FILE`, Service bleibt bei 0 laufenden Replikaten). `update.sh`, `setup.sh` und `swarm-deploy.sh` binden das Overlay selbst ein. Von Hand immer beide Dateien angeben, im Ordner `deploy/swarm`, mit geladener `.env` (Migrationsjob und Sperre übernimmt dieser Weg nicht, vorher `swarm-deploy.sh` oder `update.sh` bevorzugen):
->
-> ```sh
-> cd deploy/swarm
-> set -a; . ../../.env; set +a
-> docker stack deploy --resolve-image never -c stack.yaml -c stack.push.yaml radar
-> ```
->
-> Prüfen, ob das Secret am Dienst hängt: `docker service inspect radar_radar --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'` muss `apns_key` und `db_password` zeigen.
+Von Hand genügt `stack.yaml` (seit 13.11.2026 gibt es kein Push-Overlay `stack.push.yaml` mehr): im Ordner `deploy/swarm`, mit geladener `.env`, `docker stack deploy --resolve-image never -c stack.yaml radar` (Migrationsjob und Sperre übernimmt dieser Weg nicht, vorher `swarm-deploy.sh` oder `update.sh` bevorzugen). Prüfen, ob das Secret am Dienst hängt: `docker service inspect radar_radar --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'` muss `apns_key` und `db_password` zeigen.
 
-Verdrahtung: `deploy/swarm/stack.yaml` reicht `PUSH_ENABLED` (Standard `false`), `APNS_KEY_FILE=/run/secrets/apns_key`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` und `APNS_ENV` durch. Das externe Secret selbst hängt nur im Overlay `deploy/swarm/stack.push.yaml` (Name über `APNS_KEY_SECRET`, Standard `showernow_apns_key`), das `swarm-deploy.sh` nur bei `PUSH_ENABLED=true` zusätzlich einbindet. Grund: Ein im Stack referenziertes externes Secret muss existieren, sonst scheitert `docker stack deploy` mit „secret not found“; so bleiben Installationen ohne Push unberührt. `update.sh` und `swarm-deploy.sh` prüfen bei `PUSH_ENABLED=true` vor dem Rollout, dass das Secret existiert und die drei APNS-Werte gesetzt sind, und brechen sonst mit klarer Meldung ab, bevor etwas geändert wird. Rotation: neues Secret mit neuem Namen anlegen, `APNS_KEY_SECRET` anpassen, `update.sh --force`. Migration `003_push.sql` läuft über den normalen Migrationsjob und ist additiv (neue Tabellen `push_*`).
+Verdrahtung: `deploy/swarm/stack.yaml` reicht `PUSH_ENABLED` (Standard `false`), `APNS_KEY_FILE=/run/secrets/apns_key`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` und `APNS_ENV` durch und hängt das externe Secret (Name über `APNS_KEY_SECRET`, Standard `showernow_apns_key`) über den gemeinsamen Anker in alle Radar-Dienste ein; der Dashboard-Dienst bekommt es nicht. `update.sh` und `swarm-deploy.sh` prüfen vor dem Rollout immer, dass das Secret existiert, `update.sh` bei `PUSH_ENABLED=true` zusätzlich die drei APNS-Werte, und brechen sonst mit klarer Meldung ab, bevor etwas geändert wird; `settings.sh --check` meldet ein fehlendes Secret als Fehler. Rotation: neues Secret mit neuem Namen anlegen, `APNS_KEY_SECRET` anpassen, `update.sh --force`. Migration `003_push.sql` läuft über den normalen Migrationsjob und ist additiv (neue Tabellen `push_*`).
 
-Geprüft: `docker stack config` (Docker 29) mit und ohne Overlay zeigt das Secret nur mit Overlay; beim Zusammenführen werden die `secrets:`-Listen vereinigt (`apns_key` und `db_password`, Name `showernow_apns_key`, Mountpunkt `/run/secrets/apns_key`, wie `APNS_KEY_FILE` im Stack); `deploy/swarm/test-swarm-deploy.sh` prüft mit einem Stub-`docker`, dass `swarm-deploy.sh` das Overlay genau bei `PUSH_ENABLED=true` (Shell oder `.env`) einbindet; das Verhalten bei einem fehlenden externen Secret im echten Swarm sowie der Rollout mit Secret sind nicht gegen einen Swarm geprüft.
+Bis 13.11.2026 hing das Secret im Overlay `stack.push.yaml`, das nur bei `PUSH_ENABLED=true` eingebunden wurde; dabei fehlte es `radar-pinned` (der Anker wird vor dem Zusammenführen aufgelöst). Geprüft (13.11.2026): `docker compose config` mit `stack.yaml` zeigt `apns_key` und `db_password` an `migrate`, `radar` und `radar-pinned`; `deploy/swarm/test-swarm-deploy.sh` prüft mit einem Stub-`docker` den Abbruch bei fehlendem Secret mit und ohne Push; der Dienst startet mit eingehängtem Secret und `PUSH_ENABLED=false` (lokaler Lauf mit MariaDB). Nicht gegen einen echten Swarm geprüft.
 
 ### 5. Migrationsjob und Deploy
 

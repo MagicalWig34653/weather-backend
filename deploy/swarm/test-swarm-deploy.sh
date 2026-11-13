@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Offline test of swarm-deploy.sh with a stub `docker` (no Swarm needed): checks that the overlay stack.push.yaml is part of
-# `docker stack deploy` exactly when push is enabled (shell variable or env file), and that a missing secret aborts the rollout.
+# Offline test of swarm-deploy.sh with a stub `docker` (no Swarm needed): the APNs key secret is part of stack.yaml itself
+# (decision 2026-11-06, the former overlay stack.push.yaml is gone), so it is checked on EVERY deploy (with and without push) and a
+# missing secret aborts before anything is deployed; the secret name comes from the shell or the env file.
 # Same for the dashboard overlay stack.dashboard.yaml (DASH_ENABLED): present -> included, missing -> clear abort, shell wins over the env file.
 # Usage: deploy/swarm/test-swarm-deploy.sh   (needs bash only; not part of the deploy branch)
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/repo/deploy/swarm" "$WORK/bin"
-cp "$SRC"/swarm-deploy.sh "$SRC"/update.sh "$SRC"/lib.sh "$SRC"/stack.yaml "$SRC"/stack.push.yaml "$WORK/repo/deploy/swarm/"
+cp "$SRC"/swarm-deploy.sh "$SRC"/update.sh "$SRC"/lib.sh "$SRC"/stack.yaml "$WORK/repo/deploy/swarm/"
 cat > "$WORK/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 echo "docker $* [rp=${DASH_RP_ID:-}]" >> "$STUB_LOG"
@@ -23,7 +24,7 @@ case "$1 $2" in
       exit 1
     fi
     case "$*" in *" -e "*) [ "${STUB_CHECK_FAIL:-no}" = yes ] && { echo "error: LAYERS: unknown layer 'x'" >&2; exit 1; } ;; esac ;;
-  "secret inspect") [ "${STUB_SECRET:-yes}" = yes ] || exit 1 ;;
+  "secret inspect") [ "${STUB_SECRET:-yes}" = yes ] || exit 1; for s in ${STUB_MISSING:-}; do [ "$3" != "$s" ] || exit 1; done ;;
   "service inspect")
     case "$*" in
       *ContainerSpec.Image*) case "$3" in
@@ -52,28 +53,44 @@ run() { # name, expect_overlay(yes|no|abort), env assignments...
   export STUB_LOG="$WORK/$name.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n"
   local rc=0
   ( cd "$WORK/repo/deploy/swarm" && env -u PUSH_ENABLED -u APNS_KEY_SECRET -u DASH_ENABLED -u DASH_PROXY_TOKEN_SECRET -u DASH_PROXY_TOKEN_PREVIOUS_SECRET -u ENV_FILE PATH="$WORK/bin:$PATH" DB_HOST=db "$@" ./swarm-deploy.sh ) >"$WORK/$name.out" 2>&1 || rc=$?
-  local deploys overlay
+  local deploys overlay verdict=0
   deploys=$(grep -c 'stack deploy' "$STUB_LOG" || true); overlay=$(grep 'stack deploy' "$STUB_LOG" | grep -c "${CHECK:-stack.push.yaml}" || true)
   case "$expect" in
     yes) [ "$rc" = 0 ] && [ "$deploys" -ge 1 ] && [ "$overlay" = "$deploys" ] ;;
     no) [ "$rc" = 0 ] && [ "$deploys" -ge 1 ] && [ "$overlay" = 0 ] ;;
     abort) [ "$rc" != 0 ] && [ "$deploys" = 0 ] ;;
-  esac
-  local verdict=$?
+  esac || verdict=1  # `|| verdict=1`: a failed check must be reported, not end the script silently under set -e
   if [ "$verdict" = 0 ]; then echo "ok   $name"; else echo "FAIL $name (rc=$rc, stack deploy: $deploys, with overlay: $overlay)"; cat "$WORK/$name.out"; fail=1; fi
 }
+# ---- APNs key secret: mounted by stack.yaml on every deploy; never an overlay (expect "no" = no stack.push.yaml in any deploy) ----
 printf 'PUSH_ENABLED=true\nAPNS_KEY_SECRET=my_key\n' > "$WORK/push.env"
-printf 'PUSH_ENABLED=false\n' > "$WORK/nopush.env"
-run shell-true yes PUSH_ENABLED=true
+printf 'PUSH_ENABLED=false\nAPNS_KEY_SECRET=off_key\n' > "$WORK/nopush.env"
+run shell-true no PUSH_ENABLED=true
 run shell-false no PUSH_ENABLED=false
 run nothing-set no
-run envfile-true yes ENV_FILE="$WORK/push.env"
+run envfile-true no ENV_FILE="$WORK/push.env"
 run envfile-false no ENV_FILE="$WORK/nopush.env"
 cp "$WORK/push.env" "$WORK/repo/.env"
-run default-dotenv-true yes
+run default-dotenv-true no
 run shell-wins no PUSH_ENABLED=false
-run secret-missing abort STUB_SECRET=no PUSH_ENABLED=true
+rm -f "$WORK/repo/.env"
+run secret-missing-push-on abort STUB_SECRET=no PUSH_ENABLED=true
+run secret-missing-push-off abort STUB_SECRET=no PUSH_ENABLED=false
+run secret-missing-nothing-set abort STUB_SECRET=no
+grep -q 'docker secret create showernow_apns_key' "$WORK/secret-missing-push-off.out" || { echo "FAIL missing secret without push: no creation hint"; cat "$WORK/secret-missing-push-off.out"; fail=1; }
 grep -q 'secret inspect my_key' "$WORK/envfile-true.log" || { echo "FAIL secret name from env file not used"; fail=1; }
+grep -q 'secret inspect off_key' "$WORK/envfile-false.log" || { echo "FAIL secret name from env file not used without push"; fail=1; }
+grep -q 'secret inspect showernow_apns_key' "$WORK/shell-false.log" || { echo "FAIL secret not checked without push"; fail=1; }
+run secret-shell-name-wins no ENV_FILE="$WORK/push.env" APNS_KEY_SECRET=shell_key
+grep -q 'secret inspect shell_key' "$WORK/secret-shell-name-wins.log" || { echo "FAIL shell secret name must win over the env file"; fail=1; }
+# The real stack.yaml mounts the secret for every radar service (migrate, radar, radar-pinned via the shared anchor), the overlay is gone.
+st="$SRC/stack.yaml"; stc="$(grep -v '^ *#' "$st")"
+if grep -qE '^  secrets: \[db_password, apns_key\]$' <<< "$stc" && [ "$(grep -cE '^ +secrets:' <<< "$stc")" = 1 ] \
+   && grep -qE '^  apns_key:$' <<< "$stc" && grep -qE '^    name: \$\{APNS_KEY_SECRET:-showernow_apns_key\}$' <<< "$stc" \
+   && grep -q 'APNS_KEY_FILE: /run/secrets/apns_key$' <<< "$stc" && [ ! -e "$SRC/stack.push.yaml" ] \
+   && ! grep -n 'stack\.push\.yaml' "$SRC"/*.sh "$SRC"/*.yaml "$SRC/../../.github/workflows/"*.yml 2>/dev/null | grep -v '^[^:]*test-swarm-deploy.sh:' | grep -vE '^[^:]*:[0-9]+: *#' | grep -q .; then
+  echo "ok   stack-yaml-mounts-apns-key-no-overlay"
+else echo "FAIL stack-yaml-mounts-apns-key-no-overlay"; fail=1; fi
 
 # ---- dashboard overlay (DASH_ENABLED) ----
 rm -f "$WORK/repo/.env"
@@ -94,7 +111,7 @@ rm -f "$WORK/repo/.env"
 printf 'PUSH_ENABLED=true\nDASH_ENABLED=true\n' > "$WORK/both.env"
 run both-dashboard-part yes ENV_FILE="$WORK/both.env"
 CHECK=stack.push.yaml
-run both-push-part yes ENV_FILE="$WORK/both.env"
+run both-push-part no ENV_FILE="$WORK/both.env"
 unset CHECK
 # With the real overlay: DASH_RP_ID defaults to the host of DASH_ORIGIN (lower case, no scheme/port/path); an explicit value wins.
 cp "$SRC/stack.dashboard.yaml" "$WORK/repo/deploy/swarm/stack.dashboard.yaml"
@@ -114,17 +131,17 @@ run dash-off-no-rp no DASH_ENABLED=false DASH_ORIGIN=https://dash.example.intern
 grep -q '\[rp=\]' "$WORK/dash-off-no-rp.log" || { echo "FAIL RP ID derived although the dashboard is off"; fail=1; }
 run dash-push-and-dash yes DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 CHECK=stack.push.yaml
-run dash-push-and-dash-push yes DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+run dash-push-and-dash-push no DASH_ENABLED=true PUSH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 unset CHECK
 
 # ---- dashboard proxy token secret (DASH_ENABLED=true): checked before any deploy, names from shell or env file ----
 CHECK=stack.dashboard.yaml
-run dash-token-secret-missing abort STUB_SECRET=no DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
+run dash-token-secret-missing abort STUB_MISSING=showernow_dashboard_proxy_token DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 grep -q "secret 'showernow_dashboard_proxy_token' (dashboard proxy token) does not exist" "$WORK/dash-token-secret-missing.out" || { echo "FAIL message for the missing proxy token secret"; fail=1; }
 run dash-token-secret-present yes DASH_ENABLED=true DASH_ORIGIN=https://dash.example.internal
 grep -q 'secret inspect showernow_dashboard_proxy_token' "$WORK/dash-token-secret-present.log" || { echo "FAIL default token secret name not checked"; fail=1; }
-run dash-off-no-token-check no DASH_ENABLED=false STUB_SECRET=no
-! grep -q 'secret inspect' "$WORK/dash-off-no-token-check.log" || { echo "FAIL secret checked although the dashboard is off"; fail=1; }
+run dash-off-no-token-check no DASH_ENABLED=false STUB_MISSING=showernow_dashboard_proxy_token
+! grep -q 'secret inspect showernow_dashboard_proxy_token' "$WORK/dash-off-no-token-check.log" || { echo "FAIL secret checked although the dashboard is off"; fail=1; }
 printf 'DASH_ENABLED=true\nDASH_ORIGIN=https://dash.example.internal\nDASH_PROXY_TOKEN_SECRET=tok_new\nDASH_PROXY_TOKEN_PREVIOUS_SECRET=tok_old\n' > "$WORK/rot.env"
 run dash-token-rotation-names yes ENV_FILE="$WORK/rot.env"
 if ! { grep -q 'secret inspect tok_new' "$WORK/dash-token-rotation-names.log" && grep -q 'secret inspect tok_old' "$WORK/dash-token-rotation-names.log"; }; then
@@ -209,6 +226,14 @@ export STUB_LOG="$WORK/cc-old.log"; : > "$STUB_LOG"
 rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED -u PUSH_ENABLED PATH="$WORK/bin:$PATH" STUB_CHECK_OLD=yes ./update.sh --env-file "$WORK/o.env" --tag sha-new1234 --yes ) >"$WORK/cc-old.out" 2>&1 || rc=$?
 if grep -q 'has no check-config command' "$WORK/cc-old.out" && grep -q 'stack deploy' "$STUB_LOG" && ! grep -q 'needs APNS_KEY_FILE' "$WORK/cc-old.out"; then echo "ok   config-check-old-image-skipped"
 else echo "FAIL config-check-old-image-skipped (rc=$rc)"; cat "$WORK/cc-old.out"; fail=1; fi
+
+# update.sh: the APNs key secret must exist even with PUSH_ENABLED=false (stack.yaml always mounts it): abort before any change.
+printf 'DASH_ENABLED=false\nPUSH_ENABLED=false\nRADAR_IMAGE_TAG=sha-old0000\n' > "$WORK/s.env"; cp "$WORK/s.env" "$WORK/s.env.orig"
+export STUB_LOG="$WORK/upd-secret.log"; : > "$STUB_LOG"
+rc=0; ( cd "$WORK/repo/deploy/swarm" && env -u DASH_ENABLED -u PUSH_ENABLED -u APNS_KEY_SECRET PATH="$WORK/bin:$PATH" STUB_MISSING=showernow_apns_key DB_HOST=db ./update.sh --env-file "$WORK/s.env" --tag sha-new1234 --yes ) >"$WORK/upd-secret.out" 2>&1 || rc=$?
+if [ "$rc" != 0 ] && cmp -s "$WORK/s.env" "$WORK/s.env.orig" && ! grep -q 'stack deploy\|service update' "$STUB_LOG" \
+   && grep -q 'docker secret create showernow_apns_key' "$WORK/upd-secret.out"; then echo "ok   update-apns-secret-missing-without-push-aborts"
+else echo "FAIL update-apns-secret-missing-without-push-aborts (rc=$rc)"; cat "$WORK/upd-secret.out"; fail=1; fi
 
 # ---- migration job gets the effective environment of the new .env (stale service env made the real update fail) ----
 export STUB_LOG="$WORK/envsync.log"; : > "$STUB_LOG"; rm -f "$STUB_LOG.n"
