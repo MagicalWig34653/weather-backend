@@ -2,6 +2,11 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 13. November 2026: Swarm-Stack Platzierungs-ENVs, Backend
+
+- Neu (Merge 99da7c6): `PLACEMENT_CONSTRAINT_1..3`, `PLACEMENT_SPREAD`, Dienst `radar-pinned` (`PINNED_NODE` + `PINNED_REPLICAS`, Standard 0, kein Port; `swarm-deploy.sh` hält ihn bis nach der Migration auf 0), `EXCLUDE_LABEL` bei radar/migrate/dashboard. Vorlage: timetrack-backend 8665ddb. Tabellen, `.env.example`, Checker und Doku angepasst.
+- Geprüft: `docker compose config` mit/ohne Variablen, `check-config-tables.sh`, `test-swarm-deploy.sh`, Image lokal gebaut (Tag 99da7c6), `check-config` im Container. `test-settings.sh` zeigt 90 FAIL schon vor der Änderung (nicht untersucht). Nicht geprüft: echter Swarm (kein Deploy), Verhalten von REPLICA_SLOT-Staffelung mit zwei Diensten.
+
 ## Stand 9. November 2026: Englische Webseiten (ENTWURF, hinter `SITE_EN_ENABLED`), Backend
 
 **Umgesetzt (Code, nicht deployt, Schalter aus):** `/en/privacy`, `/en/support`, `/en/imprint`, `/en/marketing` (`SitePagesEN.swift`); deutsche URLs unverändert. Schalter `SITE_EN_ENABLED` (Standard `false`, live; Register, TSV, Stack-Dateien, `.env.example`, `setup.sh --reconfigure`): aus = 404 und kein Sprachlink auf den deutschen Seiten (Ausgabe unverändert), an = Seiten plus Sprachlinks. Datenschutz-Text: Teil A-EN des App-Repo-Entwurfs unverkürzt (Marken [R1] bis [R9] entfernt, offene Punkte als sichtbare `draft`-Klammern); Impressum, Support, Marketing sinngemäß zu den deutschen Seiten und `appstore-texte-en.md`; Betreiberangaben nur aus `OPERATOR_*`. Begründung der Pfadvariante: `docs-site/content/seiten.md`, Rollout: `betrieb.md` „Englische Seiten freischalten“.
