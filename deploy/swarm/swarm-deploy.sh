@@ -69,7 +69,8 @@ for f in ${STACK_EXTRA_FILES:-}; do compose_args+=(-c "$f"); done
 # Required: DB_HOST and the external secrets (see .env.example).
 replicas=${RADAR_REPLICAS:-2}
 if ! docker service inspect "${STACK}_radar" >/dev/null 2>&1; then
-  RADAR_REPLICAS=0 docker stack deploy --resolve-image never "${compose_args[@]}" "$STACK"
+  # radar-pinned (PINNED_REPLICAS) must not start before the migration either.
+  RADAR_REPLICAS=0 PINNED_REPLICAS=0 docker stack deploy --resolve-image never "${compose_args[@]}" "$STACK"
 fi
 old_tasks=$(docker service ps --no-trunc --format '{{.ID}}' "${STACK}_migrate")
 docker service scale "${STACK}_migrate=0" >/dev/null
