@@ -2,6 +2,12 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 15. November 2026: Cache-Quote "nahezu 0" nach Update 8e988e6, Untersuchung (kein Codefehler gefunden)
+
+- Befund (ausgeführt): `git diff 03cceda..8e988e6` ändert weder `Api.swift` (SlotCache, TTL, Negativ-Cache, Zählung `cache_hit`/`cache_miss`), `StatsCollector.swift`, `Insights*.swift`, `StatsQuery.swift` noch Cache-Control/ETag/Vary. Geändert in `Sources`: Config (Hinweistext, Site-Flag), Seiten (Site/Landing), Budget-Sperre (`MariaRepo+Push`), PushMeasure, DashboardDevices. Stack: Platzierung, `radar-pinned` (0 Replikate), `apns_key` an alle Dienste; keine Cache-ENV, kein Volume, kein Redis (Cache ist je Replikat im Prozess).
+- Neuer Schutztest `CacheQuoteTests` (grün auf main 8e988e6): 4 Schlüssel x 20 Abrufe = 4 Fehlgriffe, 76 Treffer.
+- Hypothese (nicht belegt, Live-Daten nötig): Neustart-Schleife oder häufige Replikat-Neustarts (Cache je Prozess leer), z. B. Start scheitert am Secret `apns_key`; oder nur kalte Caches nach dem Rollout. Prüfbefehle im Bericht an Lino.
+
 ## Stand 13. November 2026: Dashboard-Absturz bei Gerätedetails (Trap), Backend
 
 - Ursache: `PushMeasureJSON.fields` (`PushMeasure.swift`, seit e48b5d1 vom 7.11.) indizierte im inneren Closure die Slots mit der Nasszellen-Zahl (verschattetes `$0`). Sobald ein Umkreis-Abo im Vorlaufzeitraum mindestens 25 nasse Zellen hat (25 Slots), `Index out of range`: Prozess-Trap (Exit 132/133), Dashboard-Dienst startet neu, das UI zeigte „Unbekannter Fehler“ (Proxy 502). Betroffen: `GET /dash/api/devices/{id}/subscriptions` und die Neuauswertung.
