@@ -2,6 +2,15 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 15. November 2026 (Abend): EUMETSAT-Ebenen veraltet, Störung bei EUMETView (kein Codefehler)
+
+- Live (Lino, 22:17 MEZ): `clouds`, `cloudmask`, `cloudmask_vis`, `cloudmask_vis_eu` „Ebene veraltet“ (2,2 bis 2,5 h); DWD-Ebenen und Radar nicht betroffen. Das sind genau die Ebenen mit `provider: .eumetsat` (`Sources/RadarCore/Layers.swift` 142-166). Der Ingest der Zusatzebenen läuft im Dienst `radar` (`runLayerLoop`, `Sources/radar/Radar.swift` 428), Leader je Ebene über `radar_lock` (`layer:<id>`); `radar-pinned` (0 Replikate) ist nicht beteiligt.
+- Geprüft (ausgeführt, 15.11. 21:18-21:25 UTC, öffentliche EUMETView-URLs wie im Code): Capabilities `mtg_fd`/`msg_fes` HTTP 200, Zeitdimension aktuell (geocolour bis 20:50Z, vis06_hrfi bis 21:00Z, clm bis 20:45Z). GetMap EPSG:3857 auf Radar-BBox: Breite 1100, 800 und 512 jeweils HTTP 500 mit leerem Body nach 20-41 s (geocolour, clm, vis06_hrfi, auch für 12:00Z); nur Breite 256 lieferte PNG (16-23 s). Damit scheitert jeder Slot an der Quelle (Klasse `invalid`, Cooldown 150 s, `maxAttempts`).
+- Diff 03cceda..8e988e6 ändert `LayerIngestor.swift`, `Layers.swift`, `httpFetch` und Leader-Code nicht; `budget_lock` betrifft nur Push-Regionen. Kein roter Test möglich, kein Fix.
+- Logs: Die Zeilen lauten `layer <id>: stored N, failed N, class <klasse>` bzw. `layer <id> tick failed (<klasse>)`; ein grep auf „ingest|fetch|error“ findet sie nicht.
+- Erwartung: Nach Ende der Störung holt der Ingest die Lücke selbst nach (je Tick bis 8 Slots, Verlauf `*_HISTORY_HOURS`); Slots, die `maxAttempts` erreicht haben, bleiben Lücken. Kein Deploy nötig.
+- Nicht geprüft: Live-Logs/DB, EUMETView-Statusmeldung, ob die Störung Rendergröße oder Dienst insgesamt betrifft.
+
 ## Stand 15. November 2026: Cache-Quote "nahezu 0" nach Update 8e988e6, Untersuchung (kein Codefehler gefunden)
 
 - Befund (ausgeführt): `git diff 03cceda..8e988e6` ändert weder `Api.swift` (SlotCache, TTL, Negativ-Cache, Zählung `cache_hit`/`cache_miss`), `StatsCollector.swift`, `Insights*.swift`, `StatsQuery.swift` noch Cache-Control/ETag/Vary. Geändert in `Sources`: Config (Hinweistext, Site-Flag), Seiten (Site/Landing), Budget-Sperre (`MariaRepo+Push`), PushMeasure, DashboardDevices. Stack: Platzierung, `radar-pinned` (0 Replikate), `apns_key` an alle Dienste; keine Cache-ENV, kein Volume, kein Redis (Cache ist je Replikat im Prozess).
