@@ -167,6 +167,19 @@ extension MariaRepo: CacheAdminRepo {
         }
     }
 
+    public func runStatusCounts(layer: String, since: Date) async throws -> [String: Int] {
+        try await connection { conn in
+            let t = Self.tables(layer)
+            let filter = layer == "radar" ? "1=1" : "layer = ?"
+            var out: [String: Int] = [:]
+            for row in try await query(conn, "SELECT status, COUNT(*) AS n FROM \(t.run) WHERE created_at >= ? AND \(filter) GROUP BY status",
+                                       [ts(since)] + t.binds).rows {
+                if let status = row.column("status")?.string, let n = row.column("n")?.int { out[status] = n }
+            }
+            return out
+        }
+    }
+
     // MARK: replica cache fill
 
     public func reportCacheFill(replicaID: String, fill: ReplicaCacheFill, now: Date) async throws {

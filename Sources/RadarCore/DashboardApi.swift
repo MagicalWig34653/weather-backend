@@ -25,6 +25,7 @@ public final class DashboardApi: Sendable {
     let devices: DashboardDevices
     let pushActions: DashboardPushActions
     let cacheTools: DashboardCache
+    let diagnose: DashboardDiagnose
     let store: ConfigStore
     let env: [String: String]
     let site: StaticSite
@@ -43,6 +44,7 @@ public final class DashboardApi: Sendable {
         self.restartPolicy = restartPolicy; self.proxyGuard = proxyGuard; self.clock = clock; self.extra = extra
         pushActions = DashboardPushActions(repo: repo)
         cacheTools = DashboardCache(repo: repo, config: { store.snapshot() }, processCache: processCache)
+        diagnose = DashboardDiagnose(repo: repo, config: { store.snapshot() }, env: env, processCache: processCache)
         devices = DashboardDevices(repo: repo, config: { store.snapshot() }, clock: clock)
     }
 
@@ -119,6 +121,8 @@ public final class DashboardApi: Sendable {
         case ("GET", "/stats/daily"):
             let days = try Self.days(req.query)
             return Self.json(200, try await StatsQuery(repo: repo).trafficSeries(from: now.addingTimeInterval(-Double(days - 1) * 86400), to: now))
+        case ("GET", "/diagnose"):
+            return await diagnose.response(now: now)
         case ("GET", "/config"):
             await store.refresh()
             return Self.object(200, ["revision": store.revision, "entries": store.entries().map(Self.entryJSON)])

@@ -105,6 +105,11 @@ extension MemoryRepo {
         cacheAdmin.fills[replicaID] = (fill, now)
     }
 
+    public func runStatusCounts(layer: String, since: Date) async throws -> [String: Int] {
+        // The fake has no creation time: the nominal time stands in for it.
+        layerData(layer).filter { $0.run.nominal >= since }.reduce(into: [:]) { $0[$1.run.status, default: 0] += 1 }
+    }
+
     public func replicaCacheFills(now: Date) async throws -> [String: ReplicaCacheFill] {
         let cutoff = now.addingTimeInterval(-DashboardRetention.replicaStale)
         return cacheAdmin.fills.filter { $0.value.at > cutoff }.mapValues(\.fill)

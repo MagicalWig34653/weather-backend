@@ -95,6 +95,10 @@ public protocol CacheAdminRepo: Sendable {
     func reportCacheFill(replicaID: String, fill: ReplicaCacheFill, now: Date) async throws
     /// Fresh replicas' reports (replica id -> fill); replicas without a report are absent.
     func replicaCacheFills(now: Date) async throws -> [String: ReplicaCacheFill]
+
+    /// Runs of the layer (`radar` = radar tables) created at or after `since`, counted by status (`published`, `failed`, `claimed`;
+    /// absent statuses are missing). Read only (diagnosis export).
+    func runStatusCounts(layer: String, since: Date) async throws -> [String: Int]
 }
 
 extension CacheAdminRepo {
