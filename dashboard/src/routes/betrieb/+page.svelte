@@ -5,6 +5,8 @@
 	import RankBars from '#lib/charts/RankBars.svelte';
 	import XYChart from '#lib/charts/XYChart.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import DownloadIcon from '@lucide/svelte/icons/download';
+	import { downloadDiagnose } from '#lib/diagnose.js';
 	import ConfirmDialog from '#lib/design/ConfirmDialog.svelte';
 	import DataTable from '#lib/design/DataTable.svelte';
 	import EmptyState from '#lib/design/EmptyState.svelte';
@@ -93,13 +95,32 @@
 			busy = false;
 		}
 	}
+	let exporting = $state(false);
+	async function exportDiagnose(): Promise<void> {
+		exporting = true;
+		try {
+			const name = await downloadDiagnose();
+			toast.success(
+				'Diagnose exportiert',
+				`${name} (nur Betriebsdaten, keine personenbezogenen Daten).`
+			);
+		} catch (e) {
+			toast.error('Diagnose konnte nicht exportiert werden', describeError(e));
+		} finally {
+			exporting = false;
+		}
+	}
 	const dash = (v: number | null, f: (n: number) => string) => (v === null ? '–' : f(v));
 </script>
 
-<PageHeader
-	title="Betrieb"
-	description="Aufnahme-Läufe, Verzögerung, Fehler, Cache und Replikate."
-/>
+<PageHeader title="Betrieb" description="Aufnahme-Läufe, Verzögerung, Fehler, Cache und Replikate.">
+	{#snippet actions()}
+		<Button variant="outline" size="sm" disabled={exporting} onclick={exportDiagnose}>
+			<DownloadIcon class="size-4" aria-hidden="true" />
+			Diagnose exportieren
+		</Button>
+	{/snippet}
+</PageHeader>
 
 <Loadable {res}>
 	{#snippet skeleton()}

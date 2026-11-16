@@ -416,6 +416,19 @@ export function createMockFetch() {
 			const rows = audit.filter((a) => !action || a.action === action).slice(0, limit);
 			return json({ entries: rows });
 		}
+		if (path === '/diagnose' && method === 'GET')
+			return json({
+				generatedAt: new Date().toISOString(),
+				partial: [],
+				version: { commit: '8e988e6c1d2f' },
+				config: { layers: ['pressure'], imageWidth: 1024, cacheMaxMB: 64, radarReplicas: '2' },
+				replicas: [],
+				layers: [],
+				leaders: {},
+				cache: { thisReplica: null, replicas: [], note: 'Mock' },
+				statsDaily: [],
+				logs: { available: false, reason: 'Mock' }
+			});
 		if (path === '/restart' && method === 'GET') return json(restartState());
 		if (path === '/restart' && method === 'POST') {
 			if (Date.now() - restartedAt < 60_000 && restartedAt > 0)

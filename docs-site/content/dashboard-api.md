@@ -267,6 +267,28 @@ Finding = { code: string, level: "warning"|"critical", subject: string|null,
 
 Keine Geografie. Anteile `null`, wenn die Grundmenge kleiner als `minGroup` ist oder der Teil bzw. der Rest (Grundmenge minus Teil) zwischen 1 und `minGroup - 1` liegt (sonst würde der Anteil eine Kleinstzahl verraten).
 
+## Diagnose-Export
+
+### `GET /dash/api/diagnose`
+
+Nur lesend, Sitzung nötig (ohne Sitzung 401/403 wie alle Dashboard-Routen), `Cache-Control: no-store`, `Content-Disposition: attachment; filename="diagnose-<UTC>.json"`. Der Knopf „Diagnose exportieren“ (Seite Betrieb) lädt die Antwort als `diagnose-<UTC>.json`.
+
+```
+{ generatedAt, partial: [string],
+  version: { commit: string|null },
+  config: { layers: [string], imageWidth, cacheMaxMB, radarReplicas: string|null },
+  replicas: [ { id, startedAt } ],
+  layers: [ { id, enabled, lastPublishedAt|null, ageMinutes|null, lastAttempt|null,
+              runs6h: { published, failed, claimed }, errors24h: { error, missed },
+              lock: { owner, leaseUntil }|null } ],
+  leaders: { backfill|warn|push: { owner, leaseUntil } },
+  cache: { thisReplica: { bytes, entries, maxBytes }|null, replicas: [ { id, bytes, entries, maxBytes } ], note },
+  statsDaily: [ { day, metric, label, value } ],
+  logs: { available: false, reason } }
+```
+
+Nur Betriebsdaten: keine IPs, Geräte- oder Installations-IDs, Push-Tokens oder Secrets; `id`/`owner` sind die 8-stelligen Hashes der Replikat-ID (wie bei `restart`). `radar` hat keine Sperre (`lock: null`), er holt Läufe per Claim. `errors24h` stammt aus den Stundenzählern `ingest_run` (`<ebene>:error|missed`), `statsDaily` aus `stats_daily` (heute und gestern, Label `<group>:<class>`). Cache-Größe je Replikat wird alle 20 s gemeldet; Treffer/Fehlgriffe gibt es nur clusterweit (`cache_hit`, `cache_miss` in `statsDaily`). Der Dienst hält keinen Log-Puffer: `logs.available` ist `false`. Teilausfälle der Datenbank stehen in `partial` (Abschnitt fehlt oder ist leer), die Antwort bleibt 200.
+
 ## Aktionen (global)
 
 | Methode, Pfad | Body | Antwort | Limit | Audit |

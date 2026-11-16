@@ -424,3 +424,17 @@ test.describe('Geräte-Abos', () => {
 		await expect(page.getByText('Schwelle: Klasse 5 (ab 2 mm/h)').first()).toBeVisible();
 	});
 });
+
+test.describe('Diagnose-Export', () => {
+	test('Knopf lädt diagnose-<UTC>.json herunter', async ({ page }) => {
+		await page.goto('/dash/betrieb?mock=auth');
+		const button = page.getByRole('button', { name: 'Diagnose exportieren' });
+		await expect(button).toBeVisible();
+		await page.waitForLoadState('networkidle');
+		await page.waitForTimeout(800);
+		await page.screenshot({ path: 'test-results/diagnose-knopf.png' });
+		const [download] = await Promise.all([page.waitForEvent('download'), button.click()]);
+		expect(download.suggestedFilename()).toMatch(/^diagnose-\d{8}T\d{6}Z\.json$/);
+		expect(await axe(page)).toEqual([]);
+	});
+});
