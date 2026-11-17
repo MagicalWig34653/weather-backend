@@ -137,6 +137,9 @@ public struct Config: Sendable {
     public var operaBackupURL = Opera.defaultBackupURL
     public var radarEUHistoryHours = 3
     public var operaNoiseDBZ = Opera.defaultNoiseDBZ
+    /// NOAA rain rate (`radar_world`): bucket URL (only tests change it) and hours of history (24 h by decision of 17 Nov 2026).
+    public var noaaRainURL = NoaaRain.defaultBaseURL
+    public var radarWorldHistoryHours = 24
     /// Hours of ICON forecast per Europe pressure run (`PRESSURE_EU_FORECAST_HOURS`, 1-168); the image is 4.3x larger.
     public var pressureEUForecastHours = 24
     /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
@@ -202,6 +205,9 @@ public struct Config: Sendable {
         c.operaBackupURL = env["OPERA_BACKUP_URL"] ?? c.operaBackupURL
         c.radarEUHistoryHours = try int("RADAR_EU_HISTORY_HOURS", c.radarEUHistoryHours)
         c.operaNoiseDBZ = try double("OPERA_NOISE_DBZ", c.operaNoiseDBZ)
+        c.noaaRainURL = env["NOAA_RAIN_URL"] ?? c.noaaRainURL
+        c.radarWorldHistoryHours = try int("RADAR_WORLD_HISTORY_HOURS", c.radarWorldHistoryHours)
+        guard (1...24).contains(c.radarWorldHistoryHours) else { throw ConfigError(description: "RADAR_WORLD_HISTORY_HOURS must be between 1 and 24") }
         guard (1...6).contains(c.radarEUHistoryHours) else { throw ConfigError(description: "RADAR_EU_HISTORY_HOURS must be between 1 and 6") }
         guard (-10...20).contains(c.operaNoiseDBZ) else { throw ConfigError(description: "OPERA_NOISE_DBZ must be between -10 and 20") }
         c.pressureForecastHours = try int("PRESSURE_FORECAST_HOURS", c.pressureForecastHours)
