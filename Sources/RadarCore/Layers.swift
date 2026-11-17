@@ -1,7 +1,7 @@
 import Foundation
 
 public enum LayerKind: String, Sendable { case forecast, observation }
-public enum LayerProvider: String, Sendable { case dwd, eumetsat }
+public enum LayerProvider: String, Sendable { case dwd, eumetsat, opera }
 public enum LayerCompleteness: Sendable {
     case none
     /// Reject images with black cells (missing tiles); right for images that are never black (colour composites, masks).
@@ -94,6 +94,7 @@ public struct LayerSpec: Sendable {
         switch provider {
         case .dwd: return RadarConstants.attribution
         case .eumetsat: return "Contains modified EUMETSAT Meteosat data \(year)"
+        case .opera: return Opera.attribution
         }
     }
 
@@ -163,6 +164,13 @@ public enum LayerCatalog {
             transparent: false, lossless: true, webpQuality: 100, completeness: .blackCellsInDaylight, availabilityDelay: 0, legend: nil,
             modificationNotice: "Datenbasis: EUMETSAT Meteosat (EUMETView), Bild ausgeschnitten und reprojiziert (Graustufen, WebP, verlustfrei)",
             bbox: RadarConstants.europeBBox, fixedWidth: 2048, maxAttempts: 2),
+        // EUMETNET OPERA composite (CIRRUS, DBZH, 5 min, 1 km LAEA), reprojected and coloured by the server. Germany stays DWD (`radar`).
+        "radar_eu": LayerSpec(
+            id: "radar_eu", title: "Regenradar Europa (OPERA)", kind: .observation, provider: .opera,
+            wmsLayer: "", capsWorkspace: nil, capsLayer: nil, stepSeconds: Opera.stepSeconds,
+            transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: Opera.availabilityDelay, legend: nil,
+            modificationNotice: Opera.modificationNotice,
+            bbox: RadarConstants.europeBBox, fixedWidth: 2048, source: "opera", cadenceSeconds: 300),
         // Temperature, WMS variant (public ID `temperature`, see TempResolver). Default layer ICON-EU 7 km with the 5 K class style `tkb`.
         TempLayers.wms: LayerSpec(
             id: TempLayers.wms, title: "Temperatur (ICON)", kind: .forecast, provider: .dwd,
@@ -199,7 +207,7 @@ public enum LayerCatalog {
     public static var operatorTokens: [String] { publicOrder + ["temperature"] }
 
     /// Fixed order for logs and loops.
-    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", TempLayers.wms,
+    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", "radar_eu", TempLayers.wms,
                                       TempLayers.d2Temperature, TempLayers.d2Dewpoint, TempLayers.d2Humidity]
 
     /// Parses `LAYERS` (comma or space separated). `radar` is accepted but ignored: the radar always runs.
@@ -238,6 +246,7 @@ extension Config {
         case "cloudmask": return cloudmaskHistoryHours
         case "cloudmask_vis": return cloudmaskVisHistoryHours
         case "cloudmask_vis_eu": return cloudmaskVisEUHistoryHours
+        case "radar_eu": return radarEUHistoryHours
         default: return 0
         }
     }
@@ -253,6 +262,8 @@ public enum LayerSources {
 
     /// One whole-image GetMap (EPSG:3857, bbox and size of the layer; the radar grid unless the spec says otherwise), no location in any request.
     public static func mapURL(spec: LayerSpec, config: Config, run: Date, slot: Date) -> String {
+        // OPERA: a file URL, no map request (the main bucket; `LayerIngestor.fetchAndConvert` adds the backup bucket).
+        if spec.provider == .opera { return Opera.urls(slot: slot, primary: config.operaURL, backup: config.operaBackupURL).first ?? "" }
         let bbox = spec.bbox.map(DWD.formatG).joined(separator: ",")
         let width = String(spec.width(config)), height = String(spec.height(config))
         var query: [(String, String)]
@@ -262,6 +273,8 @@ public enum LayerSources {
                      ("SRS", "EPSG:3857"), ("BBOX", bbox), ("WIDTH", width), ("HEIGHT", height),
                      ("FORMAT", "image/png"), ("TRANSPARENT", spec.transparent ? "TRUE" : "FALSE"), ("TIME", TimeUtil.toWMS(slot))]
             if spec.kind == .forecast { query.append(("DIM_REFERENCE_TIME", TimeUtil.toWMS(run))) }
+        case .opera:
+            query = []
         case .eumetsat:
             query = [("SERVICE", "WMS"), ("VERSION", "1.3.0"), ("REQUEST", "GetMap"), ("LAYERS", spec.wmsLayer), ("STYLES", ""),
                      ("CRS", "EPSG:3857"), ("BBOX", bbox), ("WIDTH", width), ("HEIGHT", height),

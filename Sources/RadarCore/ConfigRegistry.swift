@@ -210,6 +210,10 @@ public enum ConfigRegistry {
         s("CLOUDMASK_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie Wolkenmaske.", .live),
         s("CLOUDMASK_VIS_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie sichtbarer Kanal.", .live),
         s("CLOUDMASK_VIS_EU_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie sichtbarer Kanal Europa.", .live),
+        s("RADAR_EU_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 6), "3", unit: "h", "Historie Regenradar Europa (OPERA).", .live),
+        s("OPERA_NOISE_DBZ", "Ebenen", .number(min: -10, max: 20), "0.126", unit: "dBZ", "Rauschschwelle Regenradar Europa; darunter transparent.", .live),
+        s("OPERA_URL", "Quellen", any, Opera.defaultBaseURL, "OPERA-Haupt-Bucket (nur für Tests ändern).", .envOnly),
+        s("OPERA_BACKUP_URL", "Quellen", any, Opera.defaultBackupURL, "OPERA-Ausweich-Bucket, wenn der Haupt-Bucket die Datei nicht hat.", .envOnly),
         s("LAYER_PAUSE_SECONDS", "Ebenen", .number(min: 1, max: 60), "2", unit: "s",
           "Pause zwischen zwei Abrufen einer Zusatzebene (Dashboard strenger als der Code, schont den DWD).", .live),
         s("TEMP_SOURCE", "Temperatur", .choice(["off", "wms", "icon_d2"]), "off",
@@ -522,6 +526,8 @@ extension Config {
             case "CLOUDMASK_HISTORY_HOURS": c.cloudmaskHistoryHours = try int(key, raw)
             case "CLOUDMASK_VIS_HISTORY_HOURS": c.cloudmaskVisHistoryHours = try int(key, raw)
             case "CLOUDMASK_VIS_EU_HISTORY_HOURS": c.cloudmaskVisEUHistoryHours = try int(key, raw)
+            case "RADAR_EU_HISTORY_HOURS": c.radarEUHistoryHours = try int(key, raw)
+            case "OPERA_NOISE_DBZ": c.operaNoiseDBZ = try double(key, raw)
             case "LAYER_PAUSE_SECONDS": c.layerPauseSeconds = try double(key, raw)
             case _ where TempConfig.keys.contains(key): try c.temp.apply(key: key, raw: raw)
             case "OPERATOR_NAME": c.site.operatorName = raw

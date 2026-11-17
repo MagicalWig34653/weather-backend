@@ -132,6 +132,11 @@ public struct Config: Sendable {
     public var cloudmaskHistoryHours = 3
     public var cloudmaskVisHistoryHours = 3
     public var cloudmaskVisEUHistoryHours = 3
+    /// OPERA composite (`radar_eu`): main bucket, backup bucket (tried when the main one has no file), hours of history, noise threshold in dBZ.
+    public var operaURL = Opera.defaultBaseURL
+    public var operaBackupURL = Opera.defaultBackupURL
+    public var radarEUHistoryHours = 3
+    public var operaNoiseDBZ = Opera.defaultNoiseDBZ
     /// Hours of ICON forecast per Europe pressure run (`PRESSURE_EU_FORECAST_HOURS`, 1-168); the image is 4.3x larger.
     public var pressureEUForecastHours = 24
     /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
@@ -193,6 +198,12 @@ public struct Config: Sendable {
         c.requestTimeoutSeconds = try double("REQUEST_TIMEOUT_SECONDS", c.requestTimeoutSeconds)
         c.userAgent = env["USER_AGENT"] ?? c.userAgent
         c.eumetsatWMSURL = env["EUMETSAT_WMS_URL"] ?? c.eumetsatWMSURL
+        c.operaURL = env["OPERA_URL"] ?? c.operaURL
+        c.operaBackupURL = env["OPERA_BACKUP_URL"] ?? c.operaBackupURL
+        c.radarEUHistoryHours = try int("RADAR_EU_HISTORY_HOURS", c.radarEUHistoryHours)
+        c.operaNoiseDBZ = try double("OPERA_NOISE_DBZ", c.operaNoiseDBZ)
+        guard (1...6).contains(c.radarEUHistoryHours) else { throw ConfigError(description: "RADAR_EU_HISTORY_HOURS must be between 1 and 6") }
+        guard (-10...20).contains(c.operaNoiseDBZ) else { throw ConfigError(description: "OPERA_NOISE_DBZ must be between -10 and 20") }
         c.pressureForecastHours = try int("PRESSURE_FORECAST_HOURS", c.pressureForecastHours)
         c.pressureRetentionRuns = try int("PRESSURE_RETENTION_RUNS", c.pressureRetentionRuns)
         c.lightningHistoryHours = try int("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours)
