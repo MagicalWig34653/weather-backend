@@ -97,3 +97,37 @@ Empfehlung: **A, mit Schritt 0 vor jeder Programmierung**: (1) Live-Testabruf vo
 - Aktuelle Länderlücken im OPERA-Komposit (2026) nicht ermittelt.
 - Ob der Deutschland-Verlauf (48 h) auf Europa übertragen werden soll, ist Produktentscheidung.
 - Keine Prüfung der HDF5-Bibliothek unter Swift/Linux, keine Messung der Ingest-Zeit.
+
+## 7. Schritt 0: Probeabruf (17. November 2026, ca. 17:30 MEZ)
+
+Freigabe: Variante A (nur OPERA, Ebene `radar_eu`). Geprüft mit je einem GET auf eine CIRRUS-Datei (`DBZH`), mehreren anonymen Listings und einem lokalen Python-Lauf mit h5py/pyproj. Probedatei nicht im Repo. Nicht geprüft ist alles unter „Offen“.
+
+**Geprüft**
+
+- **Bucket-Zugang:** Das Beispiel `aws s3 ... --no-sign-request` aus der Doku braucht den Endpunkt `https://s3.waw3-1.cloudferro.com/` (nicht AWS; `openradar-24h.s3.amazonaws.com` liefert NoSuchBucket). Anonymes Listing und Download per HTTPS funktionieren ohne Tool. Der Haupt-Bucket `openradar-24h` (CloudFerro) enthielt beim Abruf nur Einzelradar-Dateien aus 2026/10 (9. und 27.), **keine** Komposite und nichts vom 17.11. Aktuelle Komposite lagen im Backup-Bucket `https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup/` (ECMWF, Ceph). Der Haupt-Bucket ist also als Quelle unzuverlässig, bis EUMETNET das klärt; Backup-Bucket oder MeteoGate-API einplanen.
+- **Pfad/Name:** `YYYY/MM/DD/OPERA/COMP/OPERA@YYYYMMDDTHHMM@0@DBZH.h5` (Nominalzeit UTC, 5-min-Raster), je Zeitpunkt zusätzlich `.tiff` (GeoTIFF/CoG-Variante). `RATE` (NIMBUS) und `ACRR` nur im 15-min-Raster, ACRR-Zeit = Intervallende. Listing mit `list-type=2&prefix=...` ohne Anmeldung möglich.
+- **Dateigröße (DBZH):** HDF5 ca. 4,04 MB (4 Dateien: 4,03 bis 4,07 MB), TIFF ca. 5,1 MB. Zum Vergleich RATE-h5 ca. 1,9 MB, ACRR-h5 ca. 2,5 MB. Die Dritt-Angabe 0,4 bis 2 MB war für CIRRUS zu niedrig. Download der 4 MB-Datei vom Heimnetz: 3,1 s. Bei 12 Abrufen/h also ca. 48 MB/h, ca. 1,2 GB/Tag Eingang.
+- **Latenz:** Bucket-Zeitstempel (LastModified) minus Nominalzeit: DBZH ca. 4,4 bis 4,5 min konstant (z. B. 16:00 -> 16:04:28, 16:25 -> 16:29:23). RATE/ACRR ca. 10 min. Dafür gilt: erster Versuch ca. 5 min nach Nominalzeit, bei 404 nach 30 bis 60 s erneut.
+- **Ablauf der Daten:** Lebenszyklusregel `10-days-lifecycle` im Backup-Bucket (Ablaufdatum der Probedatei 28.11.), die Doku nennt „24 h“; Langzeitarchiv weiterhin TBD. Nur der aktuelle Stand zählt für uns.
+- **HDF5-Struktur (ODIM H5 2.4, `object=COMP`, `product=MAX`):** `dataset1/data1/data` mit Form (4400 Zeilen, 3800 Spalten), **float64** (nicht uint8), gzip, Chunks 760 x 880. `dataset1/data1/what`: `quantity=DBZH`, `gain=1.0`, `offset=0.0` (Werte stehen schon in dBZ), `nodata=-9999000.0`, `undetect=-8888000.0`. Zusätzlich `quality1` (gleiche Form, Qualitätsindex). Zeit in `dataset1/what` (`startdate/starttime`, `enddate/endtime`) und `what` (`date/time`). `how/license` = CC BY 4.0; `how/nodes` listet die beitragenden Radare; `how/comment` weist auf Lucas-Kanade-Advektion bei Météo-France hin (spanische Daten extrapoliert).
+- **Projektion:** `where/projdef = +proj=laea +lat_0=55.0 +lon_0=10.0 +x_0=1950000.0 +y_0=-2100000.0 +units=m +ellps=WGS84`, `xscale=yscale=1000 m`, Ursprung = Pixel oben links (Zeile 0 = Norden). Pixelposition: `col = x/1000`, `row = -y/1000` (x,y aus der LAEA-Projektion mit obigem projdef). Geprüft: Ecken stimmen mit `UL/LL/LR/UR_lat/lon` überein (UL -39,54 E / 67,02 N, LL -10,43 E / 31,75 N).
+- **Anteile im Probebild (16:25 UTC, Mitte November):** 48,4 % nodata (außerhalb der Radarabdeckung), 34,2 % undetect, 17,4 % Messwert; dBZ von -32 bis 73,5; 206 verschiedene Werte. Rauschen: -32 dBZ im Datensatz, Schwelle (0,12619 dBZ) nötig; 970 000 Pixel >= 20 dBZ.
+- **Umprojektion getestet (Python, pyproj + numpy, nur Lookup):** Nearest-Neighbor auf das bestehende Europa-Mercator-Raster (2048 x 2168, bbox -25 bis 45 E / 30 bis 72 N): Koordinatentransformation 0,27 s, Lookup 0,10 s. 82 % des Rasters liegen im OPERA-Gitter, 13 % davon mit Messwert. Das reicht als Machbarkeitsbeleg; Bildqualität (Aliasing bei 1 km -> 2,4 km) noch nicht beurteilt.
+- **Lizenz:** `how/license` in der Datei nennt CC BY 4.0, `publisher_name` EUMETNET, `creator_name` Meteo France. Passt zur ORD-Doku; Namensvorgabe für die Quellenangabe weiterhin nicht gefunden (Vorschlag: „Quelle: EUMETNET OPERA (CC BY 4.0), Daten umprojiziert und eingefärbt“).
+- **Rate-Limit:** Für S3 (beide Buckets) kein Limit dokumentiert und bei 8 Anfragen nicht aufgefallen (kein Ratelimit-Header, kein 429). MeteoGate nur nach Doku: anonyme Abfragen mit niedrigem Limit, Header `x-ratelimit-remaining`; nicht abgerufen.
+
+**Empfehlung Umprojektion LAEA nach Web-Mercator**
+
+- **Eigener Code (empfohlen) statt gdalwarp.** Gründe: Der Dienst ist reines Swift im Container ohne GDAL; GDAL (ca. 100+ MB mit PROJ, HDF5, Python/CLI) wäre eine neue schwere Abhängigkeit, und die Aufgabe ist klein und fest: Ziel-Raster ist konstant (Europa-bbox), die Quellprojektion ist fest. Vorgehen: Einmalig je Ziel-Pixel (2048 x 2168 = 4,4 Mio.) die Quellzeile/-spalte berechnen (LAEA-Formeln, kugel/Ellipsoid, ca. 30 Zeilen) und als Index-Tabelle (Int32, ca. 18 MB) cachen. Pro Slot dann nur `out[i] = src[idx[i]]` mit Schwelle und Palette: Millisekunden. Für 1 km -> 2,4 km besser Max- oder Bilinear-Filter statt Nearest (Gitter 1 km, Ziel 2,4 km: Nearest verliert Zellen).
+- **HDF5 lesen** bleibt das eigentliche Risiko (kein HDF5-Leser im Dienst): Bibliothek libhdf5 im Image oder minimaler eigener Leser für genau dieses Layout (gzip/Chunked, float64). Die TIFF-Variante (`.tiff` neben jeder `.h5`) ist eine Alternative: 5,1 MB, aber GeoTIFF/COG-Leser nötig und auch größer; vor einer Entscheidung klären, ob TIFF bereits Mercator ist (nicht geprüft).
+- **gdalwarp** wäre nur für einen Offline-Test oder eine Referenzprüfung sinnvoll (Ergebnisvergleich der eigenen Index-Tabelle), nicht im Betrieb.
+
+**Offen (nicht geprüft)**
+
+- NIMBUS (`RATE`, 2 km, mm/h) nicht heruntergeladen/geöffnet; nur Größe und Zeitstempel aus dem Listing. Struktur/Nodata-Werte von RATE offen.
+- Inhalt der `.tiff`-Dateien (Projektion, Kompression) nicht geöffnet.
+- MeteoGate-API (anonym und mit Key): nicht aufgerufen; echtes Rate-Limit offen. MQTT nicht geprüft.
+- Warum der CloudFerro-Haupt-Bucket keine aktuellen Komposite enthält (Wartung, Umzug, Filter?), offen; EUMETNET fragen (support.opera@eumetnet.eu).
+- Langzeitverhalten der Latenz (Ausreißer, Ausfälle, Lücken einzelner Länder), nur ca. 10 Zeitpunkte gesehen.
+- Bildqualität nach Umprojektion und Farbklassen für dBZ; Rauschfilterung.
+- Kein Build, Test oder Docker ausgeführt.
