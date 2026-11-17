@@ -131,3 +131,37 @@ Freigabe: Variante A (nur OPERA, Ebene `radar_eu`). Geprüft mit je einem GET au
 - Langzeitverhalten der Latenz (Ausreißer, Ausfälle, Lücken einzelner Länder), nur ca. 10 Zeitpunkte gesehen.
 - Bildqualität nach Umprojektion und Farbklassen für dBZ; Rauschfilterung.
 - Kein Build, Test oder Docker ausgeführt.
+
+## 8. Schritt 0, Nachtrag: offizielle Doku (Speicher, Rate, Attribution, LibreWXR)
+
+Stand 17. November 2026. Quellen: ORD-Doku (`eumetnet.github.io/openradardata-documentation/`, Seiten „API overview“ und „Discovering and accessing data“), MeteoGate-Doku (`eumetnet.github.io/meteogate-documentation/2-discovering-and-accessing-data`, Abschnitt „Attribution and Reuse“), LibreWXR-Repo (`src/librewxr/sources/regional/europe/radar/opera/README.md`, `source.py`, nur gelesen, nichts übernommen). Keine Mail an EUMETNET gesendet.
+
+**1. Welcher Speicher ist offiziell?**
+- [F] Die ORD-Doku zeigt auf beiden Seiten einen Hinweis „ORD Backup“: Wegen eines Problems beim Cloud-Anbieter sind die Dienste vorübergehend auf die Backup-Domain `radar-backup.meteogate.eu` umgezogen (API `https://radar-backup.meteogate.eu/api`, MQTT über diese Domain, S3 `https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup`). Das erklärt den leeren CloudFerro-Haupt-Bucket bei unserem Abruf.
+- [F] Regulär gelten: MeteoGate-API `https://api.meteogate.eu/eu-eumetnet-weather-radar` und S3 `openradar-24h` bei CloudFerro (`s3.waw3-1.cloudferro.com`); beide Buckets nutzen dasselbe Pfadschema.
+- [F] Die Doku nennt kein Ende der Störung und keinen Zeitpunkt der Rückkehr. [?] Wann der Haupt-Bucket wieder befüllt wird, ist offen.
+- [A] Betriebsstrategie: beide Buckets in fester Reihenfolge versuchen (zuerst der zuletzt erfolgreiche), bei 404/403/5xx den anderen nehmen; Endpunkte konfigurierbar halten.
+
+**2. Erlaubte Abrufrate**
+- [F] MeteoGate-API: anonym nur „low query limits“, für Dauerbetrieb nicht empfohlen; mit kostenlosem API-Key höheres Limit (Developer Portal); Header `x-ratelimit-remaining`. Das Gateway begrenzt Anfragen und Raten, ohne Zahlen in der Doku.
+- [F] Terms of Use/Data Governance Policy: „fair use“, „avoid excessive or abusive automated queries“; für große Bulk-Downloads den Datenlieferanten kontaktieren. Nur 24-h-Cache; Archiv „TBD“.
+- [F] Für die S3-Buckets nennt die Doku keine Zahl. [?] Konkrete Limits (S3 und API mit/ohne Key) sind unveröffentlicht.
+- [A] Ein Abruf je 5-min-Slot (1 Datei, ca. 4 MB, eine Anfrage, bei 404 höchstens wenige Wiederholungen) ist moderat; vor Produktivbetrieb API-Key anlegen (Developer Portal, nicht ausgeführt) oder per MQTT-Meldung statt Polling.
+
+**3. Attribution**
+- [F] Lizenz CC BY 4.0, Rechteinhaber der Komposite ist EUMETNET; Datei-Metadaten: `license` CC BY 4.0, `publisher_name` EUMETNET, `creator_name` Meteo France (CIRRUS). Doku: „Cite the data source where required by the license“ und Änderungen (Verarbeitung, Umformatierung) kenntlich machen.
+- [F] Einen festen Wortlaut gibt die offizielle Doku nicht vor. [?] Konkreter Pflichttext offen.
+- [A] Vorschlag (CC-BY-konform): „Radardaten Europa: EUMETNET OPERA (CIRRUS), CC BY 4.0, Quelle: MeteoGate; umprojiziert und eingefärbt.“ Link auf Lizenz und Quelle in den Einstellungen/Rechtlichem; DWD-Vermerk für Deutschland bleibt.
+
+**4. Was LibreWXR macht (nur gelesen)**
+- [F] Quelle: ausschließlich die öffentlichen S3-Buckets (CIRRUS DBZH, ODIM HDF5), anonym, ohne Schlüssel, ohne MeteoGate-API. Reihenfolge: CloudFerro `openradar-24h` primär, ECMWF `openradar-24h-backup` als Ersatz; beide konfigurierbar. Gleiches Pfadschema wie bei uns gemessen.
+- [F] Takt: 5 min. Dateien erscheinen laut README mit ca. 5 bis 10 min Verzug (unsere Messung: ca. 4,5 min). Pro Zyklus bis zu 3 ältere Slots als Rückfall bei 404/403; ein gesunder Zyklus kostet keine Zusatzanfragen; es bleibt beim zuletzt erfolgreichen Bucket. Schon im Speicher vorhandene Frames werden nicht erneut geladen. Wechsel des Buckets wird nur beim Wechsel geloggt.
+- [F] Auswertung: `gain=1, offset=0` (dBZ), nodata und undetect als „kein Wert“; Abdeckungsmaske ca. 300 km um die Radare; OPERA nur als Lückenfüller für Pixel mit echtem Niederschlag. Das deckt sich mit unserer Messung.
+- [F] Der Betreiber hat dieselbe Backup-Logik wegen der Umleitung eingebaut; er verweist ebenfalls auf die „ORD Backup“-Notiz. Eine Attributionsformel steht in deren README (Verweis auf EUMETNET OPERA und MeteoGate), kein Pflichttext von EUMETNET.
+- [A] Was wir lernen: (a) zwei Buckets mit Fallback, (b) Rückfall auf bis zu drei ältere Slots, (c) nur anonymer S3-Zugriff reicht in der Praxis. Nichts davon wurde kopiert; der Code wird nicht übernommen (AGPL).
+
+**Danach noch unklar**
+- Rückkehr des CloudFerro-Haupt-Buckets (Zeitpunkt, ob Backup dauerhaft bleibt).
+- Konkrete Rate-Limits (S3 und MeteoGate, anonym/mit Key); MeteoGate-Terms-of-Use-Volltext nicht gelesen.
+- Offizieller Pflichttext der Attribution.
+- NIMBUS/RATE und `.tiff` weiterhin nicht geöffnet.
