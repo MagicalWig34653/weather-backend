@@ -8,6 +8,8 @@ public enum Opera {
     /// A composite appears about 4.5 minutes after its nominal time (measured, bucket time stamps).
     public static let availabilityDelay: TimeInterval = 300
     public static let stepSeconds: TimeInterval = 300
+    /// libwebp effort: method 6 (default) took 3.9 s per slot in the release build, method 4 is far cheaper (as for ICON-D2).
+    static let webpMethod: Int32 = 4
     /// Real file: 4.07 MB. Anything far larger is not the product.
     public static let maxFileBytes = 12_000_000
     /// Rain echoes below this dBZ are noise or no echo (the data set contains values down to -32 dBZ; threshold measured on 17 Nov 2026,

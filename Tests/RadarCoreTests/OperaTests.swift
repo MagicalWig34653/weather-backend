@@ -59,6 +59,13 @@ struct OdimReaderTests {
         guard let path = ProcessInfo.processInfo.environment["OPERA_SAMPLE_H5"], let data = FileManager.default.contents(atPath: path) else { return }
         let c = try OdimHDF5.read([UInt8](data))
         #expect(c.width == 3800 && c.height == 4400 && c.quantity == "DBZH")
+        // timings (printed, for docs/status.md): read, table build + resample + colour, WebP
+        func now() -> Double { Date().timeIntervalSinceReferenceDate }
+        var t = now(); _ = try OdimHDF5.read([UInt8](data)); let read = now() - t
+        t = now(); let img = try OperaRender.image(file: [UInt8](data), bbox: RadarConstants.europeBBox, width: 2048, noiseDBZ: 0.126); let first = now() - t
+        t = now(); _ = try OperaRender.image(file: [UInt8](data), bbox: RadarConstants.europeBBox, width: 2048, noiseDBZ: 0.126); let cached = now() - t
+        t = now(); let webp = try ImagePipeline.toWebP(img, method: Opera.webpMethod); let enc = now() - t
+        print("OPERA_TIMING read=\(read) imageFirst=\(first) imageCached=\(cached) webp=\(enc) webpBytes=\(webp.count)")
     }
 }
 

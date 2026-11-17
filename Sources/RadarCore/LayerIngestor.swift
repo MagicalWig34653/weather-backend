@@ -106,7 +106,7 @@ public final class LayerIngestor: Sendable {
         func load(_ source: String) async throws -> [UInt8] {
             let file = try await fetch(source)
             let image = try OperaRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), noiseDBZ: cfg.operaNoiseDBZ)
-            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality)
+            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: Opera.webpMethod)
         }
         try Task.checkCancellation()
         let active = operaState.withLock { min($0.active, sources.count - 1) }
