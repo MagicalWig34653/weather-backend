@@ -25,7 +25,7 @@ EUMETSAT_WMS_URL	Quellen	text:free	https://view.eumetsat.int/geoserver/wms			500
 APNS_KEY	Push	secret						envOnly	1	APNs-Schlüssel (.p8, Swarm-Secret), nur per Umgebung.
 CACHE_MAX_MB	Cache	int	64	MB	8	1024		restart	0	Größe des Bild-Caches im Speicher.
 IMAGE_WIDTH	Radar	int	1024	px	256	2048		restart	0	Breite des Radarbilds; mit Push fest 1024. Änderung entwertet das Bildraster.
-LAYERS	Ebenen	layers					pressure|pressure_eu|lightning|clouds|cloudmask|cloudmask_vis|cloudmask_vis_eu|radar_eu|temperature	restart	0	Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.
+LAYERS	Ebenen	layers					pressure|pressure_eu|lightning|clouds|cloudmask|cloudmask_vis|cloudmask_vis_eu|radar_eu|radar_world|temperature	restart	0	Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.
 RETENTION_RUNS	Radar	int	16		15	96		live	0	Aufbewahrte Radar-Läufe.
 HISTORY_HOURS	Radar	int	48	h	1	72		live	0	Stunden Radar-Historie (history.json).
 FETCH_WORKERS	Radar	int	3		1	6		restart	0	Parallele Abrufe beim DWD.
@@ -45,6 +45,8 @@ RADAR_EU_HISTORY_HOURS	Ebenen	int	3	h	1	6		live	0	Historie Regenradar Europa (OP
 OPERA_NOISE_DBZ	Ebenen	number	0.126	dBZ	-10	20		live	0	Rauschschwelle Regenradar Europa; darunter transparent.
 OPERA_URL	Quellen	text:free	https://s3.waw3-1.cloudferro.com/openradar-24h			500		envOnly	0	OPERA-Haupt-Bucket (nur für Tests ändern).
 OPERA_BACKUP_URL	Quellen	text:free	https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup			500		envOnly	0	OPERA-Ausweich-Bucket, wenn der Haupt-Bucket die Datei nicht hat.
+RADAR_WORLD_HISTORY_HOURS	Ebenen	int	24	h	1	24		live	0	Historie Regen Welt (NOAA RRQPE, Satellit).
+NOAA_RAIN_URL	Quellen	text:free	https://noaa-enterprise-rainrate-pds.s3.amazonaws.com			500		envOnly	0	NOAA-Bucket für Regen Welt (nur für Tests ändern).
 LAYER_PAUSE_SECONDS	Ebenen	number	2	s	1	60		live	0	Pause zwischen zwei Abrufen einer Zusatzebene (Dashboard strenger als der Code, schont den DWD).
 TEMP_SOURCE	Temperatur	choice	off				off|wms|icon_d2	live	0	Quelle der Ebenen Temperatur/Feuchte: off (404, kein Abruf), wms (nur Temperatur), icon_d2 (Temperatur, Taupunkt, optional rel. Feuchte). Braucht LAYERS mit temperature.
 TEMP_D2_PARAMS	Temperatur	text:printableASCII	td_2m			40		live	0	ICON-D2-Variablen mit Last: td_2m (Taupunkt, Standard), relhum_2m (rel. Feuchte, zuschaltbar); t_2m ist bei icon_d2 immer dabei.
