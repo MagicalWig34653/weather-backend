@@ -91,13 +91,48 @@ public final class LayerIngestor: Sendable {
         return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality)
     }
 
+    /// OPERA bucket state: index into the URL list (0 = main, 1 = backup) that is tried first, and how many slots in a row were missing there.
+    let operaState = PushGuarded<(active: Int, misses: Int)>((0, 0))
+    static let operaMissesBeforeSwitch = 3
+
+    /// One download and conversion. OPERA: one request per slot at the bucket that worked last (sticky). A missing file, an error or a
+    /// file that is not the product counts as a miss; after 3 missed slots in a row (the loop goes back to older slots meanwhile) the
+    /// other bucket is tried, also for the slot at hand. The other layers have one URL.
+    func fetchAndConvert(url: String, slot: Date) async throws -> [UInt8] {
+        guard spec.provider == .opera else { return try convert(try await fetch(url), slot: slot) }
+        let cfg = config
+        let sources = Opera.urls(slot: slot, primary: cfg.operaURL, backup: cfg.operaBackupURL)
+        guard !sources.isEmpty else { throw RunUnavailable(description: "\(layer): no source configured") }
+        func load(_ source: String) async throws -> [UInt8] {
+            let file = try await fetch(source)
+            let image = try OperaRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), noiseDBZ: cfg.operaNoiseDBZ)
+            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: Opera.webpMethod)
+        }
+        try Task.checkCancellation()
+        let active = operaState.withLock { min($0.active, sources.count - 1) }
+        do {
+            let data = try await load(sources[active])
+            operaState.withLock { $0.misses = 0 }
+            return data
+        } catch is CancellationError { throw CancellationError() } catch is LeaseLost { throw LeaseLost() } catch {
+            let misses = operaState.withLock { state -> Int in state.misses += 1; return state.misses }
+            guard misses >= Self.operaMissesBeforeSwitch, sources.count > 1 else { throw error }
+            let other = (active + 1) % sources.count
+            operaState.withLock { $0.active = other; $0.misses = 0 }
+            do { return try await load(sources[other]) } catch is CancellationError { throw CancellationError() } catch {
+                operaState.withLock { $0.misses = 1 }
+                throw error
+            }
+        }
+    }
+
     private func fetchWebP(url: String, slot: Date, attempts: Int, backoffs: [Double], before: () async throws -> Void) async throws -> [UInt8] {
         var last: Error?
         for attempt in 0..<attempts {
             try Task.checkCancellation()
             try await before()
             do {
-                return try convert(try await fetch(url), slot: slot)
+                return try await fetchAndConvert(url: url, slot: slot)
             } catch is CancellationError {
                 throw CancellationError()
             } catch is LeaseLost {

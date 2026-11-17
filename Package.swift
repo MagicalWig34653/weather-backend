@@ -32,10 +32,15 @@ let package = Package(
             name: "CBz2",
             providers: [.apt(["libbz2-dev"])]
         ),
+        // zlib from the system (inflate of the HDF5 chunks of the OPERA composite): zlib1g-dev at build time, zlib1g at run time.
+        .systemLibrary(
+            name: "CInflate",
+            providers: [.apt(["zlib1g-dev"])]
+        ),
         .target(
             name: "RadarCore",
             dependencies: [
-                "CWebP", "CBz2",
+                "CWebP", "CBz2", "CInflate",
                 .product(name: "PNG", package: "swift-png"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "MySQLKit", package: "mysql-kit"),
