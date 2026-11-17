@@ -165,3 +165,29 @@ Stand 17. November 2026. Quellen: ORD-Doku (`eumetnet.github.io/openradardata-do
 - Konkrete Rate-Limits (S3 und MeteoGate, anonym/mit Key); MeteoGate-Terms-of-Use-Volltext nicht gelesen.
 - Offizieller Pflichttext der Attribution.
 - NIMBUS/RATE und `.tiff` weiterhin nicht geöffnet.
+
+## 9. MeteoGate-Nutzungsbedingungen und Data Governance Policy (17. November 2026)
+
+Quellen (nur gelesen, keine Mail): MeteoGate-Doku `https://eumetnet.github.io/meteogate-documentation/2-discovering-and-accessing-data/` und `.../references/`; Data Governance Policy (Word-Datei) `https://github.com/EUMETNET/meteogate-documentation/raw/main/files/Data_governance_policy.docx`; EUMETNET-Website-Bedingungen `https://www.eumetnet.eu/legal-information-2/`. Ein eigenständiges „Terms of Use“-Dokument ist nirgends verlinkt: `meteogate.eu/terms-of-use/` liefert 404, die Referenzseite listet nur Privacy Policy, Data Governance Policy und Participation Management Policy. Die Doku verweist für „Terms of Use“ und „Fair Use“ auf die Referenzseite, faktisch ist die Data Governance Policy der maßgebliche Text.
+
+**[F] Belegt**
+- Anonymer Zugriff: Policy, Zugangsstufe „Unauthenticated access – Open access to a minimum of WMO Core Data ..., and EU High Value Datasets (HVD) for anonymous users.“ Doku: MeteoGate „is open to anonymous users and does not require registering“.
+- Lizenz: Policy: HVD „shall be made available under the conditions of Creative Commons BY4.0 (CC-BY-4.0) license, or any equivalent which is not more restrictive.“ Nutzer müssen Daten „within the terms of the licenses as specified in the metadata“ nutzen (Doku). Die Metadaten der CIRRUS-Dateien nennen CC BY 4.0 (siehe Abschnitt 8). CC BY 4.0 erlaubt Weitergabe, Bearbeitung und kommerzielle Nutzung.
+- Attribution: Policy: „Data Owners are responsible for specifying the need for attribution through their licenses.“ Doku: „Cite the data source where required by the license.“ und Änderungen kenntlich machen. Einen festen Wortlaut gibt es nicht.
+- Fair Use: Policy: „Users are expected to use MeteoGate reasonably.“ und „accidental or deliberate heavy traffic from an IP address may result in disconnection.“ Doku: „Avoid excessive or abusive automated queries.“ Keine Zahlen, weder in Policy noch Doku.
+- Registrierte Nutzer: höhere Servicequalität (Policy), können vom FEMDI-Koordinator kontaktiert werden. Bei kurzen Lastspitzen dürfen Nutzer/Datensätze priorisiert werden (anonym ist die niedrigste Stufe).
+- Sanktion: Bei unsachgemäßer Nutzung von urheberrechtlich geschützten Daten „a warning, suspension, or ban from MeteoGate“ plus Maßnahmen des Dateneigners.
+- Weitergabe/Caching: Das Verbot gilt nur für eingeschränkte Daten: „Do not redistribute restricted data without permission from the Data Owner.“ (Doku). Open Data (CC BY) ist davon nicht betroffen. Ein Cache-Verbot für offene Daten steht nirgends.
+- Die „Allgemeinen Bedingungen“ der EUMETNET-Website (nur Private/Forschung/Bildung, Verbot automatisierter Extraktion, Zustimmung der Executive Director für Kommerzielles; Abschnitte 3.4, 3.5, 4.3) beziehen sich auf den „Content“ der Website eumetnet.eu. Gleichzeitig steht dort: MeteoGate „will neither affect ownership of shared data holdings nor impose additional conditions on data sharing“ und OPERA-Radardaten sind „openly available ... through MeteoGate“ unter CC BY 4.0.
+
+**[A] Annahmen / Einschätzung (keine Rechtsberatung)**
+- Automatisierter anonymer S3-Abruf des CIRRUS-Komposits, Umprojizieren, Einfärben, Weitergabe über die App (auch kommerziell, Caching auf unserem Server) ist nach CC BY 4.0 zulässig, sofern Attribution und Änderungshinweis stehen. Die Website-Bedingungen gelten dafür nicht.
+- Pflichtangaben (konservativ): Urheber/Herausgeber EUMETNET (Erzeuger Météo-France, CIRRUS), Lizenz CC BY 4.0 mit Link, Quelle MeteoGate/OPERA, Hinweis „umprojiziert und eingefärbt“. Vorschlag aus Abschnitt 8 bleibt passend; sichtbar in der Karte (Kurzform) und im Rechtlichen (Volltext). Keine Aussage, dass EUMETNET die Verarbeitung billigt.
+- Fair Use: Ein Abruf je 5-min-Slot durch einen einzigen Server (kein Abruf pro Endnutzer) ist unbedenklich. Endnutzer laden nur von unserem Backend, nie direkt von S3.
+- Haftung: Daten „as is“; in der App Hinweis, dass Radar keine amtliche Warnung ist (ohnehin vorhanden).
+
+**[?] Offen**
+- Konkrete Zahlenlimits (S3/API) sind unveröffentlicht; die S3-Buckets nennen keine Nutzungsbedingungen, nur die Policy.
+- Ob das Haupt-S3 oder nur das Backup „offiziell“ für Dauerbetrieb gedacht ist (siehe Abschnitt 8).
+- Ob EUMETNET einen verbindlichen Attributionstext oder Logo-Vorgaben hat: nur per Anfrage klärbar (nicht gesendet).
+- Policy liegt als .docx vor, Versionsstand/Datum nicht ersichtlich; vor Livegang erneut prüfen. Rechtsprüfung durch Jurist nicht erfolgt.
