@@ -28,12 +28,9 @@ public enum NoaaRain {
     /// Fixed layout of the product (checked against the file of 17 Nov 2026): 0.02 degree grid, row 0 = 70 N, column 0 = 180 W.
     static let topLatitude = 70.0, leftLongitude = -180.0
     static let fillValue = -9990
-    /// Web-Mercator extent of the whole product (180 W to 180 E, 60 S to 70 N): the bbox of `radar_world`.
-    public static let worldBBox: [Double] = {
-        let r = 6378137.0
-        func y(_ lat: Double) -> Double { r * log(tan(.pi / 4 + lat * .pi / 360)) }
-        return [-r * .pi, y(-60), r * .pi, y(70)]
-    }()
+    /// Web-Mercator extent of the whole product (180 W to 180 E, 60 S to 70 N), whole metres like `europeBBox`: the manifest prints it, so it must
+    /// not depend on the platform's libm (computed values differed in the last digit between macOS and Linux).
+    public static let worldBBox: [Double] = [-20037508.0, -8399738.0, 20037508.0, 11068716.0]
 
     static func hourPrefix(slot: Date) -> String {
         let id = TimeUtil.toID(slot)  // 20261117T1630Z
