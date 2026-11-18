@@ -51,7 +51,7 @@ import Testing
             #expect(throws: ConfigWriteError.self, "\(key)=\(raw)") { try ConfigRegistry.validate(key: key, raw: raw) }
         }
         rejects("RETENTION_RUNS", "14"); rejects("RETENTION_RUNS", "97")
-        rejects("CACHE_MAX_MB", "7"); rejects("CACHE_MAX_MB", "1025")
+        rejects("CACHE_MAX_MB", "7"); rejects("CACHE_MAX_MB", "8193")
         rejects("PUSH_MAX_REGION_CELLS", "0"); rejects("PUSH_MAX_REGION_CELLS", "500000001")
         rejects("PUSH_MAX_INSTALLATIONS", "1000001")
         rejects("LAYER_PAUSE_SECONDS", "0"); rejects("LAYER_PAUSE_SECONDS", "61"); rejects("LAYER_PAUSE_SECONDS", "nan")

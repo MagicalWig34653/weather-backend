@@ -166,9 +166,10 @@ public final class Api: Sendable {
 
     /// `restart` values (cache size, layers, push on/off) are read once here; `live` values are read per request from the provider.
     public init(repo: any Repo, configProvider: ConfigProvider, sender: (any ApnsSender)? = nil, alive: @escaping @Sendable () -> Bool = { true },
-                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink()) {
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), containerLimit: Int? = nil) {
         self.repo = repo; self.configProvider = configProvider; self.alive = alive; self.clock = clock
-        cache = SlotCache(maxBytes: configProvider().cacheMaxBytes, clock: clock, stats: stats)
+        // CACHE_MAX_MB is capped to what the container limit leaves next to base and ingest (radar OOM, 18 Nov 2026)
+        cache = SlotCache(maxBytes: MemoryBudget.cacheBytes(configured: configProvider().cacheMaxBytes, containerLimit: containerLimit), clock: clock, stats: stats)
         push = PushApi(repo: repo, configProvider: configProvider, sender: sender, clock: clock, stats: stats)
     }
 

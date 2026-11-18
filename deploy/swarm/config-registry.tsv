@@ -23,7 +23,7 @@ BUILD_REVISION	Dienst	text:free				500		envOnly	0	Commit des Images (nur Anzeige
 WMS_URL	Quellen	text:free	https://maps.dwd.de/geoserver/ows			500		envOnly	0	DWD-WMS (nur für Tests ändern).
 EUMETSAT_WMS_URL	Quellen	text:free	https://view.eumetsat.int/geoserver/wms			500		envOnly	0	EUMETSAT-WMS (nur für Tests ändern).
 APNS_KEY	Push	secret						envOnly	1	APNs-Schlüssel (.p8, Swarm-Secret), nur per Umgebung.
-CACHE_MAX_MB	Cache	int	64	MB	8	1024		restart	0	Größe des Bild-Caches im Speicher.
+CACHE_MAX_MB	Cache	int	64	MB	8	8192		restart	0	Größe des Bild-Caches im Speicher je Replikat; mit Container-Limit höchstens (Limit - 384 MB) / 2, sonst kappt der Server.
 IMAGE_WIDTH	Radar	int	1024	px	256	2048		restart	0	Breite des Radarbilds; mit Push fest 1024. Änderung entwertet das Bildraster.
 LAYERS	Ebenen	layers					pressure|pressure_eu|lightning|clouds|cloudmask|cloudmask_vis|cloudmask_vis_eu|radar_eu|temperature	restart	0	Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.
 RETENTION_RUNS	Radar	int	16		15	96		live	0	Aufbewahrte Radar-Läufe.

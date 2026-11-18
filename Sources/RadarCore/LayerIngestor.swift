@@ -42,17 +42,22 @@ public final class LayerIngestor: Sendable {
     let stats: any StatsSink
     /// ICON-D2 layers only: the grid a GRIB file must have (tests use tiny grids).
     let d2Grid: GribGrid
+    /// Gate of the heavy conversions (process-wide by default; tests pass their own).
+    let heavy: HeavyWork
 
     public convenience init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                            clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2) {
-        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats, d2Grid: d2Grid)
+                            clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2,
+                            heavy: HeavyWork = .shared) {
+        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats,
+                  d2Grid: d2Grid, heavy: heavy)
     }
 
     public init(spec: LayerSpec, configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
-                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2) {
-        self.d2Grid = d2Grid
+                clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2,
+                heavy: HeavyWork = .shared) {
+        self.d2Grid = d2Grid; self.heavy = heavy
         self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.sleep = sleep; self.clock = clock; self.stats = stats
     }
@@ -99,14 +104,20 @@ public final class LayerIngestor: Sendable {
     /// file that is not the product counts as a miss; after 3 missed slots in a row (the loop goes back to older slots meanwhile) the
     /// other bucket is tried, also for the slot at hand. The other layers have one URL.
     func fetchAndConvert(url: String, slot: Date) async throws -> [UInt8] {
-        guard spec.provider == .opera else { return try convert(try await fetch(url), slot: slot) }
+        guard spec.provider == .opera else {
+            let bytes = try await fetch(url)
+            return try await heavy.run { try convert(bytes, slot: slot) }
+        }
         let cfg = config
         let sources = Opera.urls(slot: slot, primary: cfg.operaURL, backup: cfg.operaBackupURL)
         guard !sources.isEmpty else { throw RunUnavailable(description: "\(layer): no source configured") }
         func load(_ source: String) async throws -> [UInt8] {
             let file = try await fetch(source)
-            let image = try OperaRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), noiseDBZ: cfg.operaNoiseDBZ)
-            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: Opera.webpMethod)
+            // decode, reprojection and encode in one gated step: the composite (67 MB) and the RGBA buffers are freed before the next layer starts
+            return try await heavy.run {
+                let image = try OperaRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), noiseDBZ: cfg.operaNoiseDBZ)
+                return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: Opera.webpMethod)
+            }
         }
         try Task.checkCancellation()
         let active = operaState.withLock { min($0.active, sources.count - 1) }

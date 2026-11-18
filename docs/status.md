@@ -2,6 +2,15 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 18. November 2026: Radar-Container OOM (live), Fix im Branch `fix/radar-oom`
+
+Details, Messwerte und Empfehlungen: `docs/research/radar-oom.md`. Nicht gemergt, nicht deployt.
+
+- **Ursache (belegt durch Messung, macOS):** voller Slot-Cache bei `CACHE_MAX_MB=512` belegt etwa 535 MB (allein über dem alten Limit 512M); gleichzeitige schwere Konvertierungen (OPERA + zwei 2048-px-Ebenen) bis 520 MB über der Basis. Der HDF5-Leser hält 67 MB Float (kein float64-Vollfeld); die LAEA-Tabelle ist gecacht.
+- **Fix:** `HeavyWork` (eine schwere Konvertierung je Prozess, Spitze 520 → 299 MB gemessen), `MemoryBudget` (Cache gekappt auf `(cgroup-Limit - 384 MB) / 2`, mindestens 16 MB), `MALLOC_ARENA_MAX=2` im Image, `settings.sh`/`setup.sh` Speicherlimit bis 16G, `CACHE_MAX_MB` bis 8192, `--check` warnt bei Cache ≥ 60 % des Limits.
+- **Geprüft:** `swift test` (siehe PR), `test-settings.sh` 159/159, `check-config-tables.sh`, `shellcheck`. **Nicht geprüft:** Linux/glibc-Verhalten, Basis des echten Dienstes, Docker-Build lokal, Live-Ursache (OOM-Meldung, Cache-Füllstand).
+- **Offen (Architektur, Lino):** Ingest nur auf einem Knoten (`radar-pinned` mit eigener Rolle/Limit) gibt es heute nicht als Einstellung.
+
 ## Stand 17. November 2026 (Abend): Ebene `radar_eu` (EUMETNET OPERA), Variante A freigegeben
 
 Branch `feature/radar-eu` (nicht auf `main`, nicht deployt). Grundlage: `docs/research/europa-radar.md` Abschnitt 7 (Branch `research/europa-radar`, Messwerte 17.11.).

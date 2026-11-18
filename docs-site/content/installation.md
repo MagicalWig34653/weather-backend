@@ -105,7 +105,7 @@ deploy/swarm/setup.sh --non-interactive --answers-file answers.env --swarm-init
 | `RADAR_PORT` | `38090` | Veröffentlichter Port der Swarm-Knoten (Ingress), auf den der Reverse Proxy zeigt. Im Container lauscht der Dienst auf 8080. |
 | `DASH_PUBLISH_PORT` | `39090` | Nur mit `DASH_ENABLED=true`: veröffentlichter Ingress-Port des Dashboards für den Reverse Proxy (Container-Port `DASH_PORT`, 9090). Per Firewall auf den Proxy beschränken. |
 | `RADAR_CPU_LIMIT` | `0` | CPU-Limit je Replikat, `0` = unbegrenzt. |
-| `RADAR_MEMORY_LIMIT` | `0` | Speicher-Limit je Replikat, z. B. `512M`, `0` = unbegrenzt. |
+| `RADAR_MEMORY_LIMIT` | `0` | Speicher-Limit je Replikat, z. B. `768M` oder `2G` (höchstens `16G`), `0` = unbegrenzt. Mit Limit kappt der Server den Slot-Cache auf (Limit - 384 MB) / 2. |
 | `PUBLIC_BASE_URL` | leer | Öffentliche Basis-URL (ohne Pfad und Schrägstrich am Ende); mit Wert prüft das Skript nach dem Rollout `GET <URL>/v1/radar/latest.json`. |
 | `DB_HOST` | – (Pflicht) | Hostname oder IP der MariaDB, aus dem Swarm erreichbar. |
 | `DB_PORT` | `3306` | Datenbank-Port. |
@@ -118,7 +118,7 @@ Weitere Einstellungen ohne Abfrage im Assistenten; bei Bedarf mit [`settings.sh`
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
-| `CACHE_MAX_MB` | `64` | LRU-Cache je Replikat. |
+| `CACHE_MAX_MB` | `64` | LRU-Cache je Replikat (8 bis 8192). Liegt im selben Speicher wie der Ingest: Limit mindestens 2 x `CACHE_MAX_MB` + 384M. |
 | `RETENTION_RUNS` | `16` | Aufbewahrte veröffentlichte Läufe mit allen Vorhersage-Slots, mindestens 15. |
 | `LAYERS` | `radar` | Zusatzebenen, kommagetrennt: `pressure` (Luftdruck, DWD ICON), `lightning` (Blitzdichte, DWD), `clouds` (Geo Colour, EUMETSAT), `cloudmask` (Wolkenmaske, EUMETSAT), `pressure_eu` (Luftdruck Europa, 2048 px), `cloudmask_vis` (sichtbarer Kanal Deutschland, tagsüber), `cloudmask_vis_eu` (sichtbarer Kanal Europa, 2048 px), `radar_eu` (Regenradar Europa, EUMETNET OPERA, 2048 px; Verlauf `RADAR_EU_HISTORY_HOURS` 1 bis 6, Rauschschwelle `OPERA_NOISE_DBZ`, Quellen `OPERA_URL`/`OPERA_BACKUP_URL`). Beispiel: `radar,pressure,pressure_eu,lightning,clouds,cloudmask,cloudmask_vis,cloudmask_vis_eu`. Ohne Eintrag startet nichts Neues; die Migration `004` muss vorher gelaufen sein (`update.sh`). Unbekannte Namen verhindern den Start. |
 | `PRESSURE_FORECAST_HOURS` | `48` | Vorhersagestunden je Luftdruck-Lauf (1 bis 168); jeder Lauf kostet so viele Abrufe. `PRESSURE_RETENTION_RUNS` (Standard 2, 2 bis 8) bestimmt die behaltenen Läufe. `PRESSURE_EU_FORECAST_HOURS` (Standard 24, 1 bis 168) gilt nur für `pressure_eu`. |

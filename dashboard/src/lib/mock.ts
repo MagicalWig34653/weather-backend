@@ -134,7 +134,7 @@ const sampleConfig = (): ConfigEntry[] => [
 		description: 'Größe des Arbeitsspeicher-Caches je Replikat.',
 		default: 64,
 		min: 8,
-		max: 1024,
+		max: 8192,
 		unit: 'MB',
 		apply: 'restart',
 		source: 'dashboard',
