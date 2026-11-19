@@ -1,7 +1,7 @@
 import Foundation
 
 public enum LayerKind: String, Sendable { case forecast, observation }
-public enum LayerProvider: String, Sendable { case dwd, eumetsat, opera }
+public enum LayerProvider: String, Sendable { case dwd, eumetsat, opera, noaa }
 public enum LayerCompleteness: Sendable {
     case none
     /// Reject images with black cells (missing tiles); right for images that are never black (colour composites, masks).
@@ -95,6 +95,7 @@ public struct LayerSpec: Sendable {
         case .dwd: return RadarConstants.attribution
         case .eumetsat: return "Contains modified EUMETSAT Meteosat data \(year)"
         case .opera: return Opera.attribution
+        case .noaa: return NoaaRain.attribution
         }
     }
 
@@ -171,6 +172,14 @@ public enum LayerCatalog {
             transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: Opera.availabilityDelay, legend: nil,
             modificationNotice: Opera.modificationNotice,
             bbox: RadarConstants.europeBBox, fixedWidth: 2048, source: "opera", cadenceSeconds: 300),
+        // NOAA Enterprise Rainfall Rate (RRQPE blend, 10 min, 0.02 degree, geostationary satellites), reprojected and coloured by the server.
+        // Estimate from cloud-top data, less exact than radar; observation only, no push (decision 17 Nov 2026).
+        "radar_world": LayerSpec(
+            id: "radar_world", title: "Regen Welt (Satellit, NOAA)", kind: .observation, provider: .noaa,
+            wmsLayer: "", capsWorkspace: nil, capsLayer: nil, stepSeconds: NoaaRain.stepSeconds,
+            transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: NoaaRain.availabilityDelay, legend: nil,
+            modificationNotice: NoaaRain.modificationNotice,
+            bbox: NoaaRain.worldBBox, fixedWidth: 2048, maxAttempts: 12, source: "noaa_rrqpe", cadenceSeconds: 600),
         // Temperature, WMS variant (public ID `temperature`, see TempResolver). Default layer ICON-EU 7 km with the 5 K class style `tkb`.
         TempLayers.wms: LayerSpec(
             id: TempLayers.wms, title: "Temperatur (ICON)", kind: .forecast, provider: .dwd,
@@ -207,7 +216,7 @@ public enum LayerCatalog {
     public static var operatorTokens: [String] { publicOrder + ["temperature"] }
 
     /// Fixed order for logs and loops.
-    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", "radar_eu", TempLayers.wms,
+    public static let order = ["pressure", "pressure_eu", "lightning", "clouds", "cloudmask", "cloudmask_vis", "cloudmask_vis_eu", "radar_eu", "radar_world", TempLayers.wms,
                                       TempLayers.d2Temperature, TempLayers.d2Dewpoint, TempLayers.d2Humidity]
 
     /// Parses `LAYERS` (comma or space separated). `radar` is accepted but ignored: the radar always runs.
@@ -247,6 +256,7 @@ extension Config {
         case "cloudmask_vis": return cloudmaskVisHistoryHours
         case "cloudmask_vis_eu": return cloudmaskVisEUHistoryHours
         case "radar_eu": return radarEUHistoryHours
+        case "radar_world": return radarWorldHistoryHours
         default: return 0
         }
     }
@@ -263,6 +273,7 @@ public enum LayerSources {
     /// One whole-image GetMap (EPSG:3857, bbox and size of the layer; the radar grid unless the spec says otherwise), no location in any request.
     public static func mapURL(spec: LayerSpec, config: Config, run: Date, slot: Date) -> String {
         // OPERA: a file URL, no map request (the main bucket; `LayerIngestor.fetchAndConvert` adds the backup bucket).
+        if spec.provider == .noaa { return NoaaRain.listURL(base: config.noaaRainURL, slot: slot) }
         if spec.provider == .opera { return Opera.urls(slot: slot, primary: config.operaURL, backup: config.operaBackupURL).first ?? "" }
         let bbox = spec.bbox.map(DWD.formatG).joined(separator: ",")
         let width = String(spec.width(config)), height = String(spec.height(config))
@@ -273,7 +284,7 @@ public enum LayerSources {
                      ("SRS", "EPSG:3857"), ("BBOX", bbox), ("WIDTH", width), ("HEIGHT", height),
                      ("FORMAT", "image/png"), ("TRANSPARENT", spec.transparent ? "TRUE" : "FALSE"), ("TIME", TimeUtil.toWMS(slot))]
             if spec.kind == .forecast { query.append(("DIM_REFERENCE_TIME", TimeUtil.toWMS(run))) }
-        case .opera:
+        case .opera, .noaa:
             query = []
         case .eumetsat:
             query = [("SERVICE", "WMS"), ("VERSION", "1.3.0"), ("REQUEST", "GetMap"), ("LAYERS", spec.wmsLayer), ("STYLES", ""),

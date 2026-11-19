@@ -44,20 +44,22 @@ public final class LayerIngestor: Sendable {
     let d2Grid: GribGrid
     /// Gate of the heavy conversions (process-wide by default; tests pass their own).
     let heavy: HeavyWork
+    /// `radar_world` only: the source grid a NOAA file must have (tests use a coarse one).
+    let noaaGrid: RainRateGrid
 
     public convenience init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
                             clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2,
-                            heavy: HeavyWork = .shared) {
+                            heavy: HeavyWork = .shared, noaaGrid: RainRateGrid = .product) {
         self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats,
-                  d2Grid: d2Grid, heavy: heavy)
+                  d2Grid: d2Grid, heavy: heavy, noaaGrid: noaaGrid)
     }
 
     public init(spec: LayerSpec, configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
                 clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2,
-                heavy: HeavyWork = .shared) {
-        self.d2Grid = d2Grid; self.heavy = heavy
+                heavy: HeavyWork = .shared, noaaGrid: RainRateGrid = .product) {
+        self.d2Grid = d2Grid; self.heavy = heavy; self.noaaGrid = noaaGrid
         self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.sleep = sleep; self.clock = clock; self.stats = stats
     }
@@ -104,6 +106,7 @@ public final class LayerIngestor: Sendable {
     /// file that is not the product counts as a miss; after 3 missed slots in a row (the loop goes back to older slots meanwhile) the
     /// other bucket is tried, also for the slot at hand. The other layers have one URL.
     func fetchAndConvert(url: String, slot: Date) async throws -> [UInt8] {
+        if spec.provider == .noaa { return try await fetchNoaa(slot: slot) }
         guard spec.provider == .opera else {
             let bytes = try await fetch(url)
             return try await heavy.run { try convert(bytes, slot: slot) }
@@ -134,6 +137,24 @@ public final class LayerIngestor: Sendable {
                 operaState.withLock { $0.misses = 1 }
                 throw error
             }
+        }
+    }
+
+    /// NOAA rain rate: list the hour of the slot, take the highest stage (GLB-5 = all five satellites). A slot younger than 30 minutes
+    /// whose full version is still missing counts as a miss and is tried again on a later tick; an older one takes what there is.
+    func fetchNoaa(slot: Date) async throws -> [UInt8] {
+        let cfg = config
+        try Task.checkCancellation()
+        let listing = try await fetch(NoaaRain.listURL(base: cfg.noaaRainURL, slot: slot))
+        guard let best = NoaaRain.candidates(listing: listing, slot: slot).first else { throw RunUnavailable(description: "\(layer): no file for slot") }
+        if best.stage < NoaaRain.fullStage, clock().timeIntervalSince(slot) < NoaaRain.waitForFullSeconds {
+            throw RunUnavailable(description: "\(layer): full version not yet available")
+        }
+        let file = try await fetch(NoaaRain.fileURL(base: cfg.noaaRainURL, key: best.key))
+        // read, reduction, colouring and encode in one gated step (2048 px target, 117 M source cells), like OPERA
+        return try await heavy.run {
+            let image = try NoaaRainRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), grid: noaaGrid)
+            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: NoaaRain.webpMethod)
         }
     }
 

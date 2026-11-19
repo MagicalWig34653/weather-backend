@@ -83,6 +83,7 @@ services:
       CLOUDMASK_VIS_EU_HISTORY_HOURS: ${CLOUDMASK_VIS_EU_HISTORY_HOURS:-}
       RADAR_EU_HISTORY_HOURS: ${RADAR_EU_HISTORY_HOURS:-}
       OPERA_NOISE_DBZ: ${OPERA_NOISE_DBZ:-}
+      RADAR_WORLD_HISTORY_HOURS: ${RADAR_WORLD_HISTORY_HOURS:-}
       PRESSURE_EU_FORECAST_HOURS: ${PRESSURE_EU_FORECAST_HOURS:-}
       LAYER_PAUSE_SECONDS: ${LAYER_PAUSE_SECONDS:-2}
       TEMP_SOURCE: ${TEMP_SOURCE:-}
@@ -101,6 +102,7 @@ services:
       EUMETSAT_WMS_URL: ${EUMETSAT_WMS_URL:-https://view.eumetsat.int/geoserver/wms}
       OPERA_URL: ${OPERA_URL:-https://s3.waw3-1.cloudferro.com/openradar-24h}
       OPERA_BACKUP_URL: ${OPERA_BACKUP_URL:-https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup}
+      NOAA_RAIN_URL: ${NOAA_RAIN_URL:-https://noaa-enterprise-rainrate-pds.s3.amazonaws.com}
       OPERATOR_NAME: ${OPERATOR_NAME:-}
       OPERATOR_ADDRESS: ${OPERATOR_ADDRESS:-}
       OPERATOR_EMAIL: ${OPERATOR_EMAIL:-}

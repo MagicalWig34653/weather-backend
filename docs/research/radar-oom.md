@@ -9,7 +9,7 @@ Live (Lino): `showernow_radar.1` auf vps7 um etwa 09:50 mit Exit 137 (OOM-Kill) 
 - **HDF5-Leser:** liest chunkweise und speichert direkt als `Float` (`OdimHDF5.swift` 239 und 257): 3800 x 4400 x 4 B = 67 MB. Es gibt kein Feld mit float64 für das ganze Komposit (die frühere Schätzung „134 MB float64“ trifft nicht zu). Die Datei (3,6 bis 4,1 MB) bleibt während des Lesens im Speicher.
 - **LAEA-Tabelle:** einmal je Gitter gebaut und gecacht (`OperaRender.swift` 196-209, höchstens 4 Tabellen, je etwa 22 MB), nicht je Slot neu.
 - **Slot-Cache:** LRU nach Nutzbytes `data.count` (`Api.swift` 50-59), Grenze `CACHE_MAX_MB` (`Api.swift` 171); er kannte das Container-Limit nicht.
-- **radar_world (PR #2, nicht live):** Der NetCDF-Pfad liest chunkweise direkt ins Zielraster (`NoaaRainRender.swift` 98-138 im Branch `feature/radar-world`); kein Vollfeld 18000 x 6501. Nicht gemessen.
+- **radar_world (PR #2, in `main`, nicht live):** Der NetCDF-Pfad liest chunkweise direkt ins Zielraster (`NoaaRainRender.swift`); kein Vollfeld 18000 x 6501. Nicht gemessen. Seit dem Merge von `main` in `fix/radar-oom` (19.11.) läuft Lesen, Reduktion, Einfärben und WebP-Kodierung von `radar_world` ebenfalls durch `HeavyWork` (`LayerIngestor.fetchNoaa`); die Slots sind WebP (etwa 111 KB, 145 Slots bei 24 h etwa 16 MB) und zählen im Slot-Cache nur mit Nutzbytes, das Budget `MemoryBudget` gilt unverändert.
 
 ## Messung (ausgeführt, 18.11.2026, macOS arm64)
 

@@ -68,12 +68,18 @@ struct H5Attribute {
     let classID: Int
     let size: Int
     let data: [UInt8]
+    /// Integer types: two's complement (bit 3 of the class bit field).
+    var signed = false
 
     func double() throws -> Double {
         switch (classID, size) {
         case (1, 8): return Double(bitPattern: le(0, 8))
         case (1, 4): return Double(Float(bitPattern: UInt32(le(0, 4))))
-        case (0, 1), (0, 2), (0, 4), (0, 8): return Double(Int64(bitPattern: le(0, size)))
+        case (0, 1), (0, 2), (0, 4), (0, 8):
+            let u = le(0, size)
+            guard signed, size < 8 else { return Double(Int64(bitPattern: u)) }
+            let shift = UInt64(64 - 8 * size)
+            return Double(Int64(bitPattern: u << shift) >> Int64(shift))
         default: throw Hdf5Error.unsupported("attribute type \(classID)/\(size)")
         }
     }
@@ -91,9 +97,18 @@ struct H5Attribute {
     }
 }
 
-private struct H5Message { let type: Int; let offset: Int; let size: Int }
+struct H5Message { let type: Int; let offset: Int; let size: Int }
 
-private struct H5File {
+/// One chunk of a chunked 2-D data set after the filters: `rows` x `cols` valid cells (partial edge chunks), stored with `chunkCols` per row.
+struct H5Chunk { let row0: Int, col0: Int, rows: Int, cols: Int, chunkCols: Int; let raw: [UInt8] }
+
+/// Geometry and type of a chunked 2-D data set (layout version 3, v1 chunk B-tree).
+struct H5Dataset {
+    let width: Int, height: Int, classID: Int, elementSize: Int, signed: Bool
+    let chunkRows: Int, chunkCols: Int, tree: Int, filters: [Int]
+}
+
+struct H5File {
     let b: [UInt8]
     let rootEntry: Int
 
@@ -127,6 +142,7 @@ private struct H5File {
     // MARK: object header (version 1)
 
     func messages(_ header: Int) throws -> [H5Message] {
+        if header + 4 <= b.count, Array(b[header..<header + 4]) == Array("OHDR".utf8) { return try messagesV2(header) }
         guard try u8(header) == 1 else { throw Hdf5Error.unsupported("object header version \(try u8(header))") }
         var out: [H5Message] = []
         var blocks = [(header + 16, try u32(header + 8))]
@@ -149,10 +165,65 @@ private struct H5File {
         return out
     }
 
-    // MARK: groups (symbol table: v1 B-tree + local heap)
+
+    /// Object header version 2 (NetCDF-4 files of the HDF5 1.8+ writers): `OHDR`, flags, messages with 4 byte head (+2 with creation order),
+    /// continuation blocks `OCHK`. Shared messages are not supported.
+    private func messagesV2(_ header: Int) throws -> [H5Message] {
+        guard try u8(header + 4) == 2 else { throw Hdf5Error.unsupported("object header version \(try u8(header + 4))") }
+        let flags = try u8(header + 5)
+        var o = header + 6
+        if flags & 0x20 != 0 { o += 16 }
+        if flags & 0x10 != 0 { o += 4 }
+        let sizeBytes = 1 << (flags & 3)
+        let first = Int(try uN(o, sizeBytes)); o += sizeBytes
+        var out: [H5Message] = []
+        var blocks = [(o, first)]
+        var visited = 0
+        while let (start, length) = blocks.popLast() {
+            visited += 1
+            guard visited <= 64, length >= 0, start >= 0, start + length <= b.count else { throw Hdf5Error.invalid("object header blocks") }
+            var p = start
+            while p + 4 <= start + length {
+                let type = try u8(p), size = try u16(p + 1), mflags = try u8(p + 3)
+                p += 4
+                if flags & 4 != 0 { p += 2 }
+                guard p + size <= start + length else { throw Hdf5Error.invalid("object header message size") }
+                guard mflags & 2 == 0 else { throw Hdf5Error.unsupported("shared message") }
+                if type == 0x10 {
+                    let at = try addr(p), len = Int(try uN(p + 8, 8))
+                    guard len >= 8, at + len <= b.count, Array(b[at..<at + 4]) == Array("OCHK".utf8) else { throw Hdf5Error.invalid("continuation block") }
+                    blocks.append((at + 4, len - 8))
+                } else if type != 0 {
+                    out.append(H5Message(type: type, offset: p, size: size))
+                }
+                p += size
+            }
+        }
+        return out
+    }
+
+    /// Hard link message (type 6, version 1) of a group with few members: name to object header address.
+    private func link(_ m: H5Message, named name: String) throws -> Int? {
+        guard try u8(m.offset) == 1 else { throw Hdf5Error.unsupported("link message version") }
+        let flags = try u8(m.offset + 1)
+        var o = m.offset + 2
+        if flags & 8 != 0 { guard try u8(o) == 0 else { return nil }; o += 1 }  // only hard links
+        if flags & 4 != 0 { o += 8 }
+        if flags & 16 != 0 { o += 1 }
+        let n = 1 << (flags & 3)
+        let length = Int(try uN(o, n)); o += n
+        guard length > 0, o + length + 8 <= m.offset + m.size else { throw Hdf5Error.invalid("link message") }
+        guard String(decoding: b[o..<o + length], as: UTF8.self) == name else { return nil }
+        return try addr(o + length)
+    }
+
+    // MARK: groups (symbol table: v1 B-tree + local heap, or link messages)
 
     func group(_ header: Int, _ name: String) throws -> Int {
-        guard let st = try messages(header).first(where: { $0.type == 0x11 }) else { throw Hdf5Error.invalid("\(name): parent is no group") }
+        let msgs = try messages(header)
+        for m in msgs where m.type == 0x06 { if let found = try link(m, named: name) { return found } }
+        if msgs.contains(where: { $0.type == 0x06 }) { throw Hdf5Error.invalid("'\(name)' not found") }
+        guard let st = msgs.first(where: { $0.type == 0x11 }) else { throw Hdf5Error.invalid("\(name): parent is no group") }
         let tree = try addr(st.offset), heap = try addr(st.offset + 8)
         guard Array(b[heap..<heap + 4]) == Array("HEAP".utf8) else { throw Hdf5Error.invalid("local heap") }
         let heapData = try addr(heap + 24)
@@ -195,18 +266,19 @@ private struct H5File {
             var o = m.offset + (v == 3 ? 9 : 8)
             func padded(_ n: Int) -> Int { v == 1 ? (n + 7) / 8 * 8 : n }
             let name = try cString(o); o += padded(nameSize)
-            let classID = try u8(o) & 0x0F, size = try u32(o + 4); o += padded(dtSize)
+            let classID = try u8(o) & 0x0F, size = try u32(o + 4), signed = (try u8(o + 1) & 8) != 0; o += padded(dtSize)
             o += padded(dsSize)
             let end = m.offset + m.size
             guard o <= end else { throw Hdf5Error.invalid("attribute data") }
-            out[name] = H5Attribute(classID: classID, size: size, data: Array(b[o..<min(end, o + max(size, 8))]))
+            out[name] = H5Attribute(classID: classID, size: size, data: Array(b[o..<min(end, o + max(size, 8))]), signed: signed)
         }
         return out
     }
 
     // MARK: chunked data set
 
-    func readDataset(_ header: Int, maxCells: Int, convert: (Double) -> Float) throws -> (width: Int, height: Int, values: [Float]) {
+    /// Geometry of a chunked 2-D data set; throws for anything but the supported layout.
+    func dataset(_ header: Int, maxCells: Int) throws -> H5Dataset {
         let msgs = try messages(header)
         guard let ds = msgs.first(where: { $0.type == 0x01 }), let dt = msgs.first(where: { $0.type == 0x03 }),
               let layout = msgs.first(where: { $0.type == 0x08 }) else { throw Hdf5Error.invalid("dataset messages missing") }
@@ -234,12 +306,16 @@ private struct H5File {
             throw Hdf5Error.invalid("chunk size")
         }
         let filters = try pipeline(msgs.first(where: { $0.type == 0x0B }))
-        let chunkBytes = chunkRows * chunkCols * elementSize
+        return H5Dataset(width: width, height: height, classID: classID, elementSize: elementSize, signed: signed,
+                         chunkRows: chunkRows, chunkCols: chunkCols, tree: tree, filters: filters)
+    }
 
-        var values = [Float](repeating: .nan, count: width * height)
-        var nodes = [tree]
+    /// Calls `body` for every chunk of the data set, unfiltered (one chunk in memory at a time). Cells outside the chunk list are never visited.
+    func forEachChunk(_ d: H5Dataset, _ body: (H5Chunk) throws -> Void) throws {
+        let chunkBytes = d.chunkRows * d.chunkCols * d.elementSize
+        var nodes = [d.tree]
         var steps = 0
-        let keySize = 8 + 8 * dimensionality
+        let keySize = 8 + 8 * 3
         while let node = nodes.popLast() {
             steps += 1
             guard steps < 100_000, node + 24 <= b.count, Array(b[node..<node + 4]) == Array("TREE".utf8), try u8(node + 4) == 1 else { throw Hdf5Error.invalid("chunk b-tree") }
@@ -251,25 +327,34 @@ private struct H5File {
                 let child = try addr(p + keySize)
                 p += keySize + 8
                 if level > 0 { nodes.append(child); continue }
-                guard size > 0, child + size <= b.count, row0 >= 0, col0 >= 0, row0 < height, col0 < width else { throw Hdf5Error.invalid("chunk entry") }
-                let raw = try unfilter(Array(b[child..<child + size]), filters: filters, mask: mask, elementSize: elementSize, expected: chunkBytes)
-                for r in 0..<chunkRows where row0 + r < height {
-                    for c in 0..<chunkCols where col0 + c < width {
-                        let at = (r * chunkCols + c) * elementSize
-                        let value: Double
-                        switch (classID, elementSize) {
-                        case (1, 8): value = Double(bitPattern: le(raw, at, 8))
-                        case (1, 4): value = Double(Float(bitPattern: UInt32(le(raw, at, 4))))
-                        default:
-                            let u = le(raw, at, elementSize)
-                            if signed { let shift = UInt64(64 - 8 * elementSize); value = Double(Int64(bitPattern: u << shift) >> Int64(shift)) } else { value = Double(u) }
-                        }
-                        values[(row0 + r) * width + col0 + c] = convert(value)
+                guard size > 0, child + size <= b.count, row0 >= 0, col0 >= 0, row0 < d.height, col0 < d.width else { throw Hdf5Error.invalid("chunk entry") }
+                let raw = try unfilter(Array(b[child..<child + size]), filters: d.filters, mask: mask, elementSize: d.elementSize, expected: chunkBytes)
+                try body(H5Chunk(row0: row0, col0: col0, rows: min(d.chunkRows, d.height - row0), cols: min(d.chunkCols, d.width - col0),
+                                 chunkCols: d.chunkCols, raw: raw))
+            }
+        }
+    }
+
+    func readDataset(_ header: Int, maxCells: Int, convert: (Double) -> Float) throws -> (width: Int, height: Int, values: [Float]) {
+        let d = try dataset(header, maxCells: maxCells)
+        var values = [Float](repeating: .nan, count: d.width * d.height)
+        try forEachChunk(d) { chunk in
+            for r in 0..<chunk.rows {
+                for c in 0..<chunk.cols {
+                    let at = (r * chunk.chunkCols + c) * d.elementSize
+                    let value: Double
+                    switch (d.classID, d.elementSize) {
+                    case (1, 8): value = Double(bitPattern: le(chunk.raw, at, 8))
+                    case (1, 4): value = Double(Float(bitPattern: UInt32(le(chunk.raw, at, 4))))
+                    default:
+                        let u = le(chunk.raw, at, d.elementSize)
+                        if d.signed { let shift = UInt64(64 - 8 * d.elementSize); value = Double(Int64(bitPattern: u << shift) >> Int64(shift)) } else { value = Double(u) }
                     }
+                    values[(chunk.row0 + r) * d.width + chunk.col0 + c] = convert(value)
                 }
             }
         }
-        return (width, height, values)
+        return (d.width, d.height, values)
     }
 
     private func le(_ d: [UInt8], _ at: Int, _ n: Int) -> UInt64 {
