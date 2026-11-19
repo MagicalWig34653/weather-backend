@@ -398,7 +398,12 @@ func serve(config bootstrap: Config, dashboardOnly: Bool = false) async throws {
     let pushApi = !dashboardOnly
     var cacheClearTask: Task<Void, Never>?
     if pushApi {
-        let api = Api(repo: repo, configProvider: provider, sender: sender, alive: { heartbeat.isAlive }, stats: stats)
+        let limit = MemoryBudget.containerLimit()
+        let api = Api(repo: repo, configProvider: provider, sender: sender, alive: { heartbeat.isAlive }, stats: stats, containerLimit: limit)
+        let cacheBytes = await api.cache.snapshot().maxBytes
+        if let limit, cacheBytes < config.cacheMaxBytes {
+            logger.warning("CACHE_MAX_MB \(config.cacheMaxBytes / 1_048_576) does not fit the container limit \(limit / 1_048_576) MB; slot cache capped at \(cacheBytes / 1_048_576) MB")
+        }
         // Operator "clear cache" (dashboard): every replica empties its in-process slot cache when the generation moves.
         cacheClearTask = Task { await CacheClearWatcher(repo: repo, cache: api.cache).run() }
         cacheRef.set(api.cache)

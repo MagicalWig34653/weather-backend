@@ -2,6 +2,23 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 19. November 2026: `main` (mit `radar_world`, PR #2) in `fix/radar-oom` gemergt
+
+Konflikt in PR #3 gelöst per `git merge origin/main` (kein Rebase, kein Force-Push). Konflikte: `LayerIngestor.swift` (Initialisierer: `heavy: HeavyWork` und `noaaGrid: RainRateGrid` beide behalten; `fetchAndConvert`: NOAA-Zweig von `main`, übrige Ebenen weiter durch das Gate) und `docs/status.md` (beide Abschnitte behalten).
+
+- **OOM-Fix gilt für `radar_world`:** `fetchNoaa` führt Lesen (117 Mio. Quellzellen, chunkweise), Reduktion, Einfärben und WebP-Kodierung jetzt in `heavy.run`, also höchstens eine schwere Konvertierung je Prozess (2048-px-Ebene). Ohne diese Zeile hätte die Weltebene am Gate vorbei gearbeitet. Cache/`MemoryBudget` gelten unverändert (Slots sind WebP, etwa 111 KB; 24 h Verlauf etwa 16 MB, also weit unter dem Cache-Budget). Verlauf/Retention unverändert (Aufgabe C2AC381D).
+- **Geprüft (19.11., Mac, Debug, `swift test` über `sparsam`, Memory-Repo):** 739 Tests in 124 Suiten grün (282 s). Ein erster Volllauf stand ohne Fehlermeldung an `queryHourlySeriesAndQuantiles` (Memory-Repo, trivialer Test) still und wurde von mir beendet; derselbe Test und die Gruppe `installationCap…` liefen einzeln in 0,002 s grün, der Wiederholungslauf war vollständig grün (Ursache des Stillstands nicht geklärt, vermutlich Last/Drosselung). Nicht lokal geprüft: MariaDB-Läufe (nur CI), `test-settings.sh`/`shellcheck` nach dem Merge (Dateien nicht von den Konflikten betroffen), Docker-Build.
+- **Nicht gemessen:** Spitzenspeicher der `radar_world`-Konvertierung (Schätzung in der Weltebene-Notiz unten, keine Messung mit `MemoryProbeTests`); Reserve 384 MB (`MemoryBudget`) wurde mit OPERA und 2048-px-PNG bemessen, nicht mit `radar_world`.
+
+## Stand 18. November 2026: Radar-Container OOM (live), Fix im Branch `fix/radar-oom`
+
+Details, Messwerte und Empfehlungen: `docs/research/radar-oom.md`. Nicht gemergt, nicht deployt.
+
+- **Ursache (belegt durch Messung, macOS):** voller Slot-Cache bei `CACHE_MAX_MB=512` belegt etwa 535 MB (allein über dem alten Limit 512M); gleichzeitige schwere Konvertierungen (OPERA + zwei 2048-px-Ebenen) bis 520 MB über der Basis. Der HDF5-Leser hält 67 MB Float (kein float64-Vollfeld); die LAEA-Tabelle ist gecacht.
+- **Fix:** `HeavyWork` (eine schwere Konvertierung je Prozess, Spitze 520 → 299 MB gemessen), `MemoryBudget` (Cache gekappt auf `(cgroup-Limit - 384 MB) / 2`, mindestens 16 MB), `MALLOC_ARENA_MAX=2` im Image, `settings.sh`/`setup.sh` Speicherlimit bis 16G, `CACHE_MAX_MB` bis 8192, `--check` warnt bei Cache ≥ 60 % des Limits.
+- **Geprüft:** `swift test` (siehe PR), `test-settings.sh` 159/159, `check-config-tables.sh`, `shellcheck`. **Nicht geprüft:** Linux/glibc-Verhalten, Basis des echten Dienstes, Docker-Build lokal, Live-Ursache (OOM-Meldung, Cache-Füllstand).
+- **Offen (Architektur, Lino):** Ingest nur auf einem Knoten (`radar-pinned` mit eigener Rolle/Limit) gibt es heute nicht als Einstellung.
+
 ## Stand 18. November 2026: Ebene `radar_world` (NOAA RRQPE, Welt), Entscheidungen Lino 17.11. 21:13
 
 Branch `feature/radar-world` (nicht auf `main`, nicht deployt; Todolino-Karte Backend 7FD8CD32, App-Karte 9A5AB666). Grundlage: `docs/research/rrqpe-welt.md` (Branch `research/rrqpe-welt`). Entschieden: 2048 px Breite, 24 h Verlauf, Hinweis in der App fest, kein Push für diese Ebene.

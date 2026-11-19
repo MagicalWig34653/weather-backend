@@ -113,6 +113,28 @@ check "ablehnen: keine Sicherung bei Fehlern" bash -c "[ '$(nbackups)' = 0 ]"
 S --set HISTORY_HOURS=99 --set CACHE_MAX_MB=128 >/dev/null 2>&1
 check "ablehnen: ein ungueltiger Wert verhindert den ganzen Lauf" bash -c "[ '$(sha)' = '$before' ] && ! grep -q 'CACHE_MAX_MB=128' '$ENVF'"
 
+# ------------------------------------------------------------- Speicher-Limit (OOM 18.11.2026): bis 16G, Cache gegen Limit
+for v in 768M 2G 4096M 16G 16384m 0; do
+  fresh
+  check "Speicher-Limit erlaubt: $v" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --set RADAR_MEMORY_LIMIT=$v >/dev/null && grep -qx 'RADAR_MEMORY_LIMIT=$v' '$ENVF'"
+done
+fresh; before="$(sha)"
+for v in 17G 16385M 2T 1.5G; do
+  S --set "RADAR_MEMORY_LIMIT=$v" >/dev/null 2>&1; rc=$?
+  check "Speicher-Limit abgelehnt: $v" bash -c "[ $rc -ne 0 ] && [ '$(sha)' = '$before' ]"
+done
+fresh
+S --set CACHE_MAX_MB=2048 >/dev/null 2>&1; rc=$?
+check "CACHE_MAX_MB über 1024 erlaubt (2048)" bash -c "[ $rc -eq 0 ] && grep -qx 'CACHE_MAX_MB=2048' '$ENVF'"
+S --set CACHE_MAX_MB=9000 >/dev/null 2>&1; rc=$?
+check "CACHE_MAX_MB über 8192 abgelehnt" bash -c "[ $rc -ne 0 ]"
+fresh; S --set RADAR_MEMORY_LIMIT=512M --set CACHE_MAX_MB=512 >/dev/null
+check "--check warnt: Cache 512 MB bei Limit 512M" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'CACHE_MAX_MB=512 ist mindestens 60 %'"
+fresh; S --set RADAR_MEMORY_LIMIT=2G --set CACHE_MAX_MB=512 >/dev/null
+check "--check still: Cache 512 MB bei Limit 2G" bash -c "cd '$DIR' && ! ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'CACHE_MAX_MB=512 ist mindestens'"
+fresh; S --set CACHE_MAX_MB=512 >/dev/null
+check "--check still: Cache ohne Limit" bash -c "cd '$DIR' && ! ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'ist mindestens 60 %'"
+
 # ------------------------------------------------------------- Zurücksetzen
 fresh
 S --set HISTORY_HOURS=24 >/dev/null

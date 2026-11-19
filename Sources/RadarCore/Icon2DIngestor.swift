@@ -136,11 +136,16 @@ extension LayerIngestor {
         }
         guard let packed else { throw RunUnavailable(description: "\(spec.id) fetch failed: \(last.map { String(describing: type(of: $0)) } ?? "unknown")") }
         do {
-            let raw = try Bzip2.decompress(packed, maxOutput: Icon2D.maxUnpackedBytes)
-            let field = try GribDecoder.decode(raw, expecting: d2Grid)
-            guard field.referenceTime == run, field.forecastMinutes == hour * 60 else { throw ImageError.invalid("grib time does not match the file name") }
-            try MercatorRender.validate(field, kind: kind)
-            return try ImagePipeline.toWebP(MercatorRender.image(field: field, kind: kind, scale: scale, bbox: spec.bbox, width: width), lossless: true, method: Icon2D.webpMethod)
+            let grid = d2Grid, bbox = spec.bbox
+            return try await heavy.run {
+                let raw = try Bzip2.decompress(packed, maxOutput: Icon2D.maxUnpackedBytes)
+                let field = try GribDecoder.decode(raw, expecting: grid)
+                guard field.referenceTime == run, field.forecastMinutes == hour * 60 else { throw ImageError.invalid("grib time does not match the file name") }
+                try MercatorRender.validate(field, kind: kind)
+                return try ImagePipeline.toWebP(MercatorRender.image(field: field, kind: kind, scale: scale, bbox: bbox, width: width), lossless: true, method: Icon2D.webpMethod)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let error as ImageError {
             throw error
         } catch {

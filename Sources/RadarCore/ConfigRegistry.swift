@@ -190,7 +190,7 @@ public enum ConfigRegistry {
         s("EUMETSAT_WMS_URL", "Quellen", any, "https://view.eumetsat.int/geoserver/wms", "EUMETSAT-WMS (nur für Tests ändern).", .envOnly),
         s("APNS_KEY", "Push", .secret, "", "APNs-Schlüssel (.p8, Swarm-Secret), nur per Umgebung.", .envOnly),
         // Cache and ingest
-        s("CACHE_MAX_MB", "Cache", .int(min: 8, max: 1024), "64", unit: "MB", "Größe des Bild-Caches im Speicher.", .restart),
+        s("CACHE_MAX_MB", "Cache", .int(min: 8, max: 8192), "64", unit: "MB", "Größe des Bild-Caches im Speicher je Replikat; mit Container-Limit höchstens (Limit - 384 MB) / 2, sonst kappt der Server.", .restart),
         s("IMAGE_WIDTH", "Radar", .int(min: 256, max: 2048), "1024", unit: "px",
           "Breite des Radarbilds; mit Push fest 1024. Änderung entwertet das Bildraster.", .restart),
         s("LAYERS", "Ebenen", .layers, "", "Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.", .restart),

@@ -144,7 +144,12 @@ valid_domain() { { valid_host "$1" 2>/dev/null && { [[ "$1" == *.* ]] || [ "$1" 
 valid_port() { { [[ "$1" =~ ^[0-9]{1,5}$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; } || bad "Port 1-65535"; }
 valid_replicas() { { [[ "$1" =~ ^[0-9]{1,2}$ ]] && [ "$1" -ge 1 ]; } || bad "Anzahl Replikate 1-99"; }
 valid_cpu() { [[ "$1" =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || bad "CPU-Limit wie 1.5 (0 = unbegrenzt)"; }
-valid_mem() { [[ "$1" =~ ^([0-9]+[bBkKmMgG]?)$ ]] || bad "Speicher-Limit wie 512M oder 1G (0 = unbegrenzt)"; }
+valid_mem() {
+  [[ "$1" =~ ^([0-9]+)([bBkKmMgG]?)$ ]] || { bad "Speicher-Limit wie 768M oder 2G (0 = unbegrenzt)"; return 1; }
+  local n=$((10#${BASH_REMATCH[1]})) u="${BASH_REMATCH[2]}" mb
+  case "$u" in g|G) mb=$((n * 1024)) ;; m|M) mb=$n ;; k|K) mb=$(((n + 1023) / 1024)) ;; *) mb=$(((n + 1048575) / 1048576)) ;; esac
+  [ "$mb" -le 16384 ] || bad "höchstens 16G (16384M) je Container"
+}
 valid_ident() { [[ "$1" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$ ]] || bad "Name aus Buchstaben, Ziffern, _ . -"; }
 valid_bool() { [[ "$1" == true || "$1" == false ]] || bad "true oder false"; }
 valid_any() { return 0; }
@@ -279,7 +284,7 @@ step "Ingress-Port, Replikate und Ressourcen"
 ask RADAR_PORT "Veröffentlichter Port auf den Swarm-Knoten (Reverse Proxy zeigt hierauf)" "38090" valid_port
 ask RADAR_REPLICAS "Anzahl Replikate" "2" valid_replicas "Mindestens 2 erlauben unterbrechungsfreie Rolling Updates (start-first)."
 ask RADAR_CPU_LIMIT "CPU-Limit je Replikat (0 = unbegrenzt)" "0" valid_cpu
-ask RADAR_MEMORY_LIMIT "Speicher-Limit je Replikat, z. B. 512M (0 = unbegrenzt)" "0" valid_mem
+ask RADAR_MEMORY_LIMIT "Speicher-Limit je Replikat, z. B. 768M oder 2G, höchstens 16G (0 = unbegrenzt)" "0" valid_mem
 
 # ---------------------------------------------------------------- Step 5: external MariaDB
 step "Externe MariaDB"

@@ -42,21 +42,24 @@ public final class LayerIngestor: Sendable {
     let stats: any StatsSink
     /// ICON-D2 layers only: the grid a GRIB file must have (tests use tiny grids).
     let d2Grid: GribGrid
+    /// Gate of the heavy conversions (process-wide by default; tests pass their own).
+    let heavy: HeavyWork
     /// `radar_world` only: the source grid a NOAA file must have (tests use a coarse one).
     let noaaGrid: RainRateGrid
 
     public convenience init(spec: LayerSpec, config: Config, repo: any Repo, fetch: @escaping Fetch, owner: String,
                             sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
                             clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2,
-                            noaaGrid: RainRateGrid = .product) {
-        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats, d2Grid: d2Grid, noaaGrid: noaaGrid)
+                            heavy: HeavyWork = .shared, noaaGrid: RainRateGrid = .product) {
+        self.init(spec: spec, configProvider: ConfigProvider(config), repo: repo, fetch: fetch, owner: owner, sleep: sleep, clock: clock, stats: stats,
+                  d2Grid: d2Grid, heavy: heavy, noaaGrid: noaaGrid)
     }
 
     public init(spec: LayerSpec, configProvider: ConfigProvider, repo: any Repo, fetch: @escaping Fetch, owner: String,
                 sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
                 clock: @escaping @Sendable () -> Date = { Date() }, stats: any StatsSink = NoStatsSink(), d2Grid: GribGrid = .iconD2,
-                noaaGrid: RainRateGrid = .product) {
-        self.d2Grid = d2Grid; self.noaaGrid = noaaGrid
+                heavy: HeavyWork = .shared, noaaGrid: RainRateGrid = .product) {
+        self.d2Grid = d2Grid; self.heavy = heavy; self.noaaGrid = noaaGrid
         self.spec = spec; self.configProvider = configProvider; self.repo = repo; self.fetch = fetch; self.owner = owner
         self.sleep = sleep; self.clock = clock; self.stats = stats
     }
@@ -104,14 +107,20 @@ public final class LayerIngestor: Sendable {
     /// other bucket is tried, also for the slot at hand. The other layers have one URL.
     func fetchAndConvert(url: String, slot: Date) async throws -> [UInt8] {
         if spec.provider == .noaa { return try await fetchNoaa(slot: slot) }
-        guard spec.provider == .opera else { return try convert(try await fetch(url), slot: slot) }
+        guard spec.provider == .opera else {
+            let bytes = try await fetch(url)
+            return try await heavy.run { try convert(bytes, slot: slot) }
+        }
         let cfg = config
         let sources = Opera.urls(slot: slot, primary: cfg.operaURL, backup: cfg.operaBackupURL)
         guard !sources.isEmpty else { throw RunUnavailable(description: "\(layer): no source configured") }
         func load(_ source: String) async throws -> [UInt8] {
             let file = try await fetch(source)
-            let image = try OperaRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), noiseDBZ: cfg.operaNoiseDBZ)
-            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: Opera.webpMethod)
+            // decode, reprojection and encode in one gated step: the composite (67 MB) and the RGBA buffers are freed before the next layer starts
+            return try await heavy.run {
+                let image = try OperaRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), noiseDBZ: cfg.operaNoiseDBZ)
+                return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: Opera.webpMethod)
+            }
         }
         try Task.checkCancellation()
         let active = operaState.withLock { min($0.active, sources.count - 1) }
@@ -142,8 +151,11 @@ public final class LayerIngestor: Sendable {
             throw RunUnavailable(description: "\(layer): full version not yet available")
         }
         let file = try await fetch(NoaaRain.fileURL(base: cfg.noaaRainURL, key: best.key))
-        let image = try NoaaRainRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), grid: noaaGrid)
-        return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: NoaaRain.webpMethod)
+        // read, reduction, colouring and encode in one gated step (2048 px target, 117 M source cells), like OPERA
+        return try await heavy.run {
+            let image = try NoaaRainRender.image(file: file, bbox: spec.bbox, width: spec.width(cfg), grid: noaaGrid)
+            return try ImagePipeline.toWebP(image, lossless: spec.lossless, quality: spec.webpQuality, method: NoaaRain.webpMethod)
+        }
     }
 
     private func fetchWebP(url: String, slot: Date, attempts: Int, backoffs: [Double], before: () async throws -> Void) async throws -> [UInt8] {

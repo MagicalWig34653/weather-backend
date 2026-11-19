@@ -25,6 +25,8 @@ COPY --from=dashboard /build/build /app/dashboard
 ARG BUILD_REVISION=
 ENV BUILD_REVISION=$BUILD_REVISION
 ENV MIGRATIONS_DIR=/app/migrations HTTP_PORT=8080
+# glibc: at most 2 malloc arenas instead of 8 per core; the conversion buffers (20 to 70 MB) otherwise stay spread over many arenas (radar OOM 18.11.2026, not measured on Linux)
+ENV MALLOC_ARENA_MAX=2
 USER radar
 EXPOSE 8080
 ENTRYPOINT ["radar"]
