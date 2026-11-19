@@ -253,7 +253,9 @@ validate() { # KEY WERT -> V_OUT (normalisiert) / V_ERR; Rückgabe 0 = gültig
             || { V_ERR="ungültige Bundle-ID (z. B. de.example.app)"; return 1; } ;;
         stackname) [[ $val =~ ^[a-z][a-z0-9-]*$ ]] || { V_ERR="Stack-Name: Kleinbuchstaben, Ziffern, Bindestrich; beginnt mit Buchstabe"; return 1; } ;;
         imagetag) [[ $val =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]] || { V_ERR="ungültiges Image-Tag"; return 1; } ;;
-        memlimit) [[ $val =~ ^[0-9]+[bBkKmMgG]?$ ]] || { V_ERR="Zahl mit optionaler Einheit, z. B. 512M, 0 = unbegrenzt"; return 1; } ;;
+        memlimit)
+          [[ $val =~ ^[0-9]+[bBkKmMgG]?$ ]] || { V_ERR="Zahl mit optionaler Einheit, z. B. 768M oder 2G, 0 = unbegrenzt"; return 1; }
+          [ "$(mem_mb "$val")" -le 16384 ] || { V_ERR="höchstens 16G (16384M) je Container"; return 1; } ;;
         secretname) [[ $val =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { V_ERR="ungültiger Secret-Name"; return 1; } ;;
         *) ;;
       esac
@@ -278,6 +280,18 @@ validate() { # KEY WERT -> V_OUT (normalisiert) / V_ERR; Rückgabe 0 = gültig
 origin_host() { # DASH_ORIGIN -> Host (leer, wenn ungültig)
   local o="$1"
   if [[ $o =~ ^https://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$ ]]; then printf '%s' "${BASH_REMATCH[1],,}"; fi
+}
+
+# Docker-Speicherangabe (b/k/m/g, ohne Einheit = Bytes) in MB, aufgerundet; 0 = unbegrenzt. Nur für geprüfte Werte (memlimit).
+mem_mb() {
+  local v="${1,,}" n u
+  n="${v%[bkmg]}"; u="${v#"$n"}"; n=$((10#$n))
+  case "$u" in
+    g) echo $((n * 1024)) ;;
+    m) echo "$n" ;;
+    k) echo $(((n + 1023) / 1024)) ;;
+    *) echo $(((n + 1048575) / 1048576)) ;;
+  esac
 }
 
 validate_special() { # nutzt V_OUT; schlüsselspezifische Regeln
@@ -399,6 +413,15 @@ check_all() {
   # Konflikte (auf Basis des wirksamen Zustands)
   if [ "$ENV_EXISTS" = 1 ] && ! is_set DB_HOST; then
     chk_err "DB_HOST fehlt (Pflicht, der Stack bricht sonst ab)."
+  fi
+  # Slot-Cache und Container-Limit (OOM 18.11.2026): der Cache liegt im selben Heap wie Ingest und Basis (gemessen bis etwa 300 MB je Konvertierung plus Basis).
+  local lim cache
+  lim="$(eff_value RADAR_MEMORY_LIMIT)"; cache="$(eff_value CACHE_MAX_MB)"
+  if [[ $lim =~ ^[0-9]+[bBkKmMgG]?$ ]] && [[ $cache =~ ^[0-9]+$ ]] && [ "$(mem_mb "$lim")" -gt 0 ]; then
+    lim="$(mem_mb "$lim")"
+    if [ $((cache * 100)) -ge $((lim * 60)) ]; then
+      chk_warn "CACHE_MAX_MB=$cache ist mindestens 60 % von RADAR_MEMORY_LIMIT (${lim}M); der Server kappt den Cache beim Start auf $(( (lim - 384) / 2 > 16 ? (lim - 384) / 2 : 16 )) MB. Empfehlung: Limit mindestens 2 x CACHE_MAX_MB + 384M."
+    fi
   fi
   if [ "$(eff_value PUSH_ENABLED)" = true ]; then
     for k in APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC; do
