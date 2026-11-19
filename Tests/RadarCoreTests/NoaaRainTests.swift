@@ -165,24 +165,23 @@ struct NoaaIngestTests {
         #expect(LayerCatalog.order.contains("radar_world") && LayerCatalog.operatorTokens.contains("radar_world"))
         #expect(try Config.fromEnvironment([:]).layers.isEmpty)
         #expect(try Config.fromEnvironment(["LAYERS": "radar_world"]).layers == ["radar_world"])
-        #expect(try Config.fromEnvironment([:]).radarWorldHistoryHours == 24)
-        #expect(try Config.fromEnvironment(["RADAR_WORLD_HISTORY_HOURS": "6"]).historyHours(for: spec) == 6)
-        #expect(throws: ConfigError.self) { try Config.fromEnvironment(["RADAR_WORLD_HISTORY_HOURS": "25"]) }
+        #expect(try Config.fromEnvironment([:]).historyHours(for: spec) == 48)
+        #expect(try Config.fromEnvironment(["HISTORY_HOURS": "72"]).historyHours(for: spec) == 72)
         #expect(spec.attribution(year: 2026) == "Quelle: NOAA, von Showers verarbeitet; aus Satellitendaten geschätzt, ungenauer")
         #expect(spec.kind == .observation && spec.stepMinutes == 10 && spec.fixedWidth == 2048 && spec.source == "noaa_rrqpe")
         #expect("radar_world".count <= 16)  // column layer VARCHAR(16)
         #expect(spec.width(smallConfig()) == 2048 && spec.height(smallConfig()) == 995)
     }
 
-    private func config() -> Config {
+    private func config(hours: Int = 1) -> Config {
         smallConfig { c in
-            c.layers = ["radar_world"]; c.layerPauseSeconds = 0; c.radarWorldHistoryHours = 1
+            c.layers = ["radar_world"]; c.layerPauseSeconds = 0; c.historyHours = hours
             c.noaaRainURL = "https://noaa.test/bucket"
         }
     }
 
-    private func ingestor(_ repo: any Repo, now: Date = NoaaIngestTests.now, _ fetch: @escaping Fetch) -> LayerIngestor {
-        LayerIngestor(spec: LayerCatalog.specs["radar_world"]!.resized(width: testWidth), config: config(), repo: repo, fetch: fetch, owner: "a",
+    private func ingestor(_ repo: any Repo, now: Date = NoaaIngestTests.now, hours: Int = 1, _ fetch: @escaping Fetch) -> LayerIngestor {
+        LayerIngestor(spec: LayerCatalog.specs["radar_world"]!.resized(width: testWidth), config: config(hours: hours), repo: repo, fetch: fetch, owner: "a",
                       sleep: { _ in }, clock: { now }, noaaGrid: testGrid)
     }
 
@@ -227,6 +226,37 @@ struct NoaaIngestTests {
         #expect((m["modification_notice"] as? String)?.contains("NOAA") == true && m["source"] as? String == "noaa_rrqpe")
         #expect((m["image"] as? [String: Any])?["bbox"] as? [Double] == NoaaRain.worldBBox && m["history_hours"] as? Int == 1)
         #expect(m["legend"] == nil)
+    }
+
+    /// HISTORY_HOURS (48 or 72) is the history of this layer too (before 19 Nov 2026: RADAR_WORLD_HISTORY_HOURS, 1 to 24, default 24).
+    @Test(arguments: RepoKind.allCases, [48, 72])
+    func backfillsTheWholeDurationAndReportsIt(kind: RepoKind, hours: Int) async throws {
+        let repo = try await kind.make()
+        let file = rainFixture().make()
+        let seen = Requests()
+        let ing = ingestor(repo, hours: hours) { url in
+            seen.add(url)
+            return url.contains("?list-type=2") ? self.listing(for: url, stage: 5) : file
+        }
+        var stored = 0
+        for _ in 0..<300 {
+            let r = try await ing.tick()
+            stored += r.stored
+            if r.stored == 0 && r.failed == 0 { break }
+        }
+        let expected = hours * 6 + 1  // 10 min steps, both ends
+        #expect(stored == expected)
+        let spec = LayerCatalog.specs["radar_world"]!.resized(width: testWidth)
+        let body = try #require(try await LayerManifest.build(repo: repo, config: config(hours: hours), spec: spec))
+        let m = try #require(try JSONSerialization.jsonObject(with: Data(body)) as? [String: Any])
+        let slots = try #require(m["slots"] as? [[String: String]])
+        #expect(slots.count == expected && m["history_hours"] as? Int == hours)
+        let history = try #require(m["history"] as? [String: Any])
+        #expect(history["hours"] as? Int == hours && history["expected"] as? Int == expected && history["present"] as? Int == expected)
+        #expect(history["complete"] as? Bool == true && (history["gaps"] as? [Any])?.isEmpty == true && history["oldest"] as? String == slots.first?["time"])
+        #expect(slots.first?["time"] == TimeUtil.toISO(TimeUtil.fromID("20261117T1510Z")!.addingTimeInterval(-Double(hours) * 3600)))
+        let oldest = try #require(slots.first?["path"]).dropLast(5).split(separator: "/").map(String.init)
+        #expect(try await repo.layerGetSlot(layer: "radar_world", runID: oldest[0], slotID: oldest[1]) != nil)
     }
 
     @Test(arguments: RepoKind.allCases)

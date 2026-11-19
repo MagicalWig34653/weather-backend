@@ -195,7 +195,8 @@ public enum ConfigRegistry {
           "Breite des Radarbilds; mit Push fest 1024. Änderung entwertet das Bildraster.", .restart),
         s("LAYERS", "Ebenen", .layers, "", "Zusätzliche Ebenen (Komma-getrennt); Radar läuft immer. Braucht Migration 004.", .restart),
         s("RETENTION_RUNS", "Radar", .int(min: 15, max: 96), "16", "Aufbewahrte Radar-Läufe.", .live),
-        s("HISTORY_HOURS", "Radar", .int(min: 1, max: 72), "48", unit: "h", "Stunden Radar-Historie (history.json).", .live),
+        s("HISTORY_HOURS", "Radar", .choice(["48", "72"]), "48", unit: "h",
+          "Aufbewahrte Vergangenheit ALLER Karten (Radar, Ebenen, vergangene Zeitpunkte der Modellkarten): 48 oder 72 Stunden. Ersetzt die Einstellungen je Ebene.", .live),
         s("FETCH_WORKERS", "Radar", .int(min: 1, max: 6), "3", "Parallele Abrufe beim DWD.", .restart),
         s("AVAILABILITY_DELAY_SECONDS", "Radar", .number(min: 60, max: 900), "200", unit: "s",
           "Wartezeit nach dem Rasterzeitpunkt bis zum Abruf.", .restart),
@@ -205,16 +206,9 @@ public enum ConfigRegistry {
         s("PRESSURE_FORECAST_HOURS", "Ebenen", .int(min: 1, max: 168), "48", unit: "h", "Vorhersagestunden Luftdruck.", .live),
         s("PRESSURE_EU_FORECAST_HOURS", "Ebenen", .int(min: 1, max: 168), "24", unit: "h", "Vorhersagestunden Luftdruck Europa (Bild 4,3-fach größer).", .live),
         s("PRESSURE_RETENTION_RUNS", "Ebenen", .int(min: 2, max: 8), "2", "Aufbewahrte Luftdruck-Läufe.", .live),
-        s("LIGHTNING_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie Blitze.", .live),
-        s("CLOUDS_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie Wolken.", .live),
-        s("CLOUDMASK_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie Wolkenmaske.", .live),
-        s("CLOUDMASK_VIS_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie sichtbarer Kanal.", .live),
-        s("CLOUDMASK_VIS_EU_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "3", unit: "h", "Historie sichtbarer Kanal Europa.", .live),
-        s("RADAR_EU_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 6), "3", unit: "h", "Historie Regenradar Europa (OPERA).", .live),
         s("OPERA_NOISE_DBZ", "Ebenen", .number(min: -10, max: 20), "0.126", unit: "dBZ", "Rauschschwelle Regenradar Europa; darunter transparent.", .live),
         s("OPERA_URL", "Quellen", any, Opera.defaultBaseURL, "OPERA-Haupt-Bucket (nur für Tests ändern).", .envOnly),
         s("OPERA_BACKUP_URL", "Quellen", any, Opera.defaultBackupURL, "OPERA-Ausweich-Bucket, wenn der Haupt-Bucket die Datei nicht hat.", .envOnly),
-        s("RADAR_WORLD_HISTORY_HOURS", "Ebenen", .int(min: 1, max: 24), "24", unit: "h", "Historie Regen Welt (NOAA RRQPE, Satellit).", .live),
         s("NOAA_RAIN_URL", "Quellen", any, NoaaRain.defaultBaseURL, "NOAA-Bucket für Regen Welt (nur für Tests ändern).", .envOnly),
         s("LAYER_PAUSE_SECONDS", "Ebenen", .number(min: 1, max: 60), "2", unit: "s",
           "Pause zwischen zwei Abrufen einer Zusatzebene (Dashboard strenger als der Code, schont den DWD).", .live),
@@ -523,13 +517,6 @@ extension Config {
             case "PRESSURE_FORECAST_HOURS": c.pressureForecastHours = try int(key, raw)
             case "PRESSURE_EU_FORECAST_HOURS": c.pressureEUForecastHours = try int(key, raw)
             case "PRESSURE_RETENTION_RUNS": c.pressureRetentionRuns = try int(key, raw)
-            case "LIGHTNING_HISTORY_HOURS": c.lightningHistoryHours = try int(key, raw)
-            case "CLOUDS_HISTORY_HOURS": c.cloudsHistoryHours = try int(key, raw)
-            case "CLOUDMASK_HISTORY_HOURS": c.cloudmaskHistoryHours = try int(key, raw)
-            case "CLOUDMASK_VIS_HISTORY_HOURS": c.cloudmaskVisHistoryHours = try int(key, raw)
-            case "CLOUDMASK_VIS_EU_HISTORY_HOURS": c.cloudmaskVisEUHistoryHours = try int(key, raw)
-            case "RADAR_EU_HISTORY_HOURS": c.radarEUHistoryHours = try int(key, raw)
-            case "RADAR_WORLD_HISTORY_HOURS": c.radarWorldHistoryHours = try int(key, raw)
             case "OPERA_NOISE_DBZ": c.operaNoiseDBZ = try double(key, raw)
             case "LAYER_PAUSE_SECONDS": c.layerPauseSeconds = try double(key, raw)
             case _ where TempConfig.keys.contains(key): try c.temp.apply(key: key, raw: raw)

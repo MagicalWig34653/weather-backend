@@ -151,4 +151,44 @@ extension MariaRepo {
             return doomed.count
         }
     }
+
+    public func layerPastSlots(layer: String, since: Date, before: Date) async throws -> [SlotRef] {
+        try await connection { conn in
+            let rows = try await query(conn,
+                "SELECT \(Self.layerSlotColumns) FROM layer_slot s JOIN layer_run r ON r.layer = s.layer AND r.run_id = s.run_id "
+                + "WHERE r.status='published' AND s.layer=? AND s.slot_time >= ? AND s.slot_time < ? AND r.nominal_time <= s.slot_time "
+                + "ORDER BY s.slot_time, r.nominal_time DESC", [str(layer), str(TimeUtil.toSQL(since)), str(TimeUtil.toSQL(before))]).rows
+            var seen = Set<Date>()
+            return Self.layerRefs(rows).filter { seen.insert($0.slotTime).inserted }  // newest run first per slot time
+        }
+    }
+
+    public func layerRetainPast(layer: String, keepNewest: Int, pastHours: Int, staleAfter: TimeInterval) async throws -> Int {
+        try await connection { conn in
+            var doomed: [String] = []
+            let runs = try await query(conn,
+                "SELECT run_id, DATE_FORMAT(nominal_time,'%Y-%m-%d %H:%i:%s') AS nominal_s FROM layer_run "
+                + "WHERE layer=? AND status='published' ORDER BY nominal_time DESC", [str(layer)]).rows
+            if let newestRow = runs.first {
+                let pastSince = Self.time(newestRow, "nominal_s").addingTimeInterval(-Double(pastHours) * 3600)
+                for index in max(1, keepNewest)..<max(max(1, keepNewest), runs.count) {
+                    let id = runs[index].column("run_id")?.string ?? ""
+                    let nominal = Self.time(runs[index], "nominal_s"), next = Self.time(runs[index - 1], "nominal_s")
+                    _ = try await query(conn,
+                        "DELETE FROM layer_slot WHERE layer=? AND run_id=? AND (slot_time < ? OR slot_time >= ?)",
+                        [str(layer), str(id), str(TimeUtil.toSQL(max(pastSince, nominal))), str(TimeUtil.toSQL(next))])
+                    let left = try await query(conn, "SELECT 1 AS ok FROM layer_slot WHERE layer=? AND run_id=? LIMIT 1", [str(layer), str(id)])
+                    if left.rows.isEmpty { doomed.append(id) }
+                }
+            }
+            doomed += try await query(conn,
+                "SELECT run_id FROM layer_run WHERE layer=? AND status<>'published' AND lease_until < UTC_TIMESTAMP() - INTERVAL ? SECOND",
+                [str(layer), MySQLData(int: Int(staleAfter))]).rows.compactMap { $0.column("run_id")?.string }
+            for id in doomed {
+                _ = try await query(conn, "DELETE FROM layer_slot WHERE layer=? AND run_id=?", [str(layer), str(id)])
+                _ = try await query(conn, "DELETE FROM layer_run WHERE layer=? AND run_id=?", [str(layer), str(id)])
+            }
+            return doomed.count
+        }
+    }
 }

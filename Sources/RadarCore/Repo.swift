@@ -83,6 +83,14 @@ public protocol LayerRepo: Sendable {
     /// Deletes published runs that are not among the newest `keepNewest` AND older than `keepSince`, and unpublished
     /// leftovers after `staleAfter`. Returns the number of deleted runs.
     func layerRetain(layer: String, keepNewest: Int, keepSince: Date, staleAfter: TimeInterval) async throws -> Int
+    /// Past valid times of a forecast layer in [since, before): per slot time the slot of the newest published run whose nominal time is
+    /// not after it (the run that was current then), ascending. Times no run covers are simply missing.
+    func layerPastSlots(layer: String, since: Date, before: Date) async throws -> [SlotRef]
+    /// Retention of a forecast layer with a past: the newest `keepNewest` published runs stay complete; every older run keeps only the
+    /// slots from its own nominal time up to the nominal time of the next newer run (the valid times it was the current run for) and
+    /// only those not older than `pastHours` before the newest run; runs without such a slot go. Unpublished leftovers expire after `staleAfter`.
+    /// Returns the number of deleted runs.
+    func layerRetainPast(layer: String, keepNewest: Int, pastHours: Int, staleAfter: TimeInterval) async throws -> Int
 }
 
 /// Push registration, evaluation state and outbox. Times are passed in by the caller (UTC, second resolution).

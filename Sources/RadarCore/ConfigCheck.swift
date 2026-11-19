@@ -20,7 +20,7 @@ public enum ConfigCheck {
     }
 
     public static func run(env: [String: String] = ProcessInfo.processInfo.environment) -> Result {
-        var warnings: [String] = []
+        var warnings: [String] = Config.environmentNotices(env).map { "warning: \($0)" }
         do {
             let config = try ConfigRegistry.resolve(env: prepared(env), stored: [:], warn: { warnings.append("warning: \($0)") })
             var lines = warnings

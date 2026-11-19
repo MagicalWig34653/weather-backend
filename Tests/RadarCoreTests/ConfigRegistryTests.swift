@@ -16,22 +16,25 @@ import Testing
     }
 
     @Test func precedenceEnvThenDashboardThenDefault() throws {
-        let stored = ["HISTORY_HOURS": "24", "JITTER_SECONDS": "10", "FETCH_WORKERS": "2"]
-        let c = try ConfigRegistry.resolve(env: ["HISTORY_HOURS": "12"], stored: stored)
-        #expect(c.historyHours == 12)          // ENV wins
+        let stored = ["RETENTION_RUNS": "20", "JITTER_SECONDS": "10", "FETCH_WORKERS": "2"]
+        let c = try ConfigRegistry.resolve(env: ["RETENTION_RUNS": "30"], stored: stored)
+        #expect(c.retentionRuns == 30)         // ENV wins
         #expect(c.jitterSeconds == 10)         // dashboard beats default
         #expect(c.workers == 2)
-        #expect(c.retentionRuns == 16)         // default
+        #expect(c.historyHours == 48)          // default
         // Empty ENV does not lock the key.
-        let d = try ConfigRegistry.resolve(env: ["HISTORY_HOURS": ""], stored: stored)
-        #expect(d.historyHours == 24)
-        let entries = ConfigRegistry.entries(env: ["HISTORY_HOURS": "12"], stored: stored)
-        let hist = try #require(entries.first { $0.key == "HISTORY_HOURS" })
-        #expect(hist.source == .env && hist.lockedByEnv && hist.value == "12")
+        let d = try ConfigRegistry.resolve(env: ["RETENTION_RUNS": ""], stored: stored)
+        #expect(d.retentionRuns == 20)
+        let entries = ConfigRegistry.entries(env: ["RETENTION_RUNS": "30"], stored: stored)
+        let hist = try #require(entries.first { $0.key == "RETENTION_RUNS" })
+        #expect(hist.source == .env && hist.lockedByEnv && hist.value == "30")
         let jitter = try #require(entries.first { $0.key == "JITTER_SECONDS" })
         #expect(jitter.source == .dashboard && !jitter.lockedByEnv && jitter.value == "10")
-        let retention = try #require(entries.first { $0.key == "RETENTION_RUNS" })
-        #expect(retention.source == .default && retention.value == "16")
+        let history = try #require(entries.first { $0.key == "HISTORY_HOURS" })
+        #expect(history.source == .default && history.value == "48" && history.choices == ["48", "72"])
+        // HISTORY_HOURS (48 or 72): ENV wins over the dashboard value, the dashboard value over the default.
+        #expect(try ConfigRegistry.resolve(env: ["HISTORY_HOURS": "72"], stored: ["HISTORY_HOURS": "48"]).historyHours == 72)
+        #expect(try ConfigRegistry.resolve(env: [:], stored: ["HISTORY_HOURS": "72"]).historyHours == 72)
     }
 
     @Test func invalidStoredValueFallsBackToDefaultWithWarning() throws {
@@ -56,13 +59,17 @@ import Testing
         rejects("PUSH_MAX_INSTALLATIONS", "1000001")
         rejects("LAYER_PAUSE_SECONDS", "0"); rejects("LAYER_PAUSE_SECONDS", "61"); rejects("LAYER_PAUSE_SECONDS", "nan")
         rejects("AVAILABILITY_DELAY_SECONDS", "59"); rejects("REQUEST_TIMEOUT_SECONDS", "4"); rejects("JITTER_SECONDS", "121")
-        rejects("HISTORY_HOURS", "73"); rejects("FETCH_WORKERS", "7"); rejects("IMAGE_WIDTH", "4096")
+        // HISTORY_HOURS: one duration for all maps, only 48 or 72 (before 19 Nov 2026: 1 to 72)
+        for bad in ["73", "24", "47", "49", "71", "0", "-48", "48.5", "abc"] { rejects("HISTORY_HOURS", bad) }
+        rejects("FETCH_WORKERS", "7"); rejects("IMAGE_WIDTH", "4096")
         rejects("LAYERS", "pressure,bogus"); rejects("APNS_ENV", "everything"); rejects("PUSH_ENABLED", "yes")
         rejects("USER_AGENT", "caf\u{e9}"); rejects("USER_AGENT", String(repeating: "a", count: 201))
         rejects("OPERATOR_NAME", String(repeating: "a", count: 501)); rejects("OPERATOR_NAME", "   ")
         rejects("APP_STORE_URL", "javascript:alert(1)"); rejects("APP_STORE_URL", "http://apps.apple.com/x")
         rejects("APP_STORE_URL", "https://evil.example/apps.apple.com"); rejects("TESTFLIGHT_URL", "https://apps.apple.com/x")
         rejects("APNS_KEY_ID", "short"); rejects("APNS_TEAM_ID", "abcdefghij"); rejects("APNS_TOPIC", "nodots"); rejects("APNS_TOPIC", "a..b")
+        #expect(try ConfigRegistry.validate(key: "HISTORY_HOURS", raw: " 72 ") == "72")
+        #expect(try ConfigRegistry.validate(key: "HISTORY_HOURS", raw: "48") == "48")
         #expect(try ConfigRegistry.validate(key: "RETENTION_RUNS", raw: " 20 ") == "20")
         #expect(try ConfigRegistry.validate(key: "LAYER_PAUSE_SECONDS", raw: "2.0") == "2")
         #expect(try ConfigRegistry.validate(key: "LAYERS", raw: "Lightning clouds") == "lightning,clouds")
@@ -82,10 +89,10 @@ import Testing
     @Test func writeRespectsEnvLockAndAuditsMasked() async throws {
         let store = MemoryConfigOverrideStore()
         await #expect(throws: ConfigWriteError.lockedByEnv) {
-            try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "10", env: ["HISTORY_HOURS": "48"], store: store)
+            try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "72", env: ["HISTORY_HOURS": "48"], store: store)
         }
         // Empty ENV does not lock.
-        let rev = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "10", env: ["HISTORY_HOURS": ""], store: store)
+        let rev = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "72", env: ["HISTORY_HOURS": ""], store: store)
         #expect(rev == 1)
         _ = try await ConfigRegistry.write(key: "OPERATOR_NAME", raw: "Max Mustermann", env: [:], store: store)
         let audit = await store.audit
@@ -126,7 +133,7 @@ import Testing
 
     @Test func outputModelNeverContainsSecrets() throws {
         let secrets = ["S3CR3T-DB-PASSWORD", "TOP-SECRET-APNS-PEM"]
-        let env = ["DB_PASSWORD": secrets[0], "APNS_KEY": secrets[1], "DB_PASSWORD_FILE": "/run/secrets/x", "HISTORY_HOURS": "12"]
+        let env = ["DB_PASSWORD": secrets[0], "APNS_KEY": secrets[1], "DB_PASSWORD_FILE": "/run/secrets/x", "HISTORY_HOURS": "72"]
         let entries = ConfigRegistry.entries(env: env, stored: [:])
         let json = String(decoding: try JSONEncoder().encode(entries), as: UTF8.self)
         for secret in secrets { #expect(!json.contains(secret)) }
@@ -162,7 +169,7 @@ import Testing
 
     @Test func restartPendingOnlyForChangedRestartKeys() {
         let start = ["FETCH_WORKERS": "3"]
-        let stored = ["FETCH_WORKERS": "2", "HISTORY_HOURS": "10"]
+        let stored = ["FETCH_WORKERS": "2", "HISTORY_HOURS": "72"]
         let keys = ConfigRegistry.restartPendingKeys(env: [:], stored: stored, startOverrides: start)
         #expect(keys == ["FETCH_WORKERS"])   // HISTORY_HOURS is live
         #expect(ConfigRegistry.restartPendingKeys(env: [:], stored: stored, startOverrides: stored).isEmpty)
@@ -174,15 +181,15 @@ import Testing
     @Test func configStoreOnMemoryRepo() async throws {
         let repo = MemoryRepo()
         let store = DashboardConfigStore(repo: repo)
-        let rev = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "10", env: [:], store: store)
+        let rev = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "72", env: [:], store: store)
         #expect(rev == 1)
         _ = try await ConfigRegistry.write(key: "OPERATOR_NAME", raw: "Max", env: [:], store: store)
         let stored = try await store.loadOverrides()
-        #expect(stored.values == ["HISTORY_HOURS": "10", "OPERATOR_NAME": "Max"] && stored.revision == 2)
+        #expect(stored.values == ["HISTORY_HOURS": "72", "OPERATOR_NAME": "Max"] && stored.revision == 2)
         // Operator texts are masked in the audit log, numbers are not.
         let audit = try await repo.auditEntries(limit: 10)
         #expect(!audit.contains { $0.newValue == "Max" || $0.oldValue == "Max" })
-        #expect(audit.contains { $0.key == "HISTORY_HOURS" && $0.newValue == "10" })
+        #expect(audit.contains { $0.key == "HISTORY_HOURS" && $0.newValue == "72" })
         #expect(try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: nil, env: [:], store: store) == 3)
         #expect(try await store.currentRevision() == 3)
     }

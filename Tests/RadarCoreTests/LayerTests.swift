@@ -87,9 +87,8 @@ struct LayerUnitTests {
                 == ["pressure", "pressure_eu", "cloudmask_vis", "cloudmask_vis_eu"])
         #expect(LayerCatalog.order.count == LayerCatalog.specs.count)
         #expect(try Config.fromEnvironment([:]).pressureEUForecastHours == 24)
-        #expect(try Config.fromEnvironment(["PRESSURE_EU_FORECAST_HOURS": "48", "CLOUDMASK_VIS_EU_HISTORY_HOURS": "6"]).pressureEUForecastHours == 48)
+        #expect(try Config.fromEnvironment(["PRESSURE_EU_FORECAST_HOURS": "48", "HISTORY_HOURS": "72"]).pressureEUForecastHours == 48)
         #expect(throws: ConfigError.self) { try Config.fromEnvironment(["PRESSURE_EU_FORECAST_HOURS": "0"]) }
-        #expect(throws: ConfigError.self) { try Config.fromEnvironment(["CLOUDMASK_VIS_HISTORY_HOURS": "25"]) }
         // column limits of layer_run/layer_slot (VARCHAR(16)) and radar_lock (VARCHAR(32), "layer:" prefix)
         for id in LayerCatalog.order { #expect(id.count <= 16 && "layer:\(id)".count <= 32) }
         // the app accepts images up to 4096 px per side
@@ -194,7 +193,7 @@ struct LayerServiceTests {
     @Test(arguments: RepoKind.allCases)
     func lightningFillsHistoryNewestFirstAndManifest(kind: RepoKind) async throws {
         let repo = try await kind.make()
-        let cfg = layerConfig(["lightning"]) { $0.lightningHistoryHours = 1 }
+        let cfg = layerConfig(["lightning"]) { $0.historyHours = 1 }
         let src = FakeSources(cfg)
         let ing = ingestor("lightning", repo, cfg, src)
         let first = try await ing.tick()
@@ -231,7 +230,7 @@ struct LayerServiceTests {
     @Test(arguments: RepoKind.allCases)
     func cloudsRejectIncompleteImagesAndUseCapabilities(kind: RepoKind) async throws {
         let repo = try await kind.make()
-        let cfg = layerConfig(["clouds"]) { $0.cloudsHistoryHours = 1 }
+        let cfg = layerConfig(["clouds"]) { $0.historyHours = 1 }
         let src = FakeSources(cfg)
         src.capsLatest = "2026-10-31T10:10:00Z"
         src.useBlack = { $0.contains("TIME=2026-10-31T10%3A10%3A00Z") }
@@ -249,7 +248,7 @@ struct LayerServiceTests {
     @Test(arguments: RepoKind.allCases)
     func cloudmaskIsLosslessAndHasLegend(kind: RepoKind) async throws {
         let repo = try await kind.make()
-        let cfg = layerConfig(["cloudmask"]) { $0.cloudmaskHistoryHours = 1 }
+        let cfg = layerConfig(["cloudmask"]) { $0.historyHours = 1 }
         let src = FakeSources(cfg)
         src.capsLatest = "2026-10-31T10:30:00Z"
         _ = try await ingestor("cloudmask", repo, cfg, src).tick()
@@ -284,12 +283,17 @@ struct LayerServiceTests {
         m = try await manifest(repo, cfg, "pressure")
         #expect(m["run"] as? String == "20261031T0600Z")
         #expect(try await repo.layerIsPublished(layer: "pressure", runID: "20261031T0000Z"))
-        // a third run pushes the oldest out
+        // a third run takes the oldest out of the complete runs: since 19 Nov 2026 it stays for its past valid times (up to the next
+        // run's time, within HISTORY_HOURS), only what lies beyond that goes. The forecast here (3 h) lies before the next run (6 h later),
+        // so all four slots stay; the thinning itself is covered by HistoryAllLayersTests.
         let later = LayerIngestor(spec: LayerCatalog.specs["pressure"]!, config: cfg, repo: repo, fetch: src.fetch, owner: "a",
                                   sleep: { _ in }, clock: { TimeUtil.fromID("20261031T1305Z")! })
         _ = try await later.tick()
-        #expect(try await !repo.layerIsPublished(layer: "pressure", runID: "20261031T0000Z"))
         #expect(try await repo.layerIsPublished(layer: "pressure", runID: "20261031T0600Z"))
+        #expect(try await repo.layerIsPublished(layer: "pressure", runID: "20261031T1200Z"))
+        #expect(try await repo.layerPublishedSlots(layer: "pressure", runID: "20261031T0000Z").count == 4)
+        m = try await manifest(repo, cfg, "pressure")
+        #expect(m["run"] as? String == "20261031T1200Z" && (m["past_slots"] as? [[String: String]])?.last?["time"] == "2026-10-31T09:00:00Z")  // the 3 h forecasts end before the next run
     }
 
     @Test func lateCompletedForecastRunIsRetriedBeyondTwoAttempts() async throws {
@@ -412,7 +416,7 @@ struct LayerServiceTests {
     @Test(arguments: RepoKind.allCases)
     func visibleChannelKeepsNightImagesButRejectsBlackTilesInDaylight(kind: RepoKind) async throws {
         let repo = try await kind.make()
-        let cfg = layerConfig(["cloudmask_vis"]) { $0.cloudmaskVisHistoryHours = 1 }
+        let cfg = layerConfig(["cloudmask_vis"]) { $0.historyHours = 1 }
         // Day over Germany (10:30 UTC): an all-black image is a missing tile and is not published.
         let day = FakeSources(cfg)
         day.capsLatest = "2026-10-31T10:30:00Z"
@@ -444,7 +448,7 @@ struct LayerServiceTests {
         // 06:20 UTC on 1 Nov: Europe is half dark (west) and half lit (east); black only in the dark part is fine,
         // a fully black image is not (the east is in daylight).
         let repo = try await kind.make()
-        let cfg = layerConfig(["cloudmask_vis_eu"]) { $0.cloudmaskVisEUHistoryHours = 1 }
+        let cfg = layerConfig(["cloudmask_vis_eu"]) { $0.historyHours = 1 }
         let src = FakeSources(cfg)
         src.capsLatest = "2026-11-01T06:20:00Z"
         src.useBlack = { _ in true }

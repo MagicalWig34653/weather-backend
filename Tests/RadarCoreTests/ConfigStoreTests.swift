@@ -16,18 +16,18 @@ struct ConfigStoreTests {
         #expect(store.restartPendingKeys().isEmpty)
         #expect(await store.refresh() == false)               // unchanged revision
 
-        _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "24", env: [:], store: dashboard)   // live
+        _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "72", env: [:], store: dashboard)   // live
         _ = try await ConfigRegistry.write(key: "FETCH_WORKERS", raw: "4", env: [:], store: dashboard)    // restart
         _ = try await ConfigRegistry.write(key: "PUSH_RATE_PER_INSTALLATION", raw: "100", env: [:], store: dashboard)
         #expect(await store.refresh() == true)
         let now = store.snapshot()
-        #expect(now.historyHours == 24)
+        #expect(now.historyHours == 72)
         #expect(now.push.rateLimits.perInstallation == 100)
         #expect(now.workers == 2)                              // still the start value
         #expect(store.restartPendingKeys() == ["FETCH_WORKERS"])
         let row = try #require(store.entries().first { $0.key == "FETCH_WORKERS" })
         #expect(row.restartPending && row.value == "4")
-        #expect(store.provider().historyHours == 24)
+        #expect(store.provider().historyHours == 72)
 
         // Reset removes the live value again; a new process (store) starts with the stored restart value and nothing pending.
         _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: nil, env: [:], store: dashboard)
@@ -39,10 +39,10 @@ struct ConfigStoreTests {
     @Test(arguments: RepoKind.allCases) func envWinsAndEmptyEnvDoesNot(kind: RepoKind) async throws {
         let repo = try await kind.make()
         let dashboard = DashboardConfigStore(repo: repo)
-        _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "10", env: [:], store: dashboard)
+        _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "72", env: [:], store: dashboard)
         _ = try await ConfigRegistry.write(key: "RETENTION_RUNS", raw: "20", env: [:], store: dashboard)
-        let store = try await ConfigStore(env: ["HISTORY_HOURS": "12", "RETENTION_RUNS": ""], repo: repo)
-        #expect(store.snapshot().historyHours == 12 && store.snapshot().retentionRuns == 20)
+        let store = try await ConfigStore(env: ["HISTORY_HOURS": "48", "RETENTION_RUNS": ""], repo: repo)
+        #expect(store.snapshot().historyHours == 48 && store.snapshot().retentionRuns == 20)
         let hist = try #require(store.entries().first { $0.key == "HISTORY_HOURS" })
         #expect(hist.source == .env && hist.lockedByEnv)
     }
@@ -59,11 +59,11 @@ struct ConfigStoreTests {
             if failing.withLock({ $0 }) { throw Down() }
             return try await repo.configRevision()
         }
-        _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "10", env: [:], store: DashboardConfigStore(repo: repo))
+        _ = try await ConfigRegistry.write(key: "HISTORY_HOURS", raw: "72", env: [:], store: DashboardConfigStore(repo: repo))
         let store = try await ConfigStore(state: state, revision: revision)
-        #expect(store.snapshot().historyHours == 10)
+        #expect(store.snapshot().historyHours == 72)
         failing.withLock { $0 = true }
-        #expect(await store.refresh() == false && store.snapshot().historyHours == 10)
+        #expect(await store.refresh() == false && store.snapshot().historyHours == 72)
         // A database that is down at start gives environment and defaults instead of an abort.
         let cold = try await ConfigStore(state: state, revision: revision)
         #expect(cold.snapshot().historyHours == 48)

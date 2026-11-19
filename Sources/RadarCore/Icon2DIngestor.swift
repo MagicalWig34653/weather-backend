@@ -109,8 +109,8 @@ extension LayerIngestor {
             result.failureClass = LayerTickResult.classify(error)
             throw error
         }
-        _ = try? await repo.layerRetain(layer: spec.id, keepNewest: config.pressureRetentionRuns,
-                                        keepSince: Date(timeIntervalSince1970: 4_000_000_000), staleAfter: Self.staleAfter)
+        _ = try? await repo.layerRetainPast(layer: spec.id, keepNewest: config.pressureRetentionRuns,
+                                            pastHours: config.historyHours(for: spec), staleAfter: Self.staleAfter)
         let now = clock()
         stats.observe("ingest_lag", key: spec.id, seconds: now.timeIntervalSince(run))
         stats.observe("ingest_dur", key: spec.id, seconds: now.timeIntervalSince(started))
