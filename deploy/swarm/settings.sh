@@ -376,7 +376,7 @@ chk_note() { CHK_NOTE+=("$*"); } # Hinweis: weder Fehler noch Warnung
 check_all() {
   load_secret_list # in der Haupt-Shell, damit `$(secret_status ...)` unten den Cache nutzt (kein docker je Aufruf)
   CHK_ERR=(); CHK_WARN=(); CHK_NOTE=()
-  local k v name st
+  local k v name st used
   if [ "$ENV_EXISTS" = 0 ]; then chk_warn "Datei $ENV_FILE existiert noch nicht (wird beim Speichern angelegt)."; fi
   # Zeilen und Werte der Datei
   for k in $(printf '%s\n' "${!ENV_VAL[@]}" | sort); do
@@ -396,6 +396,17 @@ check_all() {
       fi
       [ -n "$v" ] || continue
       if is_system_key "$k"; then chk_warn "$k wird vom System gesetzt; ein Wert in der .env ist wirkungslos."; continue; fi
+      # Veraltete Einstellungen je Ebene (bis 19.11.2026): wirkungslos, der Dienst warnt beim Start.
+      if [ "${T_GROUP[$k]}" = Veraltet ]; then
+        chk_warn "$k ist veraltet und ohne Wirkung: HISTORY_HOURS (48 oder 72) gilt für alle Karten. Zeile entfernen (--unset $k)."
+        continue
+      fi
+      # Alter HISTORY_HOURS-Wert (1 bis 72 war gültig): der Dienst rundet auf 48 bzw. 72 auf und startet; hier nur eine Warnung.
+      if [ "$k" = HISTORY_HOURS ] && [[ $v =~ ^[0-9]{1,2}$ ]] && [ $((10#$v)) -ge 1 ] && [ $((10#$v)) -le 72 ] && [ $((10#$v)) -ne 48 ] && [ $((10#$v)) -ne 72 ]; then
+        if [ $((10#$v)) -lt 48 ]; then used=48; else used=72; fi
+        chk_warn "HISTORY_HOURS=$v ist nicht mehr gültig (nur 48 oder 72); der Dienst verwendet $used. Wert setzen (--set HISTORY_HOURS=$used)."
+        continue
+      fi
       if validate "$k" "$v"; then
         :
       else

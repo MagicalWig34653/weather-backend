@@ -81,26 +81,26 @@ menu() { # Antwortzeilen "RC|Ausgabe" als Argumente; Ausgabe im Menümodus in $W
 fresh
 check "help" S --help
 printf 'SENTINEL-OLD-BACKUP\n' > "$ENVF.bak"
-S --set HISTORY_HOURS=24 >/dev/null
-check "set: Kommentarzeile #KEY= wird an Ort und Stelle aktiviert" bash -c "[ \"\$(sed -n 8p '$ENVF')\" = 'HISTORY_HOURS=24' ]"
-check "set: get liefert den Wert" bash -c "[ \"\$(cd '$DIR' && ./settings.sh --env '$ENVF' --get HISTORY_HOURS)\" = 24 ]"
+S --set HISTORY_HOURS=72 >/dev/null
+check "set: Kommentarzeile #KEY= wird an Ort und Stelle aktiviert" bash -c "[ \"\$(sed -n 8p '$ENVF')\" = 'HISTORY_HOURS=72' ]"
+check "set: get liefert den Wert" bash -c "[ \"\$(cd '$DIR' && ./settings.sh --env '$ENVF' --get HISTORY_HOURS)\" = 72 ]"
 check "set: Kommentare und unbekannte Zeilen bleiben" bash -c "grep -qx '# Kommentar oben, bleibt erhalten' '$ENVF' && grep -qx \"UNKNOWN_THING='keep me'\" '$ENVF' && grep -qx '#CACHE_MAX_MB=64' '$ENVF' && grep -qx '# Ende' '$ENVF'"
 check "set: Rechte 600 bleiben" bash -c "[ \"\$(stat -c '%a' '$ENVF' 2>/dev/null || stat -f '%Lp' '$ENVF')\" = 600 ]"
 check "set: Sicherung .env.bak.JJJJMMTT-HHMMSS angelegt" bash -c "ls '$ENVF'.bak.[0-9]*-[0-9]* >/dev/null 2>&1"
 check "set: vorhandene .env.bak bleibt unberuehrt" bash -c "[ \"\$(cat '$ENVF.bak')\" = SENTINEL-OLD-BACKUP ]"
 check "set: Sicherung hat Rechte 600" bash -c "for f in '$ENVF'.bak.*; do [ \"\$(stat -c '%a' \"\$f\" 2>/dev/null || stat -f '%Lp' \"\$f\")\" = 600 ] || exit 1; done"
 check "set: keine temporaeren Dateien uebrig" bash -c "! ls '$WORK'/.env.settings.* >/dev/null 2>&1"
-S --set HISTORY_HOURS=24 >/dev/null; b="$(nbackups)"
+S --set HISTORY_HOURS=72 >/dev/null; b="$(nbackups)"
 check "set: gleicher Wert erzeugt keine neue Sicherung" bash -c "[ '$b' = 1 ]"
 S --set CACHE_MAX_MB=128 --set FETCH_WORKERS=2 >/dev/null
 check "set: mehrere Werte in einem Lauf" bash -c "grep -qx 'CACHE_MAX_MB=128' '$ENVF' && grep -qx 'FETCH_WORKERS=2' '$ENVF'"
 check "set: neue Variable wird angehaengt" bash -c "tail -n1 '$ENVF' | grep -qx 'FETCH_WORKERS=2'"
 check "set: normalisiert (Ebenen)" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --set 'LAYERS=Clouds, pressure radar' >/dev/null && grep -qx 'LAYERS=pressure,clouds' '$ENVF'"
-check "set: Zahl mit Fuehrungsnull" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --set HISTORY_HOURS=007 >/dev/null && grep -qx 'HISTORY_HOURS=7' '$ENVF'"
+check "set: Zahl mit Fuehrungsnull" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --set FETCH_WORKERS=003 >/dev/null && grep -qx 'FETCH_WORKERS=3' '$ENVF'"
 
 # ------------------------------------------------------------- Ablehnung ungültiger Werte
 fresh; before="$(sha)"
-for pair in HISTORY_HOURS=99 HISTORY_HOURS=abc HISTORY_HOURS= JITTER_SECONDS=-1 JITTER_SECONDS=1e3 PUSH_ENABLED=yes APNS_ENV=staging \
+for pair in HISTORY_HOURS=99 HISTORY_HOURS=24 HISTORY_HOURS=49 HISTORY_HOURS=abc HISTORY_HOURS= LIGHTNING_HISTORY_HOURS=abc JITTER_SECONDS=-1 JITTER_SECONDS=1e3 PUSH_ENABLED=yes APNS_ENV=staging \
             APNS_KEY_ID=abc APNS_TOPIC=nodots LAYERS=foo APP_STORE_URL=http://apps.apple.com/x APP_STORE_URL=https://evil.example/x \
             DASH_ORIGIN=http://dash.example.internal DASH_ORIGIN=https://dash.example.internal/path DASH_RP_ID=https://x \
             RADAR_STACK=Bad_Name RADAR_MEMORY_LIMIT=lots UNKNOWN_VAR=1 REPLICA_SLOT=2; do
@@ -137,9 +137,9 @@ check "--check still: Cache ohne Limit" bash -c "cd '$DIR' && ! ./settings.sh --
 
 # ------------------------------------------------------------- Zurücksetzen
 fresh
-S --set HISTORY_HOURS=24 >/dev/null
+S --set HISTORY_HOURS=72 >/dev/null
 S --unset HISTORY_HOURS >/dev/null
-check "unset: Zeile wird auskommentiert, Wert bleibt lesbar" grep -qx '#HISTORY_HOURS=24' "$ENVF"
+check "unset: Zeile wird auskommentiert, Wert bleibt lesbar" grep -qx '#HISTORY_HOURS=72' "$ENVF"
 check "unset: get liefert den Default" bash -c "[ \"\$(cd '$DIR' && ./settings.sh --env '$ENVF' --get HISTORY_HOURS)\" = 48 ]"
 check "unset: nicht gesetzte Variable ist kein Fehler" S --unset CACHE_MAX_MB
 check "unset: unbekannte Variable wird abgelehnt" bash -c "! (cd '$DIR' && ./settings.sh --env '$ENVF' --unset NOPE_X >/dev/null 2>&1)"
@@ -157,7 +157,7 @@ printf 'DB_PASSWORD=hunter2\nFOO_TOKEN=abc123\n' >> "$ENVF"
 check "Geheimnis in der .env: --check meldet Fehler" bash -c "! (cd '$DIR' && ./settings.sh --env '$ENVF' --check >/dev/null 2>&1)"
 check "Geheimnis in der .env: --list zeigt keinen Wert" bash -c "! (cd '$DIR' && PATH='$WORK/bin:$PATH' ./settings.sh --env '$ENVF' --list | grep -q 'hunter2\|abc123')"
 check "Geheimnis in der .env: --check gibt keinen Wert aus" bash -c "! (cd '$DIR' && ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'hunter2\|abc123')"
-S --set HISTORY_HOURS=30 >/dev/null
+S --set HISTORY_HOURS=72 >/dev/null
 check "Geheimnis in der .env: andere Aenderung beruehrt die Zeile nicht" grep -qx 'DB_PASSWORD=hunter2' "$ENVF"
 S --unset DB_PASSWORD >/dev/null
 check "Geheimnis in der .env: --unset loescht die Zeile (kein Kommentar mit Wert)" bash -c "! grep -q 'hunter2' '$ENVF' && grep -qx 'FOO_TOKEN=abc123' '$ENVF'"
@@ -186,6 +186,16 @@ fresh
 check "check: saubere Datei ohne Fehler" S --check
 printf 'FANCY_THING=1\n' >> "$ENVF"
 check "check: unbekannte Variable ist Warnung, kein Fehler" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'WARNUNG.*FANCY_THING' && ./settings.sh --env '$ENVF' --check >/dev/null"
+# Eine Dauer fuer alle Karten (19.11.2026): HISTORY_HOURS nur 48 oder 72; die Einstellungen je Ebene sind veraltet, wirkungslos, aber kein Fehler
+fresh
+printf 'HISTORY_HOURS=24\nRADAR_EU_HISTORY_HOURS=3\nCLOUDS_HISTORY_HOURS=3\n' >> "$ENVF"
+out="$(S --check 2>&1)"; rc=$?
+check "check: alter HISTORY_HOURS-Wert ist Warnung (Dienst rundet auf), kein Fehler" bash -c "[ $rc -eq 0 ] && grep -q 'HISTORY_HOURS=24 ist nicht mehr gültig.*verwendet 48' <<< \"\$1\"" _ "$out"
+check "check: veraltete Ebenen-Variablen sind Warnung mit Hinweis auf HISTORY_HOURS, kein Fehler" bash -c "grep -q 'RADAR_EU_HISTORY_HOURS ist veraltet und ohne Wirkung: HISTORY_HOURS (48 oder 72)' <<< \"\$1\" && grep -q 'CLOUDS_HISTORY_HOURS ist veraltet' <<< \"\$1\"" _ "$out"
+fresh; printf 'HISTORY_HOURS=60\n' >> "$ENVF"
+check "check: HISTORY_HOURS=60 wird als 72 gemeldet" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'HISTORY_HOURS=60 ist nicht mehr gültig.*verwendet 72'"
+fresh; S --set HISTORY_HOURS=72 >/dev/null
+check "check: HISTORY_HOURS=72 ist sauber" bash -c "cd '$DIR' && ./settings.sh --env '$ENVF' --check 2>&1 | grep -q 'HISTORY_HOURS' && exit 1; exit 0"
 printf 'HISTORY_HOURS=500\n' >> "$ENVF"
 check "check: Grenzverletzung ist Fehler (Exit 1)" bash -c "cd '$DIR' && ! ./settings.sh --env '$ENVF' --check >/dev/null 2>&1"
 fresh; printf 'PUSH_ENABLED=true\n' >> "$ENVF"
@@ -251,24 +261,24 @@ check "list: alle Tabellenzeilen (>= 70 Variablen)" bash -c "[ \$(grep -c . <<< 
 # ------------------------------------------------------------- Menüführung (whiptail-Stub)
 # Ablauf: Hauptmenü (Tag = Gruppenname) -> Gruppe (Tag = KEY) -> direkt Eingabe/Auswahl (kein Zwischenmenü), Esc/Zurück = "1|".
 fresh
-menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|abc' '0|' '0|30' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
+menu '0|Radar & Cache' '0|RETENTION_RUNS' '0|abc' '0|' '0|30' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
 check "menue: Eingabe-Ablauf endet normal" bash -c "[ $MENU_RC -eq 0 ] && ! grep -q 'script exhausted' '$WORK/log'"
-check "menue: ungueltige Eingabe 'abc' wird mit Fehlerbox abgelehnt und erneut gefragt" bash -c "grep -q 'HISTORY_HOURS: muss eine ganze Zahl sein' '$WORK/log'"
+check "menue: ungueltige Eingabe 'abc' wird mit Fehlerbox abgelehnt und erneut gefragt" bash -c "grep -q 'RETENTION_RUNS: muss eine ganze Zahl sein' '$WORK/log'"
 check "menue: nach dem Fehler steht 'abc' wieder im selben Eingabefeld" bash -c "$(declare -f call_n); WORK='$WORK'; call_n 5 | grep -q -- '--inputbox' && call_n 5 | grep -q '\[abc\]\$'"
 check "menue: Fehlerbox ohne --scrolltext (Enter schliesst sie)" bash -c "grep '^#4:' '$WORK/log' | grep -q 'msgbox' && ! grep '^#4:' '$WORK/log' | grep -q 'scrolltext'"
-check "menue: gespeichert" grep -qx 'HISTORY_HOURS=30' "$ENVF"
-check "menue: Diff-Uebersicht zeigt Aenderung" bash -c "grep -q 'HISTORY_HOURS: (Default: 48)  ->  30' '$WORK/log'"
-check "menue: Uebersicht nennt die Wirkung (live) und den Rollout" bash -c "grep -q 'WIRKUNG' '$WORK/log' && grep -q 'HISTORY_HOURS: live' '$WORK/log' && grep -q 'Rolling Update' '$WORK/log'"
-check "menue: Titel mit Pfad Einstellungen > Gruppe > KEY" bash -c "grep -Eq 'Einstellungen (>|›) Radar & Cache (>|›) HISTORY_HOURS' '$WORK/log'"
-check "menue: nach der Aenderung bleibt die Auswahl auf dem bearbeiteten Eintrag" bash -c "grep '^#6:' '$WORK/log' | grep -q -- '--default-item.*\[HISTORY_HOURS\]'"
-check "menue: Hilfetext aus dem Register im Eingabedialog" bash -c "grep '^#3:' '$WORK/log' | grep -q 'Stunden Radar-Historie'"
+check "menue: gespeichert" grep -qx 'RETENTION_RUNS=30' "$ENVF"
+check "menue: Diff-Uebersicht zeigt Aenderung" bash -c "grep -q 'RETENTION_RUNS: (Default: 16)  ->  30' '$WORK/log'"
+check "menue: Uebersicht nennt die Wirkung (live) und den Rollout" bash -c "grep -q 'WIRKUNG' '$WORK/log' && grep -q 'RETENTION_RUNS: live' '$WORK/log' && grep -q 'Rolling Update' '$WORK/log'"
+check "menue: Titel mit Pfad Einstellungen > Gruppe > KEY" bash -c "grep -Eq 'Einstellungen (>|›) Radar & Cache (>|›) RETENTION_RUNS' '$WORK/log'"
+check "menue: nach der Aenderung bleibt die Auswahl auf dem bearbeiteten Eintrag" bash -c "grep '^#6:' '$WORK/log' | grep -q -- '--default-item.*\[RETENTION_RUNS\]'"
+check "menue: Hilfetext aus dem Register im Eingabedialog" bash -c "grep '^#3:' '$WORK/log' | grep -q 'Aufbewahrte Radar-Läufe'"
 check "menue: Sicherung angelegt" bash -c "[ '$(nbackups)' = 1 ]"
 
-fresh; S --set HISTORY_HOURS=24 >/dev/null; rm -f "$ENVF".bak.*
-menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|' '0|' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
-check "menue: leere Eingabe + Ja setzt auf Default zurueck (Zeile auskommentiert)" grep -qx '#HISTORY_HOURS=24' "$ENVF"
+fresh; S --set RETENTION_RUNS=24 >/dev/null; rm -f "$ENVF".bak.*
+menu '0|Radar & Cache' '0|RETENTION_RUNS' '0|' '0|' '1|' '0|Speichern' '0|' '0|' '0|' '1|'
+check "menue: leere Eingabe + Ja setzt auf Default zurueck (Zeile auskommentiert)" grep -qx '#RETENTION_RUNS=24' "$ENVF"
 fresh; before="$(sha)"
-menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|24' '1|' '1|' '0|V'
+menu '0|Radar & Cache' '0|RETENTION_RUNS' '0|24' '1|' '1|' '0|V'
 check "menue: leere/gleiche Eingaben ohne Aenderung" bash -c "[ '$(sha)' = '$before' ]"
 
 # Kleine Zahlenbereiche und Auswahl statt Freitext
@@ -315,7 +325,7 @@ check "menue: Gruppe Dashboard-Schwellen vorhanden (DASH_WARN_*, DASH_MIN_GROUP)
 
 # Verwerfen beim Beenden, Suche, Anwenden
 fresh; before="$(sha)"
-menu '0|Radar & Cache' '0|HISTORY_HOURS' '0|30' '1|' '1|' '0|V'
+menu '0|Radar & Cache' '0|RETENTION_RUNS' '0|30' '1|' '1|' '0|V'
 check "menue: Verwerfen beim Beenden aendert nichts" bash -c "[ '$(sha)' = '$before' ] && [ $MENU_RC -eq 0 ]"
 menu '0|Suchen' '0|stagger' '0|RESTART_STAGGER_SECONDS' '1|' '1|' '1|' '1|'
 check "menue: Suche findet RESTART_STAGGER_SECONDS" bash -c "grep -q 'RESTART_STAGGER_SECONDS' '$WORK/log' && ! grep -q 'script exhausted' '$WORK/log'"
