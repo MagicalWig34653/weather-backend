@@ -55,12 +55,34 @@ public enum Manifest {
             + "\"bbox_wgs84\":[\(wgs)]}"
     }
 
+    /// The `history` block (additive, schema stays 1) of history.json and of every layer manifest: what the configured duration promises
+    /// (`hours`, the grid of `expected` times) against what is really there (`present`, `oldest`, `gaps`). Nothing is invented: a time that
+    /// is not stored is a gap, whatever the reason (source too short, outage, still being backfilled).
+    /// `grid`: all expected slot times, ascending; `present`: the slot times that exist (times off the grid do not count).
+    static func historyJSON(hours: Int, grid: [Date], present: [Date], oldest: Date?, step: TimeInterval) -> String {
+        let have = Set(present)
+        var gaps: [(from: Date, to: Date, count: Int)] = []
+        var found = 0
+        for t in grid {
+            if have.contains(t) { found += 1; continue }
+            if let i = gaps.indices.last, t.timeIntervalSince(gaps[i].to) == step { gaps[i].to = t; gaps[i].count += 1 } else { gaps.append((t, t, 1)) }
+        }
+        let shown = gaps.prefix(100).map {
+            "{\"from\":\(jsonString(TimeUtil.toISO($0.from))),\"to\":\(jsonString(TimeUtil.toISO($0.to))),\"slots\":\($0.count)}"
+        }
+        return "{\"hours\":\(hours),\"oldest\":\(oldest.map { jsonString(TimeUtil.toISO($0)) } ?? "null"),"
+            + "\"expected\":\(grid.count),\"present\":\(found),\"complete\":\(found == grid.count),"
+            + "\"gaps\":[\(shown.joined(separator: ","))]\(gaps.count > shown.count ? ",\"gaps_truncated\":true" : "")}"
+    }
+
     /// history.json (schema 1): analysis slots of all published runs in (latest - history_hours, latest], ascending.
     /// The window is derived from the newest published run (not from the clock), so all replicas answer byte-identically.
+    /// Additive (decision 19 Nov 2026): `history` (configured duration against what exists, gaps), see `historyJSON`.
     public static func buildHistory(repo: any Repo, config: Config) async throws -> [UInt8]? {
         guard let latest = try await repo.latestPublished() else { return nil }
         let since = latest.nominal.addingTimeInterval(-Double(config.historyHours) * 3600 + TimeUtil.step)
         let slots = try await repo.analysisSlots(since: since, before: latest.nominal.addingTimeInterval(TimeUtil.step))
+        let grid = (0..<(config.historyHours * 3600 / Int(TimeUtil.step))).reversed().map { latest.nominal.addingTimeInterval(-Double($0) * TimeUtil.step) }
         let entries = slots.map { ref in
             "{\"time\":\(jsonString(TimeUtil.toISO(ref.slotTime))),\"kind\":\"analysis\","
                 + "\"path\":\(jsonString(slotPath(runID: ref.runID, slotID: ref.slotID)))}"
@@ -68,6 +90,7 @@ public enum Manifest {
         let json = "{\"schema\":1,\"run\":\(jsonString(latest.runID)),"
             + "\"generated_at\":\(jsonString(TimeUtil.toISO(latest.publishedAt))),"
             + "\"step_minutes\":5,\"history_hours\":\(config.historyHours),"
+            + "\"history\":\(historyJSON(hours: config.historyHours, grid: grid, present: slots.map(\.slotTime), oldest: slots.first?.slotTime, step: TimeUtil.step)),"
             + "\"image\":\(imageJSON(config: config)),"
             + "\"slots\":[\(entries.joined(separator: ","))],"
             + "\"attribution\":\(jsonString(RadarConstants.attribution)),"

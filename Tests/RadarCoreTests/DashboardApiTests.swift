@@ -52,9 +52,9 @@ struct DashboardApiTests {
         #expect(await h.call("GET", "/dash/api/session", host: "evil.test").status == 403)
         #expect(await h.call("GET", "/dash/api/config", session: false).status == 401)
         #expect(await h.call("GET", "/elsewhere").status == 404)
-        let noCSRF = await h.call("PUT", "/dash/api/config/HISTORY_HOURS", body: "{\"value\":24}", csrf: false)
+        let noCSRF = await h.call("PUT", "/dash/api/config/HISTORY_HOURS", body: "{\"value\":72}", csrf: false)
         #expect(noCSRF.status == 403 && noCSRF.json["error"] as? String == "forbidden")
-        let badOrigin = h.request("PUT", "/dash/api/config/HISTORY_HOURS", body: "{\"value\":24}", origin: "https://evil.test")
+        let badOrigin = h.request("PUT", "/dash/api/config/HISTORY_HOURS", body: "{\"value\":72}", origin: "https://evil.test")
         #expect(await h.api.handle(badOrigin).status == 403)
         #expect(await h.call("POST", "/dash/api/restart", csrf: false).status == 403)
         #expect(await h.call("POST", "/dash/api/restart", session: false).status == 401)
@@ -71,12 +71,12 @@ struct DashboardApiTests {
     }
 
     @Test func configRoundTripAndAudit() async throws {
-        let h = try await Harness(env: ["HISTORY_HOURS": "10"])
+        let h = try await Harness(env: ["HISTORY_HOURS": "48"])
         let list = await h.call("GET", "/dash/api/config")
         let entries = try #require(list.json["entries"] as? [[String: Any]])
         let secret = try #require(entries.first { $0["key"] as? String == "DB_PASSWORD" })
         #expect(secret["value"] is NSNull && secret["locked"] as? Bool == true)
-        let locked = await h.call("PUT", "/dash/api/config/HISTORY_HOURS", body: "{\"value\":24}")
+        let locked = await h.call("PUT", "/dash/api/config/HISTORY_HOURS", body: "{\"value\":72}")
         #expect(locked.status == 409 && locked.json["error"] as? String == "locked_by_env")
 
         let put = await h.call("PUT", "/dash/api/config/RETENTION_RUNS", body: "{\"value\":20}")

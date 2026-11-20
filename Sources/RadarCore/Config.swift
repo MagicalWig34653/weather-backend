@@ -109,8 +109,11 @@ public struct Config: Sendable {
     public var wmsURL = "https://maps.dwd.de/geoserver/ows"
     public var width = 1024
     public var retentionRuns = 16
-    /// How much past (analysis slots, 5-minute grid) is kept and served via history.json.
+    /// How much past is kept, backfilled and served for ALL maps (`HISTORY_HOURS`: 48 or 72, decision 19 Nov 2026): the radar analysis
+    /// slots (history.json), every observation layer and the past valid times of the model layers. The forecast horizon is separate.
     public var historyHours = 48
+    /// The only values `HISTORY_HOURS` may take.
+    public static let historyHoursChoices = [48, 72]
     public var workers = 3
     public var availabilityDelaySeconds = 200.0
     public var jitterSeconds = 20.0
@@ -126,20 +129,12 @@ public struct Config: Sendable {
     /// Hours of ICON forecast per pressure run (`PRESSURE_FORECAST_HOURS`, 1-168).
     public var pressureForecastHours = 48
     public var pressureRetentionRuns = 2
-    /// Hours of past slots kept and listed per observation layer (`LIGHTNING_/CLOUDS_/CLOUDMASK_HISTORY_HOURS`).
-    public var lightningHistoryHours = 3
-    public var cloudsHistoryHours = 3
-    public var cloudmaskHistoryHours = 3
-    public var cloudmaskVisHistoryHours = 3
-    public var cloudmaskVisEUHistoryHours = 3
-    /// OPERA composite (`radar_eu`): main bucket, backup bucket (tried when the main one has no file), hours of history, noise threshold in dBZ.
+    /// OPERA composite (`radar_eu`): main bucket, backup bucket (tried when the main one has no file), noise threshold in dBZ.
     public var operaURL = Opera.defaultBaseURL
     public var operaBackupURL = Opera.defaultBackupURL
-    public var radarEUHistoryHours = 3
     public var operaNoiseDBZ = Opera.defaultNoiseDBZ
-    /// NOAA rain rate (`radar_world`): bucket URL (only tests change it) and hours of history (24 h by decision of 17 Nov 2026).
+    /// NOAA rain rate (`radar_world`): bucket URL (only tests change it).
     public var noaaRainURL = NoaaRain.defaultBaseURL
-    public var radarWorldHistoryHours = 24
     /// Hours of ICON forecast per Europe pressure run (`PRESSURE_EU_FORECAST_HOURS`, 1-168); the image is 4.3x larger.
     public var pressureEUForecastHours = 24
     /// Pause between two requests of one additional layer (all of them go to few hosts; one request at a time).
@@ -194,7 +189,11 @@ public struct Config: Sendable {
         c.wmsURL = env["WMS_URL"] ?? c.wmsURL
         c.width = try int("IMAGE_WIDTH", c.width)
         c.retentionRuns = try int("RETENTION_RUNS", c.retentionRuns)
-        c.historyHours = try int("HISTORY_HOURS", c.historyHours)
+        // Before 19 Nov 2026 any value from 1 to 72 was valid: an old value is rounded up to the next allowed one instead of failing the
+        // start (`environmentNotices` reports it); anything else is caught by `validated()`.
+        let requestedHistory = try int("HISTORY_HOURS", c.historyHours)
+        guard requestedHistory >= 1 else { throw ConfigError(description: "HISTORY_HOURS must be 48 or 72") }
+        c.historyHours = Config.historyHoursChoices.first { $0 >= requestedHistory } ?? requestedHistory
         c.workers = try int("FETCH_WORKERS", c.workers)
         c.availabilityDelaySeconds = try double("AVAILABILITY_DELAY_SECONDS", c.availabilityDelaySeconds)
         c.jitterSeconds = try double("JITTER_SECONDS", c.jitterSeconds)
@@ -203,20 +202,11 @@ public struct Config: Sendable {
         c.eumetsatWMSURL = env["EUMETSAT_WMS_URL"] ?? c.eumetsatWMSURL
         c.operaURL = env["OPERA_URL"] ?? c.operaURL
         c.operaBackupURL = env["OPERA_BACKUP_URL"] ?? c.operaBackupURL
-        c.radarEUHistoryHours = try int("RADAR_EU_HISTORY_HOURS", c.radarEUHistoryHours)
         c.operaNoiseDBZ = try double("OPERA_NOISE_DBZ", c.operaNoiseDBZ)
         c.noaaRainURL = env["NOAA_RAIN_URL"] ?? c.noaaRainURL
-        c.radarWorldHistoryHours = try int("RADAR_WORLD_HISTORY_HOURS", c.radarWorldHistoryHours)
-        guard (1...24).contains(c.radarWorldHistoryHours) else { throw ConfigError(description: "RADAR_WORLD_HISTORY_HOURS must be between 1 and 24") }
-        guard (1...6).contains(c.radarEUHistoryHours) else { throw ConfigError(description: "RADAR_EU_HISTORY_HOURS must be between 1 and 6") }
         guard (-10...20).contains(c.operaNoiseDBZ) else { throw ConfigError(description: "OPERA_NOISE_DBZ must be between -10 and 20") }
         c.pressureForecastHours = try int("PRESSURE_FORECAST_HOURS", c.pressureForecastHours)
         c.pressureRetentionRuns = try int("PRESSURE_RETENTION_RUNS", c.pressureRetentionRuns)
-        c.lightningHistoryHours = try int("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours)
-        c.cloudsHistoryHours = try int("CLOUDS_HISTORY_HOURS", c.cloudsHistoryHours)
-        c.cloudmaskHistoryHours = try int("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours)
-        c.cloudmaskVisHistoryHours = try int("CLOUDMASK_VIS_HISTORY_HOURS", c.cloudmaskVisHistoryHours)
-        c.cloudmaskVisEUHistoryHours = try int("CLOUDMASK_VIS_EU_HISTORY_HOURS", c.cloudmaskVisEUHistoryHours)
         c.pressureEUForecastHours = try int("PRESSURE_EU_FORECAST_HOURS", c.pressureEUForecastHours)
         c.layerPauseSeconds = try double("LAYER_PAUSE_SECONDS", c.layerPauseSeconds)
         c.layers = try LayerCatalog.parse(env["LAYERS"])
@@ -292,6 +282,23 @@ public struct Config: Sendable {
     }
 
     /// Cross-field and range checks shared by the environment loader and dashboard overrides (`applying(overrides:)`).
+    /// Variables of the per-layer history durations (until 19 Nov 2026). They no longer have any effect: `HISTORY_HOURS` is one duration for all maps.
+    public static let legacyHistoryKeys = ["LIGHTNING_HISTORY_HOURS", "CLOUDS_HISTORY_HOURS", "CLOUDMASK_HISTORY_HOURS", "CLOUDMASK_VIS_HISTORY_HOURS",
+                                           "CLOUDMASK_VIS_EU_HISTORY_HOURS", "RADAR_EU_HISTORY_HOURS", "RADAR_WORLD_HISTORY_HOURS"]
+
+    /// Operator notices about the environment that never stop the start (logged once at start and shown by `check-config`):
+    /// ignored per-layer history variables and an old `HISTORY_HOURS` value that was rounded up to 48 or 72.
+    public static func environmentNotices(_ environment: [String: String]) -> [String] {
+        let env = environment.filter { !$0.value.isEmpty }
+        var out = legacyHistoryKeys.filter { env[$0] != nil }
+            .map { "\($0) is ignored: HISTORY_HOURS (48 or 72) sets the history of all maps" }
+        if let raw = env["HISTORY_HOURS"], let value = Int(raw), value >= 1, !historyHoursChoices.contains(value),
+           let used = historyHoursChoices.first(where: { $0 >= value }) {
+            out.append("HISTORY_HOURS=\(value) is no longer valid (only 48 or 72): using \(used)")
+        }
+        return out
+    }
+
     public func validated() throws -> Config {
         let c = self
         if c.push.enabled {
@@ -306,18 +313,12 @@ public struct Config: Sendable {
         guard c.retentionRuns >= 15 else {
             throw ConfigError(description: "RETENTION_RUNS must be at least 15 (12 history analyses, current run, slack)")
         }
-        guard (1...72).contains(c.historyHours) else {
-            throw ConfigError(description: "HISTORY_HOURS must be between 1 and 72 (the DWD WMS history reaches back about 90 hours)")
+        guard Config.historyHoursChoices.contains(c.historyHours) else {
+            throw ConfigError(description: "HISTORY_HOURS must be 48 or 72 (one duration for all maps; the DWD radar WMS reaches back about 90 hours)")
         }
         guard (1...168).contains(c.pressureForecastHours) else { throw ConfigError(description: "PRESSURE_FORECAST_HOURS must be between 1 and 168") }
         guard (1...168).contains(c.pressureEUForecastHours) else { throw ConfigError(description: "PRESSURE_EU_FORECAST_HOURS must be between 1 and 168") }
         guard (2...8).contains(c.pressureRetentionRuns) else { throw ConfigError(description: "PRESSURE_RETENTION_RUNS must be between 2 and 8") }
-        for (key, hours) in [("LIGHTNING_HISTORY_HOURS", c.lightningHistoryHours), ("CLOUDS_HISTORY_HOURS", c.cloudsHistoryHours),
-                             ("CLOUDMASK_HISTORY_HOURS", c.cloudmaskHistoryHours),
-                             ("CLOUDMASK_VIS_HISTORY_HOURS", c.cloudmaskVisHistoryHours),
-                             ("CLOUDMASK_VIS_EU_HISTORY_HOURS", c.cloudmaskVisEUHistoryHours)] where !(1...24).contains(hours) {
-            throw ConfigError(description: "\(key) must be between 1 and 24")
-        }
         guard (0...60).contains(c.layerPauseSeconds) else { throw ConfigError(description: "LAYER_PAUSE_SECONDS must be between 0 and 60") }
         guard (1...10).contains(c.dbPoolSize) else { throw ConfigError(description: "DB_POOL_SIZE must be between 1 and 10") }
         guard (1...6).contains(c.workers) else { throw ConfigError(description: "FETCH_WORKERS must be between 1 and 6") }

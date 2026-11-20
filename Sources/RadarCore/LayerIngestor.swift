@@ -223,7 +223,8 @@ public final class LayerIngestor: Sendable {
         result.isLeader = true
         guard let newest = try await newestSlot() else { return result }
         let hours = config.historyHours(for: spec)
-        let count = Int(Double(hours) * 3600 / spec.stepSeconds)
+        // Backfill only as far as the source reaches (`sourceHistoryHours`); older slots are a known gap, not requested again and again.
+        let count = Int(Double(config.backfillHours(for: spec)) * 3600 / spec.stepSeconds)
         let oldest = newest.addingTimeInterval(-Double(count) * spec.stepSeconds)
         let have = Set(try await repo.layerFirstSlots(layer: layer, since: oldest, before: newest.addingTimeInterval(spec.stepSeconds)).map(\.slotTime))
         var budget = Self.slotsPerTick
@@ -324,8 +325,9 @@ public final class LayerIngestor: Sendable {
             result.failureClass = LayerTickResult.classify(error)
             throw error
         }
-        _ = try? await repo.layerRetain(layer: layer, keepNewest: config.pressureRetentionRuns,
-                                        keepSince: Date(timeIntervalSince1970: 4_000_000_000), staleAfter: Self.staleAfter)
+        // The newest runs stay complete, older runs keep the valid times they were current for (the past of the model maps, HISTORY_HOURS).
+        _ = try? await repo.layerRetainPast(layer: layer, keepNewest: config.pressureRetentionRuns,
+                                            pastHours: config.historyHours(for: spec), staleAfter: Self.staleAfter)
         recordPublished(nominal: run, started: started)
         return .published
     }
@@ -352,19 +354,29 @@ public enum LayerManifest {
     public static func build(repo: any Repo, config: Config, spec: LayerSpec) async throws -> [UInt8]? {
         guard let latest = try await repo.layerLatestPublished(layer: spec.id) else { return nil }
         var entries: [String] = []
-        let tail: String
+        var tail: String
+        let hours = config.historyHours(for: spec)
+        let step = spec.stepSeconds
         switch spec.kind {
         case .forecast:
             let slots = try await repo.layerPublishedSlots(layer: spec.id, runID: latest.runID)
             entries = slots.map { entry($0, kind: $0.slotTime == latest.nominal ? "analysis" : "forecast") }
             let horizon = Int((slots.last?.slotTime.timeIntervalSince(latest.nominal) ?? 0) / 60)
-            tail = "\"forecast_horizon_minutes\":\(horizon),"
+            // Past valid times (additive): from earlier runs, per valid time the newest run that was already running then.
+            // `slots` stays the newest run only, so an app that knows nothing about `past_slots` sees what it always saw.
+            let past = try await repo.layerPastSlots(layer: spec.id, since: latest.nominal.addingTimeInterval(-Double(hours) * 3600), before: latest.nominal)
+            let grid = (1...(hours * 3600 / Int(step))).reversed().map { latest.nominal.addingTimeInterval(-Double($0) * step) }
+            let oldest = past.first?.slotTime ?? slots.first?.slotTime
+            tail = "\"forecast_horizon_minutes\":\(horizon),\"history_hours\":\(hours),"
+                + "\"history\":\(Manifest.historyJSON(hours: hours, grid: grid, present: past.map(\.slotTime), oldest: oldest, step: step)),"
+                + "\"past_slots\":[\(past.map { entry($0, kind: $0.slotIndex == 0 ? "analysis" : "forecast") }.joined(separator: ","))],"
         case .observation:
-            let hours = config.historyHours(for: spec)
             let since = latest.nominal.addingTimeInterval(-Double(hours) * 3600)
-            let slots = try await repo.layerFirstSlots(layer: spec.id, since: since, before: latest.nominal.addingTimeInterval(spec.stepSeconds))
+            let slots = try await repo.layerFirstSlots(layer: spec.id, since: since, before: latest.nominal.addingTimeInterval(step))
             entries = slots.map { entry($0, kind: "observation") }
+            let grid = (0...(hours * 3600 / Int(step))).reversed().map { latest.nominal.addingTimeInterval(-Double($0) * step) }
             tail = "\"history_hours\":\(hours),"
+                + "\"history\":\(Manifest.historyJSON(hours: hours, grid: grid, present: slots.map(\.slotTime), oldest: slots.first?.slotTime, step: step)),"
         }
         let year = TimeUtil.year(of: latest.publishedAt)
         var json = "{\"schema\":1,\"layer\":\(Manifest.jsonString(spec.publicID ?? spec.id)),\"title\":\(Manifest.jsonString(spec.title)),"

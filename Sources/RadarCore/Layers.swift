@@ -57,6 +57,9 @@ public struct LayerSpec: Sendable {
     public let scaleID: String?
     /// Explicit cadence of new runs in seconds (staleness checks); nil = derived from the kind.
     public let cadenceSeconds: Int?
+    /// Observation layers: how far back the source can deliver at all (hours); nil = at least as far as `HISTORY_HOURS` reaches (checked
+    /// 19 Nov 2026). Older slots are not requested (a known gap, never faked) and the manifest reports the gap.
+    public let sourceHistoryHours: Int?
 
     /// The app accepts images up to this many pixels per side.
     public static let maxPixelsPerSide = 4096
@@ -66,14 +69,15 @@ public struct LayerSpec: Sendable {
                 webpQuality: Float, completeness: LayerCompleteness, availabilityDelay: Double, legend: LayerLegend?,
                 modificationNotice: String, bbox: [Double] = RadarConstants.bbox, fixedWidth: Int? = nil,
                 maxAttempts: Int = LayerIngestor.maxSlotAttempts, wmsStyle: String = "", tempVariant: TempVariant? = nil,
-                publicID: String? = nil, source: String? = nil, scaleID: String? = nil, cadenceSeconds: Int? = nil) {
+                publicID: String? = nil, source: String? = nil, scaleID: String? = nil, cadenceSeconds: Int? = nil,
+                sourceHistoryHours: Int? = nil) {
         self.id = id; self.title = title; self.kind = kind; self.provider = provider; self.wmsLayer = wmsLayer
         self.capsWorkspace = capsWorkspace; self.capsLayer = capsLayer; self.stepSeconds = stepSeconds
         self.transparent = transparent; self.lossless = lossless; self.webpQuality = webpQuality
         self.completeness = completeness; self.availabilityDelay = availabilityDelay; self.legend = legend
         self.modificationNotice = modificationNotice; self.bbox = bbox; self.fixedWidth = fixedWidth
         self.maxAttempts = maxAttempts; self.wmsStyle = wmsStyle; self.tempVariant = tempVariant; self.publicID = publicID
-        self.source = source; self.scaleID = scaleID; self.cadenceSeconds = cadenceSeconds
+        self.source = source; self.scaleID = scaleID; self.cadenceSeconds = cadenceSeconds; self.sourceHistoryHours = sourceHistoryHours
     }
 
     public func width(_ config: Config) -> Int { fixedWidth ?? config.width }
@@ -86,7 +90,7 @@ public struct LayerSpec: Sendable {
                   webpQuality: webpQuality, completeness: completeness, availabilityDelay: availabilityDelay, legend: legend,
                   modificationNotice: modificationNotice, bbox: bbox, fixedWidth: width, maxAttempts: maxAttempts,
                   wmsStyle: wmsStyle, tempVariant: tempVariant, publicID: publicID, source: source, scaleID: scaleID,
-                  cadenceSeconds: cadenceSeconds)
+                  cadenceSeconds: cadenceSeconds, sourceHistoryHours: sourceHistoryHours)
     }
 
     /// `Quelle: ...` for DWD layers; EUMETSAT's prescribed wording with the distribution year of the newest slot.
@@ -140,7 +144,9 @@ public enum LayerCatalog {
             transparent: true, lossless: true, webpQuality: 100, completeness: .none, availabilityDelay: 360,
             legend: LayerLegend(url: "https://maps.dwd.de/geoserver/ows?service=WMS&version=1.3.0&request=GetLegendGraphic"
                                 + "&format=image/png&layer=dwd:Blitzdichte", width: 119, height: 344),
-            modificationNotice: "Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben"),
+            modificationNotice: "Datenbasis: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben",
+            // DWD WMS time dimension: GetMap 23 h back works, 24 h back answers InvalidDimensionValue (measured 19 Nov 2026, 5 sample times).
+            sourceHistoryHours: 23),
         "clouds": LayerSpec(
             id: "clouds", title: "Wolken (Geo Colour RGB, Meteosat MTG)", kind: .observation, provider: .eumetsat,
             wmsLayer: "mtg_fd:rgb_geocolour", capsWorkspace: "mtg_fd", capsLayer: "rgb_geocolour", stepSeconds: 600,
@@ -248,18 +254,12 @@ extension Config {
         return spec.id == "pressure_eu" ? pressureEUForecastHours : pressureForecastHours
     }
 
-    public func historyHours(for spec: LayerSpec) -> Int {
-        switch spec.id {
-        case "lightning": return lightningHistoryHours
-        case "clouds": return cloudsHistoryHours
-        case "cloudmask": return cloudmaskHistoryHours
-        case "cloudmask_vis": return cloudmaskVisHistoryHours
-        case "cloudmask_vis_eu": return cloudmaskVisEUHistoryHours
-        case "radar_eu": return radarEUHistoryHours
-        case "radar_world": return radarWorldHistoryHours
-        default: return 0
-        }
-    }
+    /// The one history duration of all maps (`HISTORY_HOURS`): observation layers keep and list this many hours of slots, model layers
+    /// this many hours of past valid times. Not the same as the forecast horizon (`forecastHours(for:)`).
+    public func historyHours(for spec: LayerSpec) -> Int { historyHours }
+
+    /// How many hours back the ingest asks the source for slots of `spec`: the history duration, cut at what the source can deliver.
+    public func backfillHours(for spec: LayerSpec) -> Int { min(historyHours, spec.sourceHistoryHours ?? historyHours) }
 }
 
 /// Request builders and capabilities parsing for the additional layers.

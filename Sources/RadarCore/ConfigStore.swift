@@ -64,6 +64,7 @@ public final class ConfigStore: @unchecked Sendable {
             } catch { warn("config overrides not loaded (database): using environment and defaults") }
         }
         let config = try ConfigRegistry.resolve(env: env, stored: stored, warn: warn)
+        for notice in Config.environmentNotices(env) { warn(notice) }  // once at start (the 30 s reload stays quiet)
         startOverrides = ConfigRegistry.effectiveOverrides(env: env, stored: stored)
         startRevision = revision
         state = State(config: config, stored: stored, revision: revision)

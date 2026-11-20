@@ -86,4 +86,32 @@ extension MemoryRepo {
         for k in doomed { layerRuns[k] = nil; layerSlots[k] = nil }
         return doomed.count
     }
+
+    public func layerPastSlots(layer: String, since: Date, before: Date) async throws -> [SlotRef] {
+        var best: [Date: (nominal: Date, ref: SlotRef)] = [:]
+        for (k, run) in layerRuns where k.hasPrefix(layer + "/") && run.status == "published" {
+            for slot in (layerSlots[k] ?? [:]).values.map(\.ref) where slot.slotTime >= since && slot.slotTime < before && run.nominal <= slot.slotTime {
+                if let current = best[slot.slotTime], current.nominal >= run.nominal { continue }
+                best[slot.slotTime] = (run.nominal, slot)
+            }
+        }
+        return best.values.map(\.ref).sorted { $0.slotTime < $1.slotTime }
+    }
+
+    public func layerRetainPast(layer: String, keepNewest: Int, pastHours: Int, staleAfter: TimeInterval) async throws -> Int {
+        let published = layerRuns.filter { $0.key.hasPrefix(layer + "/") && $0.value.status == "published" }.sorted { $0.value.nominal > $1.value.nominal }
+        var doomed: [String] = []
+        if let newest = published.first?.value.nominal {
+            let pastSince = newest.addingTimeInterval(-Double(pastHours) * 3600)
+            for (index, entry) in published.enumerated() where index >= max(1, keepNewest) {
+                let next = published[index - 1].value.nominal
+                layerSlots[entry.key] = layerSlots[entry.key]?.filter { $0.value.ref.slotTime >= max(pastSince, entry.value.nominal) && $0.value.ref.slotTime < next }
+                if layerSlots[entry.key]?.isEmpty ?? true { doomed.append(entry.key) }
+            }
+        }
+        let cutoff = clockNow().addingTimeInterval(-staleAfter)
+        doomed += layerRuns.filter { $0.key.hasPrefix(layer + "/") && $0.value.status != "published" && $0.value.lease < cutoff }.map(\.key)
+        for k in doomed { layerRuns[k] = nil; layerSlots[k] = nil }
+        return doomed.count
+    }
 }

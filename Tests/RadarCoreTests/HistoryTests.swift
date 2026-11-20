@@ -51,16 +51,70 @@ private func backfiller(_ repo: any Repo, _ cfg: Config, owner: String = "a", fe
 
 @Suite("Configuration HISTORY_HOURS")
 struct HistoryConfigTests {
-    @Test func defaultAndBounds() throws {
+    /// One duration for all maps, 48 (default) or 72. Before 19 Nov 2026 the radar took 1 to 72 and each layer its own variable.
+    @Test func onlyFortyEightAndSeventyTwoAreValid() throws {
         #expect(try Config.fromEnvironment([:]).historyHours == 48)
-        #expect(try Config.fromEnvironment(["HISTORY_HOURS": "1"]).historyHours == 1)
+        #expect(try Config.fromEnvironment(["HISTORY_HOURS": "48"]).historyHours == 48)
         #expect(try Config.fromEnvironment(["HISTORY_HOURS": "72"]).historyHours == 72)
-        for bad in ["0", "73", "-5", "abc", "1.5"] {
+        #expect(try Config.fromEnvironment(["HISTORY_HOURS": ""]).historyHours == 48)  // empty = unset
+        for bad in ["0", "73", "-5", "abc", "1.5", "100"] {
             #expect(throws: ConfigError.self, "\(bad)") { _ = try Config.fromEnvironment(["HISTORY_HOURS": bad]) }
         }
         do { _ = try Config.fromEnvironment(["HISTORY_HOURS": "100"]) } catch {
-            #expect(String(describing: error).contains("HISTORY_HOURS must be between 1 and 72"))
+            #expect(String(describing: error).contains("HISTORY_HOURS must be 48 or 72"))
         }
+        // `validated()` is the second line (dashboard values, direct assignment): nothing but 48 and 72 passes it.
+        for hours in [1, 24, 47, 49, 71, 73] {
+            var c = Config(); c.historyHours = hours
+            #expect(throws: ConfigError.self, "\(hours)") { _ = try c.validated() }
+        }
+        for hours in [48, 72] {
+            var c = Config(); c.historyHours = hours
+            #expect(try c.validated().historyHours == hours)
+        }
+    }
+
+    /// An existing deployment with an old value (1 to 72 was valid) must still start: the value is rounded up and the operator is told.
+    @Test func oldValuesAreRoundedUpInsteadOfFailingTheStart() throws {
+        for (old, used) in [("1", 48), ("24", 48), ("47", 48), ("49", 72), ("60", 72), ("71", 72)] {
+            #expect(try Config.fromEnvironment(["HISTORY_HOURS": old]).historyHours == used, "\(old)")
+            #expect(Config.environmentNotices(["HISTORY_HOURS": old]).contains("HISTORY_HOURS=\(old) is no longer valid (only 48 or 72): using \(used)"))
+        }
+        #expect(Config.environmentNotices(["HISTORY_HOURS": "48"]).isEmpty && Config.environmentNotices(["HISTORY_HOURS": "72"]).isEmpty)
+        #expect(Config.environmentNotices([:]).isEmpty)
+    }
+
+    /// The per-layer variables are ignored with a notice, whatever they contain (also values that were invalid before).
+    @Test func perLayerVariablesAreIgnoredWithANotice() throws {
+        let env = Dictionary(uniqueKeysWithValues: Config.legacyHistoryKeys.map { ($0, "3") })
+        #expect(Config.legacyHistoryKeys.count == 7)
+        let config = try Config.fromEnvironment(env.merging(["HISTORY_HOURS": "72", "LAYERS": "lightning,clouds,radar_eu,radar_world"]) { $1 })
+        #expect(config.historyHours == 72)
+        for spec in config.layers.compactMap({ LayerCatalog.specs[$0] }) { #expect(config.historyHours(for: spec) == 72, "\(spec.id)") }
+        let notices = Config.environmentNotices(env)
+        #expect(notices.count == 7)
+        for key in Config.legacyHistoryKeys { #expect(notices.contains { $0.hasPrefix("\(key) is ignored") }, "\(key)") }
+        // not an error even when the old limits would have rejected the value
+        #expect(try Config.fromEnvironment(["RADAR_EU_HISTORY_HOURS": "99", "LIGHTNING_HISTORY_HOURS": "0"]).historyHours == 48)
+        // empty variables (the stack passes `KEY: ${KEY:-}`) do not warn
+        #expect(Config.environmentNotices(["LIGHTNING_HISTORY_HOURS": ""]).isEmpty)
+    }
+
+    @Test func checkConfigShowsTheNotices() {
+        let result = ConfigCheck.run(env: ["HISTORY_HOURS": "24", "CLOUDS_HISTORY_HOURS": "3"])
+        #expect(result.ok)
+        #expect(result.lines.contains { $0.hasPrefix("warning:") && $0.contains("CLOUDS_HISTORY_HOURS is ignored") })
+        #expect(result.lines.contains { $0.hasPrefix("warning:") && $0.contains("HISTORY_HOURS=24 is no longer valid") })
+    }
+
+    /// The forecast horizons are separate settings; the history duration does not change them.
+    @Test func forecastHorizonIsIndependent() throws {
+        let a = try Config.fromEnvironment(["HISTORY_HOURS": "48", "LAYERS": "pressure,pressure_eu"])
+        let b = try Config.fromEnvironment(["HISTORY_HOURS": "72", "LAYERS": "pressure,pressure_eu"])
+        for spec in ["pressure", "pressure_eu"].compactMap({ LayerCatalog.specs[$0] }) {
+            #expect(a.forecastHours(for: spec) == b.forecastHours(for: spec))
+        }
+        #expect(a.pressureForecastHours == 48 && a.pressureEUForecastHours == 24)
     }
 }
 
@@ -166,7 +220,8 @@ struct HistoryTests {
         #expect(other.body == r.body && header(other, "ETag") == header(r, "ETag"))  // replicas answer byte-identically
 
         let doc = try json(r.body)
-        #expect(Array(doc.keys).sorted() == ["attribution", "generated_at", "history_hours", "image", "modification_notice",
+        // Additive since 19 Nov 2026: `history` (the old keys are all still there with unchanged meaning, schema stays 1).
+        #expect(Array(doc.keys).sorted() == ["attribution", "generated_at", "history", "history_hours", "image", "modification_notice",
                                               "run", "schema", "slots", "step_minutes"])
         #expect(doc["schema"] as? Int == 1 && doc["step_minutes"] as? Int == 5 && doc["history_hours"] as? Int == 6)
         #expect(doc["run"] as? String == "20261030T1105Z")
@@ -328,6 +383,137 @@ struct BackfillTests {
         #expect(times.count == 10)
         #expect(times.first == latest0.addingTimeInterval(-2 * tick5))
         #expect(times.last == latest0.addingTimeInterval(-11 * tick5))  // history_hours window: (12:00 - 1 h, 12:00]
+    }
+}
+}
+
+// HISTORY_HOURS = 48 or 72 for the radar (history.json, backfill, retention); decision 19 Nov 2026. Tiny images, the chain is what counts.
+extension DatabaseSuites {
+@Suite("History duration of the radar (48 and 72 h)", .serialized)
+struct RadarHistoryDurationTests {
+    private func tinyConfig(_ hours: Int) -> Config { smallConfig { $0.width = 48; $0.historyHours = hours } }
+
+    /// Runs the backfill until nothing is missing any more; returns the stored count.
+    private func backfillAll(_ repo: any Repo, _ cfg: Config, _ dwd: RecordingDwd, now: Date = now0) async throws -> Int {
+        let b = Backfiller(config: cfg, repo: repo, fetch: dwd.fetch, owner: "a", sleep: { _ in }, clock: { now })
+        var stored = 0
+        for _ in 0..<80 {
+            let r = try await b.tick()
+            stored += r.stored
+            if r.remaining == 0 && r.failed == 0 { return stored }
+        }
+        Issue.record("radar backfill did not settle")
+        return stored
+    }
+
+    private func history(_ repo: any Repo, _ cfg: Config) async throws -> [String: Any] {
+        try json(try #require(try await Manifest.buildHistory(repo: repo, config: cfg)))
+    }
+
+    @Test(arguments: RepoKind.allCases, [48, 72])
+    func backfillAsksForTheWholeDurationAndHistoryJsonReportsIt(kind: RepoKind, hours: Int) async throws {
+        let repo = try await kind.make()
+        let cfg = tinyConfig(hours)
+        // the regular ingest owns the two newest grid points
+        try await seed(repo, latest0, backfill: false)
+        try await seed(repo, latest0.addingTimeInterval(-tick5), backfill: false)
+        let missing = try await backfiller(repo, cfg, fetch: RecordingDwd(cfg).fetch).missing(now: now0)
+        #expect(missing.count == hours * 12 - 2 && missing.last == latest0.addingTimeInterval(-Double(hours * 3600) + tick5))
+        let dwd = RecordingDwd(cfg)
+        #expect(try await backfillAll(repo, cfg, dwd) == hours * 12 - 2)
+        #expect(dwd.calls == hours * 12 - 2 && Set(dwd.times).count == hours * 12 - 2)  // each time exactly once
+
+        let bodyBytes = try #require(try await Manifest.buildHistory(repo: repo, config: cfg)).count
+        #expect(bodyBytes < (hours == 72 ? 90_000 : 65_000))  // 864 / 576 entries
+        let doc = try await history(repo, cfg)
+        let slots = try #require(doc["slots"] as? [[String: String]])
+        #expect(slots.count == hours * 12 && doc["history_hours"] as? Int == hours && doc["schema"] as? Int == 1)
+        #expect(slots.first?["time"] == TimeUtil.toISO(latest0.addingTimeInterval(-Double(hours * 3600) + tick5)) && slots.last?["time"] == TimeUtil.toISO(latest0))
+        let h = try #require(doc["history"] as? [String: Any])
+        #expect(h["hours"] as? Int == hours && h["expected"] as? Int == hours * 12 && h["present"] as? Int == hours * 12)
+        #expect(h["complete"] as? Bool == true && (h["gaps"] as? [Any])?.isEmpty == true && h["oldest"] as? String == slots.first?["time"])
+        // the oldest slot is served
+        let parts = slots[0]["path"]!.split(separator: "/")
+        #expect(try await repo.getSlot(runID: String(parts[0]), slotID: String(parts[1].split(separator: ".")[0])) != nil)
+        // and through the API, byte-identical to what the manifest promises
+        let api = Api(repo: repo, config: cfg, clock: { now0 })
+        let served = try await api.handle(path: "/v1/radar/" + slots[0]["path"]!, ifNoneMatch: nil)
+        #expect(served.status == 200 && header(served, "Cache-Control") == "public, max-age=31536000, immutable")
+    }
+
+    @Test(arguments: RepoKind.allCases, [48, 72])
+    func gapsAreReportedAndNeverFilled(kind: RepoKind, hours: Int) async throws {
+        let repo = try await kind.make()
+        let cfg = tinyConfig(hours)
+        // window grid: (latest - hours, latest]. Missing: six slots in the middle and the oldest 12 h (the source reaches back less far).
+        let reach = hours - 12
+        var holes: Set<Date> = []
+        for i in 100..<106 { holes.insert(latest0.addingTimeInterval(-Double(i) * tick5)) }
+        for i in 0..<(reach * 12) {
+            let t = latest0.addingTimeInterval(-Double(i) * tick5)
+            if !holes.contains(t) { try await seed(repo, t) }
+        }
+        let doc = try await history(repo, cfg)
+        let slots = try #require(doc["slots"] as? [[String: String]])
+        let times = Set(slots.map { $0["time"]! })
+        #expect(slots.count == reach * 12 - 6 && holes.allSatisfy { !times.contains(TimeUtil.toISO($0)) })  // no placeholder entries
+        let h = try #require(doc["history"] as? [String: Any])
+        #expect(h["expected"] as? Int == hours * 12 && h["present"] as? Int == reach * 12 - 6 && h["complete"] as? Bool == false)
+        #expect(h["oldest"] as? String == TimeUtil.toISO(latest0.addingTimeInterval(-Double(reach * 12 - 1) * tick5)))
+        let gaps = try #require(h["gaps"] as? [[String: Any]])
+        #expect(gaps.count == 2)
+        // ascending: the window start first
+        #expect(gaps[0]["from"] as? String == TimeUtil.toISO(latest0.addingTimeInterval(-Double(hours * 12 - 1) * tick5)))
+        #expect(gaps[0]["to"] as? String == TimeUtil.toISO(latest0.addingTimeInterval(-Double(reach * 12) * tick5)) && gaps[0]["slots"] as? Int == 144)
+        #expect(gaps[1]["from"] as? String == TimeUtil.toISO(latest0.addingTimeInterval(-105 * tick5)) && gaps[1]["to"] as? String == TimeUtil.toISO(latest0.addingTimeInterval(-100 * tick5)) && gaps[1]["slots"] as? Int == 6)
+    }
+
+    @Test(arguments: RepoKind.allCases)
+    func switchingBetween72And48And72KeepsWhatIsCoveredAndFillsWhatIsMissing(kind: RepoKind) async throws {
+        let repo = try await kind.make()
+        let cfg72 = tinyConfig(72)
+        // 80 h of analyses are there before the new setting takes effect (e.g. a longer duration was set before)
+        for i in 1...(80 * 12) { try await seed(repo, latest0.addingTimeInterval(-Double(i) * tick5)) }
+        func has(_ time: Date) async throws -> Bool { try await repo.getSlot(runID: TimeUtil.toID(time), slotID: TimeUtil.toID(time)) != nil }
+
+        // 72 h: a regular run publishes and the retention keeps window + 15 min, nothing newer than that is lost
+        let ing72 = Ingestor(config: cfg72, repo: repo, fetch: FakeDwd(cfg72).fetch, owner: "a", sleep: { _ in }, transcode: memoizedTranscode)
+        _ = try await ing72.process(run: latest0)
+        let edge72 = try await has(latest0.addingTimeInterval(-72 * 3600 - 900)), gone72 = try await has(latest0.addingTimeInterval(-72 * 3600 - 1200))
+        #expect(edge72 && !gone72)
+        #expect(((try await history(repo, cfg72))["slots"] as? [Any])?.count == 864)
+
+        // 72 -> 48: the next run cleans up everything older than 48 h + 15 min, the images inside stay byte-identical
+        let cfg48 = tinyConfig(48)
+        let next = latest0.addingTimeInterval(tick5)
+        let probeTime = latest0.addingTimeInterval(-20 * 3600)
+        let probeBefore = try #require(try await repo.getSlot(runID: TimeUtil.toID(probeTime), slotID: TimeUtil.toID(probeTime)))
+        let ing48 = Ingestor(config: cfg48, repo: repo, fetch: FakeDwd(cfg48).fetch, owner: "a", sleep: { _ in }, transcode: memoizedTranscode)
+        _ = try await ing48.process(run: next)
+        let edge48 = try await has(next.addingTimeInterval(-48 * 3600 - 900)), gone48 = try await has(next.addingTimeInterval(-48 * 3600 - 1200))
+        #expect(edge48 && !gone48)
+        let doc48 = try await history(repo, cfg48)
+        #expect((doc48["slots"] as? [Any])?.count == 576 && doc48["history_hours"] as? Int == 48)
+        #expect((doc48["history"] as? [String: Any])?["complete"] as? Bool == true)
+        let probeAfter = try #require(try await repo.getSlot(runID: TimeUtil.toID(probeTime), slotID: TimeUtil.toID(probeTime)))
+        #expect(probeAfter.sha256 == probeBefore.sha256)
+
+        // 48 -> 72: the backfill fills the missing day only; the 48 h that are there are not requested again
+        let now1 = next.addingTimeInterval(210)
+        let dwd = RecordingDwd(cfg72)
+        let b = Backfiller(config: cfg72, repo: repo, fetch: dwd.fetch, owner: "a", sleep: { _ in }, clock: { now1 })
+        let missing = try await b.missing(now: now1)
+        let keptOldest = next.addingTimeInterval(-48 * 3600 - 900)
+        // the window holds 864 grid points; 580 of them (kept oldest ... newest) are there, 284 are missing
+        #expect(missing.allSatisfy { $0 < keptOldest } && missing.count == 284)
+        let stored = try await backfillAll(repo, cfg72, dwd, now: now1)
+        #expect(stored == missing.count && dwd.calls == missing.count)
+        let requested = Set(dwd.times)
+        for t in stride(from: 0, to: 48 * 12, by: 7) { #expect(!requested.contains(TimeUtil.toWMS(next.addingTimeInterval(-Double(t) * tick5)))) }
+        let doc72 = try await history(repo, cfg72)
+        #expect((doc72["slots"] as? [Any])?.count == 864 && (doc72["history"] as? [String: Any])?["complete"] as? Bool == true)
+        let probeLast = try #require(try await repo.getSlot(runID: TimeUtil.toID(probeTime), slotID: TimeUtil.toID(probeTime)))
+        #expect(probeLast.sha256 == probeBefore.sha256 && probeLast.data == probeBefore.data)
     }
 }
 }

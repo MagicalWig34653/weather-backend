@@ -172,14 +172,13 @@ struct OperaIngestTests {
         #expect(try Config.fromEnvironment([:]).layers.isEmpty)
         #expect(try Config.fromEnvironment(["LAYERS": "radar_eu"]).layers == ["radar_eu"])
         #expect(try Config.fromEnvironment(["LAYERS": "radar_eu"]).spec(for: "radar_eu")?.attribution(year: 2026) == "Radardaten Europa: EUMETNET OPERA (CIRRUS), CC BY 4.0, Quelle: MeteoGate; umprojiziert und eingefärbt.")
-        #expect(try Config.fromEnvironment(["RADAR_EU_HISTORY_HOURS": "6"]).radarEUHistoryHours == 6)
-        #expect(throws: ConfigError.self) { try Config.fromEnvironment(["RADAR_EU_HISTORY_HOURS": "7"]) }
+        #expect(try Config.fromEnvironment([:]).historyHours(for: try #require(LayerCatalog.specs["radar_eu"])) == 48)
         #expect("radar_eu".count <= 16)  // column layer VARCHAR(16)
     }
 
     private func config(_ edit: (inout Config) -> Void = { _ in }) -> Config {
         smallConfig { c in
-            c.layers = ["radar_eu"]; c.layerPauseSeconds = 0; c.radarEUHistoryHours = 1
+            c.layers = ["radar_eu"]; c.layerPauseSeconds = 0; c.historyHours = 1
             c.operaURL = "https://main.test/bucket"; c.operaBackupURL = "https://backup.test/bucket"
             edit(&c)
         }
@@ -223,6 +222,36 @@ struct OperaIngestTests {
         #expect(m["attribution"] as? String == "Radardaten Europa: EUMETNET OPERA (CIRRUS), CC BY 4.0, Quelle: MeteoGate; umprojiziert und eingefärbt.")
         #expect((m["image"] as? [String: Any])?["bbox"] as? [Double] == RadarConstants.europeBBox)
         #expect(m["source"] as? String == "opera" && m["history_hours"] as? Int == 1)
+    }
+
+    /// HISTORY_HOURS (48 or 72) is the history of this layer too (before 19 Nov 2026: RADAR_EU_HISTORY_HOURS, 1 to 6, default 3).
+    @Test(arguments: RepoKind.allCases, [48, 72])
+    func backfillsTheWholeDurationAndReportsIt(kind: RepoKind, hours: Int) async throws {
+        let repo = try await kind.make()
+        let file = compositeFixture().make()
+        let seen = Requests()
+        let cfg = config { $0.historyHours = hours }
+        let ing = ingestor(cfg, repo) { url in seen.add(url); return file }
+        var stored = 0
+        for _ in 0..<300 {
+            let r = try await ing.tick()
+            stored += r.stored
+            if r.stored == 0 && r.failed == 0 { break }
+        }
+        let expected = hours * 12 + 1  // 5 min steps, both ends
+        #expect(stored == expected && Set(seen.urls).count == expected && seen.urls.count == expected)  // every file exactly once
+        let body = try #require(try await LayerManifest.build(repo: repo, config: cfg, spec: LayerCatalog.specs["radar_eu"]!.resized(width: 64)))
+        let m = try #require(try JSONSerialization.jsonObject(with: Data(body)) as? [String: Any])
+        let slots = try #require(m["slots"] as? [[String: String]])
+        #expect(slots.count == expected && m["history_hours"] as? Int == hours)
+        #expect(body.count < 90_000)  // 865 slots at 72 h: the manifest stays small (about 82 KB)
+        let history = try #require(m["history"] as? [String: Any])
+        #expect(history["hours"] as? Int == hours && history["expected"] as? Int == expected && history["present"] as? Int == expected)
+        #expect(history["complete"] as? Bool == true && (history["gaps"] as? [Any])?.isEmpty == true && history["oldest"] as? String == slots.first?["time"])
+        #expect(slots.first?["time"] == TimeUtil.toISO(TimeUtil.fromID("20261031T1030Z")!.addingTimeInterval(-Double(hours) * 3600)))
+        // the oldest slot is retrievable
+        let oldest = try #require(slots.first?["path"]).dropLast(5).split(separator: "/").map(String.init)
+        #expect(try await repo.layerGetSlot(layer: "radar_eu", runID: oldest[0], slotID: oldest[1]) != nil)
     }
 
     @Test(arguments: RepoKind.allCases)
