@@ -22,3 +22,11 @@ PLACEMENT_SPREAD	Platzierung	text:free				200		envOnly	0	Weiche Präferenz: Repl
 PINNED_NODE	Platzierung	text:free				200		envOnly	0	Hostname eines Knotens, auf dem mindestens ein Container laufen muss (zweiter Dienst radar-pinned). Aktiv nur zusammen mit PINNED_REPLICAS.
 PINNED_REPLICAS	Platzierung	int	0		0	50		envOnly	0	Anzahl Container von radar-pinned auf PINNED_NODE; 0 = aus. Der Dienst veröffentlicht keinen Port.
 EXCLUDE_LABEL	Platzierung	text:free				63		envOnly	0	Label-Schlüssel, z. B. reserved: ergänzt node.labels.reserved!=true bei radar, migrate und dashboard. Konvention, kein harter Schutz (hart: docker node update --availability drain).
+# Veraltet seit 19.11.2026: wirkungslos, der Dienst warnt beim Start. Es gilt HISTORY_HOURS (48 oder 72) für alle Karten.
+LIGHTNING_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (Blitze); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
+CLOUDS_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (Wolken); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
+CLOUDMASK_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (Wolkenmaske); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
+CLOUDMASK_VIS_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (sichtbarer Kanal); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
+CLOUDMASK_VIS_EU_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (sichtbarer Kanal Europa); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
+RADAR_EU_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (Regenradar Europa); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
+RADAR_WORLD_HISTORY_HOURS	Veraltet	int		h	0	9999		envOnly	0	VERALTET und ohne Wirkung (Regen Welt); es gilt HISTORY_HOURS (48 oder 72) für alle Karten. Zeile aus der .env entfernen.
