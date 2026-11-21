@@ -25,7 +25,7 @@ WORKDIR /app
 COPY --from=build /src/.build/release/radar /usr/local/bin/radar
 COPY migrations /app/migrations
 COPY --from=build /licenses /licenses
-COPY THIRD_PARTY_NOTICES.md /licenses/
+COPY THIRD_PARTY_NOTICES.md THIRD_PARTY_BORINGSSL.md /licenses/
 COPY --from=dashboard /build/build /app/dashboard
 ARG BUILD_REVISION=
 ENV BUILD_REVISION=$BUILD_REVISION
