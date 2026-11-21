@@ -1,0 +1,6 @@
+LICENSE in this directory is the unmodified LICENSE file of the upstream BoringSSL repository at revision
+8eb25be6fa18d475291122887a7bccd3762ff236, the revision bundled in swift-nio-ssl 2.37.6 (Sources/CNIOBoringSSL/hash.txt).
+Source: https://boringssl.googlesource.com/boringssl/+/8eb25be6fa18d475291122887a7bccd3762ff236/LICENSE
+SHA-256 of LICENSE: 827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f
+Fetched 2026-11-21. The swift-nio-ssl 2.37.6 checkout itself contains no BoringSSL LICENSE file (only its own LICENSE.txt and NOTICE.txt).
+When swift-nio-ssl or the bundled BoringSSL revision changes, fetch the LICENSE of the new revision (hash.txt) the same way.
