@@ -368,3 +368,7 @@ Anlass: `docs/status.md` Offen-Punkt 3; vorher sperrte jede Installation nur ihr
 - **Wechsel:** 72 auf 48: Manifest sofort 48 h, Bilder älter als 48 h (plus ein Slot Reserve) räumt die Aufbewahrung beim nächsten Lauf. 48 auf 72: der Backfill holt nach, was die Quelle liefert; vorhandene Bilder bleiben unverändert und werden nicht erneut geladen.
 - **Speicher:** Der Slot-Cache ist nach Bytes begrenzt (`CACHE_MAX_MB`, `MemoryBudget`) und wächst nicht mit der Historie; Slots werden bei Bedarf geladen. Die schweren Konvertierungen laufen weiter einzeln durch `HeavyWork`. Mehrbedarf liegt in der Datenbank (Zahlen: `docs/status.md`).
 
+## swift-nio-ssl auf 2.37.6: BoringSSL-Lizenz (21. November 2026)
+
+- **Entscheidung:** Der Pin von swift-nio-ssl in `Package.resolved` wird von 2.37.5 auf 2.37.6 angehoben. Grund: 2.37.5 bündelt BoringSSL 817ab07e mit Quelldateien unter der Altlizenz „OpenSSL license“; 2.37.6 (BoringSSL 8eb25be6) trägt Apache-2.0-Köpfe. Kein Eingriff in `Package.swift`, keine neue Abhängigkeit; nur diese eine Abhängigkeit wurde aktualisiert (übrige Pins unverändert). Belege und Zuordnung der bereits veröffentlichten Images: `docs/status.md`, Stand 21.11.2026.
+- **Offen (nicht entschieden):** Lizenztexte der Abhängigkeiten im ausgelieferten Image/Repo beilegen.
