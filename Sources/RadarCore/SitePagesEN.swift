@@ -91,8 +91,9 @@ extension SitePages {
         <p>Source: Deutscher Wetterdienst. The radar and weather data come from the German Weather Service (DWD) and are graphical renderings prepared from raster data (modified).</p>
         <p>Temperature, dew point and humidity maps: DWD ICON-D2/ICON-EU model data (CC BY 4.0, source: Deutscher Wetterdienst); raster data graphically rendered and processed (modified). These are model forecasts, not measurements.</p>
         <p>Optional forest layer in the map: \u{00A9} ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0); averaged to about 550 m, rounded to 4 levels and coloured separately (modified).</p>
-        <p>For cloud and satellite maps: Contains modified EUMETSAT Meteosat data. The EUMETSAT data is licensed under CC BY 4.0 and has been modified.</p>
-        <p>Showers is an independent offering and is not affiliated with the DWD or EUMETSAT. The information in the app is guidance and no substitute for official warnings and weather reports.</p>
+        <p>For cloud and satellite maps: Contains modified EUMETSAT Meteosat data 2026. The EUMETSAT data is licensed under CC BY 4.0 and has been modified.</p>
+        <p>Rain in Europe: EUMETNET OPERA (CIRRUS), CC BY 4.0, source: MeteoGate; reprojected, filtered and colored. Rain worldwide: NOAA Enterprise Rainfall Rate (RRQPE), estimated from satellite data, reprojected, filtered and colored.</p>
+        <p>Showers is an independent offering and is not affiliated with the DWD, EUMETSAT, EUMETNET or NOAA. The information in the app is guidance and no substitute for official warnings and weather reports.</p>
         """
         return page(title: "Legal Notice", description: "Legal notice of the Showers app and the radar service.", body: body, lang: .en, alternate: "/impressum")
     }

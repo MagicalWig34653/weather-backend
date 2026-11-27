@@ -159,12 +159,12 @@ public enum LandingPage {
                 dataH2: "Daten vom Deutschen Wetterdienst",
                 dataText: "Radar und Prognose stammen vom Deutschen Wetterdienst (DWD). Showers ist eine eigenständige App und kein Angebot des DWD.",
                 dataSource: "Quelle: Deutscher Wetterdienst. Die Radarbilder sind aus Rasterdaten des DWD bildlich wiedergegeben und aufbereitet (verändert). Temperatur- und Feuchtekarten: DWD ICON-D2/ICON-EU Modelldaten (CC BY 4.0, Quelle: Deutscher Wetterdienst). Optionale Waldfläche: © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0).",
-                dataSatellite: "Wolkenebene: Contains modified EUMETSAT Meteosat data.",
+                dataSatellite: "Wolkenebene: Contains modified EUMETSAT Meteosat data 2026.",
                 dataLink: "Zum Deutschen Wetterdienst",
                 ctaH2: "Showers kommt in den App Store",
                 ctaText: "Bis dahin läuft eine frühe Beta-Erprobung über TestFlight.",
                 footerMore: "Mehr über Showers",
-                footerSource: "Quelle: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet. Wolken: Contains modified EUMETSAT Meteosat data.",
+                footerSource: "Quelle: Deutscher Wetterdienst, Rasterdaten bildlich wiedergegeben, aufbereitet. Wolken: Contains modified EUMETSAT Meteosat data 2026.",
                 footerNav: "Fußbereich")
         case .en:
             return Copy(
@@ -214,12 +214,12 @@ public enum LandingPage {
                 dataH2: "Data from the German Weather Service",
                 dataText: "Radar and forecast come from the German Weather Service (Deutscher Wetterdienst, DWD). Showers is an independent app and not an offering of the DWD.",
                 dataSource: "Source: Deutscher Wetterdienst. The radar images are rendered from DWD grid data and processed (modified). Temperature and humidity maps: DWD ICON-D2/ICON-EU model data (CC BY 4.0, source: Deutscher Wetterdienst). Optional forest layer: © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0).",
-                dataSatellite: "Cloud layer: Contains modified EUMETSAT Meteosat data.",
+                dataSatellite: "Cloud layer: Contains modified EUMETSAT Meteosat data 2026.",
                 dataLink: "Visit the German Weather Service",
                 ctaH2: "Showers is coming to the App Store",
                 ctaText: "Until then, an early beta runs on TestFlight.",
                 footerMore: "About Showers",
-                footerSource: "Source: Deutscher Wetterdienst, grid data rendered as images, processed. Clouds: Contains modified EUMETSAT Meteosat data.",
+                footerSource: "Source: Deutscher Wetterdienst, grid data rendered as images, processed. Clouds: Contains modified EUMETSAT Meteosat data 2026.",
                 footerNav: "Footer")
         }
     }

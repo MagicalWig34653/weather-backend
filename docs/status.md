@@ -2,6 +2,12 @@
 
 Stand: 1. November 2026. Identität: ShowerNow / `de.linolaske.showernow`, Team `J2DU2P47XW` (endgültig). App-/TestFlight-Stand: [Apple-Arbeitsstatus](https://github.com/MagicalWig34653/weather-apple/blob/main/docs/status.md). Die Abschnitte ab „Auftrag und Freigabe“ sind chronologische Checkpoints (älter = weiter oben); dieser Kopf gilt zuerst.
 
+## Stand 27. November 2026: Namensnennung mit Jahr, OPERA und NOAA auf den Seiten, Branch `fix/attribution-jahr-opera-noaa` (Karte 31A623B9, Frage 9B360945; kein Deploy)
+
+- **Geändert:** Impressum de/en und Landingpage de/en nennen „Contains modified EUMETSAT Meteosat data 2026“ (EUMETSAT Data Policy Art. 6.3); Impressum zusätzlich Regen Europa (EUMETNET OPERA, CIRRUS, CC BY 4.0, MeteoGate) und Regen weltweit (NOAA RRQPE) mit Veränderungshinweis; Unabhängigkeitssatz nennt DWD, EUMETSAT, EUMETNET und NOAA. Wortlaut: Frage 9B360945 (Lino: umsetzen). Das Jahr ist fest eingetragen wie in `SitePages.swift` (Datenschutz): zum 1.1.2027 pflegen.
+- **Geprüft:** `AttributionPagesTests` (3) rot vor der Änderung (12 Fehlschläge), danach `swift test` 764 Tests grün (macOS, Fake ohne Datenbank).
+- **Offen:** Merge und Deploy beim Betreiber (Merge auf `main` löst `docker-publish` aus); Datenschutzseite „für ganz Deutschland“ und `INFO_PRIVACY_3` mit der neuen Datenschutzfassung (Branch `docs/rechtstexte-final`).
+
 ## Stand 21. November 2026: swift-nio-ssl 2.37.5 auf 2.37.6 (BoringSSL-Lizenz), Branch `fix/swift-nio-ssl-2-37-6`
 
 - **Anlass:** swift-nio-ssl 2.37.5 bündelt BoringSSL 817ab07e, dessen Quelldateien (323 in `CNIOBoringSSL`) unter der Altlizenz „OpenSSL license“ stehen (plus ISC-Dateien); ab 2.37.6 (BoringSSL 8eb25be6) tragen 534 Dateien den Apache-2.0-Kopf, der „OpenSSL license“-Satz kommt nicht mehr vor, ISC ebenfalls nicht. swift-crypto 3.15.1 (CCryptoBoringSSL 0226f304) war schon Apache-2.0 (491 Dateien, 0 mit OpenSSL-license-Kopf).
